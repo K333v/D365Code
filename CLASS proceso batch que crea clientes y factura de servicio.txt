@@ -1,0 +1,102 @@
+/// <summary>
+/// Class DIVSalesMonitorBServiceBatchController
+/// </summary>
+public class DIVSalesMonitorBServiceBatchController extends SysOperationServiceController
+{
+    /// <summary>
+    /// Method construct
+    /// </summary>
+    /// <returns>DIVSalesMonitorBServiceBatchController</returns>
+    public static DIVSalesMonitorBServiceBatchController construct()
+    {
+        DIVSalesMonitorBServiceBatchController controller = new DIVSalesMonitorBServiceBatchController();
+        controller.parmClassName(classStr(DIVSalesMonitorBServiceBatchService));
+        controller.parmMethodName(methodStr(DIVSalesMonitorBServiceBatchService, processOperation));
+        controller.parmExecutionMode(SysOperationExecutionMode::Synchronous);
+        controller.parmDialogCaption("@DIV:SALESMONITOR_B_0004");
+        return controller;
+    }
+
+    /// <summary>
+    /// Description
+    /// </summary>
+    /// <returns>ClassDescription</returns>
+    public ClassDescription defaultCaption()
+    {
+        return "@DIV:SALESMONITOR_B_0004";
+    }
+
+    /// <summary>
+    /// Method static main
+    /// </summary>
+    /// <param name = "args">Args</param>
+    public static void main(Args args)
+    {
+        DIVSalesMonitorBServiceBatchController controller;
+    
+
+        controller = DIVSalesMonitorBServiceBatchController::construct();
+        controller.startOperation();
+    }
+
+    /// <summary>
+    /// Method run
+    /// </summary>
+    public void run()
+    {
+        setPrefix(this.defaultCaption());
+        super();
+    }
+
+}
+
+___________________________________________
+
+/// <summary>
+/// Class DIVSalesMonitorBServiceBatchService
+/// </summary>
+public class DIVSalesMonitorBServiceBatchService extends SysOperationServiceBase
+{
+    /// <summary>
+    /// MethodprocessOperation
+    /// </summary>
+    public void processOperation()
+    {
+        DIVSalesMServiceInvoiceHeaderTable tableHeader,tableHeaderUpd;
+        DIVSalesMServiceFreeTextInvoice freeTextInvoice;// = new  DIVSalesMServiceFreeTextInvoice();
+        str                         messageLog;
+        boolean                     response;
+
+        while Select EntRutCliente,DlcFecDocto,DlcFormaPago,PMonedaId,CreCodigo,DvcNumRefer,EntSucNumeroRef,CliNoImprime,TdoId,EntSucNumero   //KCL
+            From tableHeader group by EntRutCliente,DlcFecDocto,DlcFormaPago,PMonedaId,CreCodigo,DvcNumRefer,EntSucNumeroRef,CliNoImprime,TdoId,EntSucNumero
+            where tableHeader.DlcEstadoDte == DIVSalesMBDlcEstadoDte::Cero
+            && tableHeader.Estado == DIVSalesMBStatus::Draft && tableHeader.StatusIntegration == DIVIntegrationStatus::OnHold
+        {
+            freeTextInvoice = new  DIVSalesMServiceFreeTextInvoice();
+            [response,messageLog] = freeTextInvoice.createFreeText(tableHeader);
+            if(response == false)
+            {
+                update_recordset tableHeaderUpd setting Log = messageLog,
+                    StatusIntegration = DIVIntegrationStatus::Error
+                    where tableHeaderUpd.DvcNumRefer == tableHeader.DvcNumRefer;
+                error(messageLog);
+            }
+            else
+            {
+                update_recordset tableHeaderUpd setting Log = messageLog,
+                    StatusIntegration = DIVIntegrationStatus::Finished,
+                    Estado = DIVSalesMBStatus::Posted
+                    where tableHeaderUpd.DvcNumRefer == tableHeader.DvcNumRefer;
+                info(messageLog);
+            }
+
+            freeTextInvoice.finalize();
+        }
+
+    }
+
+}
+
+________________________________________
+
+
