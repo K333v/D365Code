@@ -1,0 +1,136 @@
+/// <summary>
+/// InventTableModule table extension.
+/// </summary>
+[ExtensionOf(TableStr(InventTableModule))]
+final class DIVInventTableModule_Table_Extension
+{
+    /// <summary>
+    /// Update method extension
+    /// </summary>
+    /// <param name="_updatePriceDate">Update price date</param>
+    /// <param name="_updatePrice">Update price</param>    
+    public void update(boolean _updatePriceDate, boolean _updatePrice)
+    {
+        InventTableModule   orig = this.orig();
+        
+        List                       itemList = new List(Types::String);
+
+        next update(_updatePriceDate, _updatePrice);
+
+        if(!orig.Price && this.Price)
+        {
+            itemList.addEnd(this.ItemId);
+
+            DIVDPLWebServiceExecute::executeService(itemList, true, SysOperationExecutionMode::ScheduledBatch);
+            
+        }
+    }
+
+}
+_______________________________________________________
+
+/// <summary>
+/// Consume DPL web service
+/// </summary>
+internal final class DIVDPLWebServiceExecute
+{
+
+    /// <summary>
+    /// Run service
+    /// </summary>
+    /// <param name="_itemIdList">Item list</param>
+    /// <param name="_sendEmail">Sebd email to users, true or false</param>
+    /// <param name="_executionMode">Execution mode</param>
+    public static void executeService(List       _itemIdList,
+                                      boolean     _sendEmail = false,
+                                      SysOperationExecutionMode _executionMode = SysOperationExecutionMode::Synchronous
+                                      )
+    {
+        
+        DIVDPLWebProductController      dplWebProductController;
+
+        dplWebProductController = DIVDPLWebProductController::init(_itemIdList, _sendEmail, _executionMode);
+        dplWebProductController.startOperation();       
+    
+    }
+
+}
+
+________________________
+/// <summary>
+/// <C>DPL Web service Controller</C>
+/// </summary>
+class DIVDPLWebProductController extends SysOperationServiceController
+{
+    protected void new()
+    {
+        super(classStr(DIVDPLWebProductService), methodStr(DIVDPLWebProductService, sendRequest), SysOperationExecutionMode::Synchronous);
+    }
+
+    /// <summary>
+    /// To construct DIVDPLWebProductController class
+    /// </summary>
+    /// <param name="_executionMode">Excecution mode process</param>
+    /// <returns>
+    /// Return DIVDPLWebProductController new class instance.
+    /// </returns>
+    public static DIVDPLWebProductController construct(SysOperationExecutionMode _executionMode = SysOperationExecutionMode::Synchronous)
+    {
+        DIVDPLWebProductController controller;
+        controller = new DIVDPLWebProductController();
+        controller.parmExecutionMode(_executionMode);
+        
+        return controller;
+    }
+
+    /// <summary>
+    /// Main method of DIVDPLWebProductController class
+    /// </summary>
+    /// <param name="_args">_args</param>
+    public static void main(Args _args)
+    {
+        DIVDPLWebProductController controller;
+        controller = DIVDPLWebProductController::construct();
+        controller.parmArgs(_args);
+        controller.startOperation();
+    }
+
+    /// <summary>
+    /// Initilizer DIVDPLWebProductController classs
+    /// </summary>
+    /// <param name="itemIdList">Item list</param>
+    /// <param name="_sendEmail">Send mail to users, true or false</param>
+    /// <param name="_executionMode">Execution mode of the process.</param>
+    /// <returns>
+    /// DIVDPLWebProductController class
+    /// </returns>
+    public static DIVDPLWebProductController init(List itemIdList = null,
+                                                  boolean _sendEmail = false,
+                                                  SysOperationExecutionMode _executionMode = SysOperationExecutionMode::Synchronous)
+    {
+        DIVDPLWebProductController controller = DIVDPLWebProductController::construct(_executionMode);
+        DIVDPLWebProductContract   contract = controller.getDataContractObject();
+
+        controller.parmShowDialog(false);
+        controller.batchInfo().parmCritical(true);
+                
+        contract.parmItemIdList(itemIdList);
+        contract.parmSendMail(_sendEmail);
+        
+
+        return controller;
+    
+    }
+
+    /// <summary>
+    /// To set caption of a batch job
+    /// </summary>
+    /// <returns>
+    /// Class description
+    /// </returns>
+    public ClassDescription defaultCaption()
+    {
+        return "@DIV:DPL_0032";
+    }
+
+}

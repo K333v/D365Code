@@ -1,0 +1,202 @@
+public class EI_SalesLineCostCalc
+{
+    public Amount costCalcLine(ItemId _itemId, InventDimId _inventDimId, InventSiteId _siteId)
+    {
+        InventSum               inventSum;
+        InventTable             inventTable;
+        InventDimCombination    inventDimCombination;
+        InventSite              inventSite;
+        InventDim               inventdimaux, inventDimPaso;
+        InventDim               inventDimLocal;
+        InventSiteId            site = _siteId;
+        InventSumDelta          inventSumDeltaCache;
+        InventDimParm           inventDimParm;
+        InventDimId             inventDimIdCreate;
+        InventOnhand            inventOnhand;
+        InventSum               inventSumCreate;
+        InventSum               InventSumCalcPr;
+        InventDim               dim;
+        InventCostPriceCache    inventCostPriceCache;
+        CostAmount              amount;
+
+        inventTable = InventTable::find(_itemId);
+
+        select inventDimCombination where inventDimCombination.ItemId == inventTable.ItemId
+                                   && inventDimCombination.InventDimId == _inventDimId;
+
+        if(inventDimCombination)
+        {
+            inventDimLocal = InventDim::find(inventDimCombination.InventDimId);
+            inventdimaux.clear();
+            inventdimaux.InventSiteId   =  site;
+            inventdimaux.configId       =  inventDimLocal.configId;
+            inventdimaux.InventSizeId   =  inventDimLocal.InventSizeId;
+            inventdimaux.InventColorId  =  inventDimLocal.InventColorId;
+            inventdimaux.InventStyleId  =  inventDimLocal.InventStyleId;
+            inventDimIdCreate           = InventDim::findOrCreate(inventdimaux).inventDimId;
+            inventDimPaso               = InventDim::find(inventDimIdCreate);
+            inventDimParm.initFromInventDim(inventDimPaso);
+            inventOnhand = inventOnhand::newParameters(inventTable.ItemId, inventDimPaso, inventDimParm);
+            inventSumCreate.clear();
+            inventSumCreate.ItemId      = inventTable.ItemId;
+            inventSumCreate.InventDimId = inventDimIdCreate;
+
+            inventSumDeltaCache.clear();
+
+            if(!(inventSum::find(inventTable.ItemId,inventDimIdCreate)))
+            {
+                inventSumCreate.addInventSumDelta(inventSumDeltaCache);
+                inventSumCreate.write();
+            }
+
+            InventSumCalcPr.clear();
+
+            InventSumCalcPr = inventSum::findSum(inventTable.ItemId,inventDimPaso,inventDimParm);
+
+            amount = this.averageCostPriceUnit(InventSumCalcPr, inventDimPaso, inventTable.ItemId);
+        }
+        else
+        {
+            inventdimaux.clear();
+            inventdimaux.InventSiteId    = site;
+
+            inventDimIdCreate            = InventDim::findOrCreate(inventdimaux).inventDimId;
+            inventDimPaso                = InventDim::find(inventDimIdCreate);
+
+            inventDimParm.initFromInventDim(inventDimPaso);
+            inventOnhand = inventOnhand::newParameters(inventTable.ItemId, inventDimPaso,inventDimParm);
+
+            inventSumCreate.clear();
+            inventSumCreate.ItemId      = inventTable.ItemId;
+            inventSumCreate.InventDimId = inventDimIdCreate;
+
+            inventSumDeltaCache.clear();
+
+            if(!(inventSum::find(inventTable.ItemId,inventDimIdCreate)))
+            {
+                inventSumCreate.addInventSumDelta(inventSumDeltaCache);
+                inventSumCreate.write();
+            }
+
+            InventSumCalcPr.clear();
+
+            InventSumCalcPr = inventSum::findSum(inventTable.ItemId,inventDimPaso,inventDimParm);
+
+            amount = this.averageCostPriceUnit(InventSumCalcPr, inventDimPaso, inventTable.ItemId);
+        }
+
+        return amount;
+    }
+
+    public CostPriceAverage averageCostPriceUnit(InventSum _inventSum, InventDim _inventDim, ItemId _itemId)
+    {
+        InventDim                           dim;
+        InventCostPriceCache                inventCostPriceCache;
+        UnitOfMeasureConverter_Product      secondaryToInventUnitConverter;
+        UnitOfMeasureRecId                  unitIdSecondaryRecId;
+        UnitOfMeasureRecId                  unitIdInventRecId;
+        UnitOfMeasureConverter_Product      inventToSecondaryUnitConverter;
+        UnitOfMeasureSymbol                 unitIdInvent;
+        UnitOfMeasureSymbol                 unitIdSecondary;
+
+        _inventSum.checkInvalidFieldAccess(false);
+
+        inventToSecondaryUnitConverter      = UnitOfMeasureConverter_Product::construct();
+        secondaryToInventUnitConverter      = UnitOfMeasureConverter_Product::construct();
+
+        inventToSecondaryUnitConverter.parmApplyRounding(NoYes::Yes);
+        secondaryToInventUnitConverter.parmApplyRounding(NoYes::Yes);
+
+        inventToSecondaryUnitConverter.parmRoundAbsoluteValue(NoYes::Yes);
+        secondaryToInventUnitConverter.parmRoundAbsoluteValue(NoYes::Yes);
+
+        unitIdInvent  = InventTableModule::find(_itemId, ModuleInventPurchSales::Invent).UnitId;
+
+        if(unitIdInvent == '')
+        {
+            Box::info(strFmt('Item : %1 - %2',_itemId,unitIdInvent));
+        }
+
+        unitIdSecondary = unitIdInvent;
+
+        unitIdInventRecId    = UnitOfMeasure::unitOfMeasureIdBySymbol(unitIdInvent);
+        unitIdSecondaryRecId = UnitOfMeasure::unitOfMeasureIdBySymbol(unitIdSecondary);
+
+        inventToSecondaryUnitConverter.parmFromUnitOfMeasure(unitIdInventRecId);
+        inventToSecondaryUnitConverter.parmToUnitOfMeasure(unitIdSecondaryRecId);
+
+        secondaryToInventUnitConverter.parmFromUnitOfMeasure(unitIdSecondaryRecId);
+        secondaryToInventUnitConverter.parmToUnitOfMeasure(unitIdInventRecId);
+
+        inventToSecondaryUnitConverter.parmProduct(InventTable::itemProduct(_itemId));
+        secondaryToInventUnitConverter.parmProduct(InventTable::itemProduct(_itemId));
+
+        if (!_inventSum.InventDimId)
+        {
+            dim = InventDim::findDim(_inventDim);
+            if (dim.InventDimId)
+            {
+                _inventSum.InventDimId = dim.InventDimId;
+                _inventSum.ItemId       = _itemId;
+            }
+        }
+
+        inventCostPriceCache = InventCostPriceCache::construct();
+
+        return CurrencyExchangeHelper::amount(inventCostPriceCache.costPricePcs(_inventSum) * secondaryToInventUnitConverter.convertValue(1));
+    }
+
+}
+
+___________________________________________________________
+
+[ExtensionOf(tableStr(InventSum))]
+final class EI_InventSum_P261_Extension
+{
+    display public CostPriceAverage  averageCostPriceSite()
+    {
+        EI_SalesLineCostCalc   salesLineCostCalc;
+        Amount                  costo;
+        InventSiteId            sitio;
+
+        salesLineCostCalc  =  new EI_SalesLineCostCalc();
+
+        sitio = InventDim::find(this.InventDimId).InventSiteId;
+        costo  =   salesLineCostCalc.costCalcLine(this.ItemId,'0',sitio);
+
+        return costo;
+    }
+
+    display public UnitOfMeasureSymbol unitId()
+    {
+        return InventTableModule::find(this.ItemId, ModuleInventPurchSales::Invent).UnitId;
+    }
+
+    display public CostAmount totalCostPriceSite()
+    {
+        CostAmount          value;
+
+        value = (this.PhysicalInvent) * (this.averageCostPriceSite());
+
+        return value;
+    }
+
+    public display str stockStatus()
+    {
+        str retVal = "";
+        InventQtyMinOnhand stockcritico;
+
+        stockcritico =  ReqItemTable::find(this.ItemId,this.InventDimId).MinInventOnhand;
+
+        if(this.PhysicalInvent < stockcritico)
+        {
+            return "Bajo Stock Critico";
+        }
+        else
+        {
+            return "";
+        }
+
+    }
+
+}

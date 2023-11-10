@@ -1,0 +1,111 @@
+[ExtensionOf(classStr(FormletterService))]
+final class UFTFormletterService_Extension
+{
+    /// <summary>
+    /// Creates the journal if not created and posts the journal.
+    /// </summary>
+    protected void createAndPostJournal()
+    {
+        FormLetterContract                      formLetterContract;
+        Common                                  common;
+        UFTIntegrationProcessingLog             integrationProcessingLog;
+        VendInvoiceInfoTable                    vendInvoiceInfoTable;
+        boolean                                 ret = false;
+
+        next createAndPostJournal();
+
+        formLetterContract = this.formLetterContract;
+        //20220727 - Fix process - msepulveda - begin
+        if (formLetterContract)
+        {
+            common = formLetterContract.parmCallerTable();
+        }
+        //20220727 - Fix process - msepulveda - end
+
+        if(common.TableId == tableNum(VendInvoiceInfoTable))
+        {
+            vendInvoiceInfoTable = common;
+
+            if(vendInvoiceInfoTable.RecId!= 0 && vendInvoiceInfoTable.UFTReturnPurchByIntegration == NoYes::Yes)
+            {
+                try
+                {
+                    //Send the information to the WS
+                    infolog.clear();
+                    ret = UFTPostRejectReturnPurchaseOrderService::post(vendInvoiceInfoTable);
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    if(!ret)
+                    {
+                        int                 i = 0;
+                        str                 msg = "";
+
+                        for (i = 1; i <= Global::infologLine(); i++)
+                        {
+                            msg += infolog.text(i);
+                        }
+                        if(msg == "")
+                        {
+                            msg = strFmt("@UFINET_AP:ADQ001I028", vendInvoiceInfoTable.Num);///La factura %1 no ha sido registrada, error de comunicación
+                        }
+
+                        integrationProcessingLog.clear();
+                        integrationProcessingLog.IntegrationStatus = UFTIntegrationStatus::Error;
+                        integrationProcessingLog.IntegrationType = UFTIntegrationType::ReturnPurchaseOrder;
+                        integrationProcessingLog.ProcessDateTime = DateTimeUtil::getSystemDateTime();
+                        integrationProcessingLog.Message = msg;
+                        integrationProcessingLog.insert();
+
+                        Info(msg);
+                    }
+                }
+            }
+
+            //<UFT_WI8105 - CC8 - IADQ001L - Int_InstallServiceInvoice - SAC>
+            if(vendInvoiceInfoTable.RecId!= 0 && vendInvoiceInfoTable.APIsInstallation == NoYes::Yes)
+            {
+                try
+                {
+                    //Send the information to the WS
+                    infolog.clear();
+                    ret = UFTInstallServicesInvoicePostRejectService::postPendingInvoice(vendInvoiceInfoTable);
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    if(!ret)
+                    {
+                        int                 i = 0;
+                        str                 msg = "";
+
+                        for (i = 1; i <= Global::infologLine(); i++)
+                        {
+                            msg += infolog.text(i);
+                        }
+                        if(msg == "")
+                        {
+                            msg = strFmt("@UFINET_AP:ADQ001I028", vendInvoiceInfoTable.Num);///La factura %1 no ha sido registrada, error de comunicación
+                        }
+
+                        integrationProcessingLog.clear();
+                        integrationProcessingLog.IntegrationStatus = UFTIntegrationStatus::Error;
+                        integrationProcessingLog.IntegrationType = UFTIntegrationType::RegisterInvoice;
+                        integrationProcessingLog.ProcessDateTime = DateTimeUtil::getSystemDateTime();
+                        integrationProcessingLog.Message = msg;
+                        integrationProcessingLog.insert();
+
+                        Info(msg);
+                    }
+                }
+            }
+            //</UFT_WI8105 - CC8 - IADQ001L - Int_InstallServiceInvoice - SAC>
+        }
+    }
+
+}

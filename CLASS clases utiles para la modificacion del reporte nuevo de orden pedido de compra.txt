@@ -1,0 +1,364 @@
+[ExtensionOf(classStr(PurchPurchaseOrderDP))]
+final class UFTPurchPurchaseOrderDP_Extension
+{
+    public Map                  descriptionmap;
+    public UFTAddresDeliveryTmp uFTAddresDeliveryTmpAux;
+
+    protected PurchPurchaseOrderTmp createOrderLine(
+        PurchPurchaseOrderHeader                    _purchaseOrderHeader,
+        boolean                                     _highlightUpdated,
+        PurchPurchaseOrderDPOrderLineQuerySelection _orderLineSelection)
+    {
+        PurchPurchaseOrderTmp purchPurchaseOrderTmp;
+
+        purchPurchaseOrderTmp = next createOrderLine(_purchaseOrderHeader,_highlightUpdated,_orderLineSelection);
+
+        if(!descriptionmap)
+        {
+            descriptionmap  = new Map(Types::String,Types::String);
+        }
+        
+
+        ttsbegin;
+        purchPurchaseOrderTmp.selectForUpdate(true);
+
+        this.setPurchlineTmp(purchPurchaseOrderTmp,PurchTable::find(_purchaseOrderHeader.PurchId));
+
+        ttscommit;
+        return purchPurchaseOrderTmp;
+    }
+
+    /// <summary>
+    /// Insert the order line.
+    /// </summary>
+    /// <param name = "_purchaseOrderTmp">
+    /// A <c>PurchPurchaseOrderTmp</c> order line record to insert.
+    /// </param>
+    protected void setPurchlineTmp(PurchPurchaseOrderTmp _purchaseOrderTmp, PurchTable  purchTable)
+    {
+        PurchLine       purchLineLocal;
+        ;
+
+        select firstonly purchLineLocal
+                where purchLineLocal.LineNumber == _purchaseOrderTmp.PurchaseLineLineNumber
+            && purchLineLocal.PurchId    == purchTable.PurchId;
+
+        _purchaseOrderTmp.UFTLineNumber     = purchLineLocal.LineNumber;
+        _purchaseOrderTmp.ItemId            = purchLineLocal.ItemId;
+        _purchaseOrderTmp.ExternalItemNum   = _purchaseOrderTmp.ExternalItemNum;
+        _purchaseOrderTmp.Name              = _purchaseOrderTmp.Name;
+        _purchaseOrderTmp.UFTPurchUnit      = purchLineLocal.PurchUnit;
+        _purchaseOrderTmp.UFTPriceUnit      = UFTPurchPurchaseOrderMethods::getGrossPriceUnit(purchLineLocal);
+        _purchaseOrderTmp.UFTimportFinal    = _purchaseOrderTmp.UFTPriceUnit * _purchaseOrderTmp.Qty;
+        
+        _purchaseOrderTmp.UFTDeliveryName   = purchLineLocal.DeliveryName;
+        _purchaseOrderTmp.doUpdate();
+
+        str     descriptionLine = this.descriptionline(purchTable.PurchId,_purchaseOrderTmp.PurchaseLineLineNumber);
+
+
+        if(!descriptionmap.exists(descriptionLine))
+        {
+            descriptionmap.insert(descriptionLine,descriptionLine);
+        }
+    }
+
+    /// <summary>
+    /// Gets the full data from the <c>PurchPurchaseOrderTmp</c> temporary table.
+    /// </summary>
+    /// <returns>
+    /// The <c>PurchPurchaseOrderTmp</c> temporary table.
+    /// </returns>
+    [SRSReportDataSetAttribute(tableStr(UFTAddresDeliveryTmp))]
+    public UFTAddresDeliveryTmp getUFTAddresDeliveryTmp()
+    {
+        select uFTAddresDeliveryTmpAux;
+
+        return uFTAddresDeliveryTmpAux;
+    }
+
+    /// <summary>
+    /// Processes the report business logic, calls the helper methods, and inserts data into the temporary
+    /// table.
+    /// </summary>
+    /// <remarks>
+    /// This method provides the ability to write the report business logic. It will be called by SQL
+    /// Server Reporting Services (SSRS) at run time. The method should compute data and populate the data
+    /// tables that will be returned to SSRS.
+    /// </remarks>
+    public void processReport()
+    {
+        next processReport();
+
+        this.populateAddrestAble();
+    }
+
+    /// <summary>
+    /// Get tax value percent
+    /// </summary>
+    /// <param name = "purchline">PurchLine</param>
+    /// <returns>AmountMST</returns>
+    protected AmountMST getpurchTaxvalue(PurchLine     purchline)
+    {
+        UFTTaxGroupItemCode uFTTaxGroupItemCode;
+        TaxValue            valuetAx;
+        ;
+
+        while select uFTTaxGroupItemCode
+            where uFTTaxGroupItemCode.TaxItemGroup  == purchline.TaxItemGroup
+               && uFTTaxGroupItemCode.TaxGroup      == purchline.TaxGroup
+        {
+            valuetAx = uFTTaxGroupItemCode.showTaxValue(purchline.DeliveryDate);
+
+            if(valuetAx > 0)
+            {
+                break;
+            }
+        }
+
+        return valuetAx;
+    }
+
+    /// <summary>
+    /// populate addres information per line
+    /// </summary>
+    protected void populateAddrestAble()
+    {
+        MapEnumerator   enumerator;
+        ;
+
+        this.setTransactionConnection(uFTAddresDeliveryTmpAux);
+
+        if(descriptionmap.elements())
+        {
+            enumerator = descriptionmap.getEnumerator();
+
+            while (enumerator.moveNext())
+            {
+                uFTAddresDeliveryTmpAux.clear();
+                uFTAddresDeliveryTmpAux.DeliveryStreet = enumerator.currentValue();
+                uFTAddresDeliveryTmpAux.insert();
+            }
+        
+        }
+    
+    }
+
+    /// <summary>
+    /// Get total purch values
+    /// </summary>
+    /// <param name = "purchid">PurchId</param>
+    /// <returns>container</returns>
+    protected container calcTotalvAlue(PurchId           purchid)
+    {
+        //Calculate totals per Purchase order
+        PurchTotals purchTotals;
+        PurchTable  purchTable  = PurchTable::find(purchid); //Change the Purchase Order Id as per your system's data
+        AmountCur   totalAmount, totalTax;
+        ;
+
+        purchTotals = PurchTotals::newPurchTable(purchTable);
+        purchTotals.calc();
+        totalAmount = purchTotals.purchTotalAmount();
+        totalTax    = purchTotals.purchTaxTotal();
+
+
+        return [totalAmount] + [totalTax];
+    }
+
+    /// <summary>
+    /// method to get record description line
+    /// </summary>
+    /// <param name = "purchiD">PurchId</param>
+    /// <param name = "lineNum">LineNum</param>
+    /// <returns>str</returns>
+    protected str descriptionline(PurchId   purchiD,LineNum lineNum)
+    {
+        PurchLine       purchline;
+        LogisticsPostalAddress  postalAddres;
+        str                     addresLIne;
+        ;
+
+        purchline = PurchLine::find(purchiD,lineNum);
+
+        postalAddres = purchline.deliveryAddress();
+
+        addresLIne = strFmt("%1 %2",strReplace(purchline.DeliveryName + ":","\n"," "),strReplace(postalAddres.Address,"\n"," "));
+
+        return addresLIne;
+    }
+
+    protected void insertOrderHeader(PurchPurchaseOrderHeader _purchaseOrderHeader)
+    {
+        PurchTable                  purchTablelocal = PurchTable::find(_purchaseOrderHeader.PurchId);
+        CompanyInfo                 companyInfo = CompanyInfo::find();
+        LogisticsElectronicAddress  logisticsElectronicAddress;
+        DirPartyLocation            dirPartyLocation;
+        LogisticsPostalAddress      logisticsPostalAddress;
+        DirPartyTable               dirPartyTable;
+        VendTable                   vendTable;
+        LogisticsLocation           logisticsLocation;
+        LogisticsElectronicAddress  electronicAddress;
+        FormLetterRemarks           formLetterRemarks;
+        DocuRef                     docuREf;
+        PurchTable                  purchTable;
+        AmountCur                   totalAmount, totalTax;
+        PaymTerm                    paymTerm;
+        VendPurchOrderJour          vendPurchOrderJour;
+        DocuType                    docuType;
+        ;
+
+        vendTable           = VendTable::find(purchTablelocal.OrderAccount);
+        electronicAddress   = DirParty::primaryElectronicAddress(vendTable.Party, LogisticsElectronicAddressMethodType::Phone);
+        vendPurchOrderJour  = VendPurchOrderJour::findByPurchId(purchTablelocal.PurchId);
+        paymTerm            = paymTerm::find(purchTablelocal.Payment);
+
+        formLetterRemarks   =  FormLetterRemarks::find(purchTablelocal.LanguageId, FormTextType::PurchPurchaseOrder);
+
+        select firstonly Notes from docuREf
+            where docuREf.RefRecId == purchTablelocal.RecId
+                && docuREf.RefTableId == purchTablelocal.TableId
+                && docuREf.RefCompanyId == purchTablelocal.DataAreaId
+        join docuType
+            where docuType.TypeId == docuREf.TypeId
+            && docuType.TypeGroup == DocuTypeGroup::Note;
+
+        [totalAmount, totalTax] = this.calcTotalvAlue(vendPurchOrderJour.PurchId);
+
+        //PurchOrder
+        _purchaseOrderHeader.UFTPurchOrderDocNum    = vendPurchOrderJour.PurchOrderDocNum;
+        _purchaseOrderHeader.PurchOrderDate         = _purchaseOrderHeader.PurchOrderDate;
+        _purchaseOrderHeader.CurrencyCode           = purchTablelocal.CurrencyCode;
+        _purchaseOrderHeader.CompanyAddress         = _purchaseOrderHeader.CompanyAddress;
+        _purchaseOrderHeader.CompanyAddress         = strFmt("%1",strReplace(_purchaseOrderHeader.CompanyAddress ,"\n"," "));
+        _purchaseOrderHeader.CompanyCoRegNum        = companyInfo.CoRegNum;
+        _purchaseOrderHeader.CompanyPhone           = _purchaseOrderHeader.CompanyPhone;
+        _purchaseOrderHeader.UFTWorkerPurchName     = HcmWorker::find(purchTablelocal.WorkerPurchPlacer).name();
+        //Provider
+        _purchaseOrderHeader.UFTPurchName           = purchTablelocal.PurchName;
+        _purchaseOrderHeader.UFTOrderAccount        = purchTablelocal.OrderAccount;
+        _purchaseOrderHeader.VendAddress            = strFmt("%1",strReplace(_purchaseOrderHeader.VendAddress,"\n"," "));;//companyInfo.DEL_Address;
+        _purchaseOrderHeader.UFTVATNum              = vendTable.VATNum;
+        _purchaseOrderHeader.UFTLocatorProv         = strFmt("%1",strReplace(electronicAddress.Locator,"\n"," "));
+        _purchaseOrderHeader.UFTDescriptionProv     = electronicAddress.Description;
+        _purchaseOrderHeader.UFTDescriptionPayment  = paymTerm.Description;
+        _purchaseOrderHeader.UFTDeliveryDate        = purchTablelocal.DeliveryDate;
+        //Footer
+        _purchaseOrderHeader.UFTTxt                 = formLetterRemarks.Txt;
+        _purchaseOrderHeader.Notes                  = docuREf.Notes;
+        //Totals
+        _purchaseOrderHeader.UFTTotalAmount         = totalAmount;
+        _purchaseOrderHeader.TaxableBalance         = totalTax;
+
+        next insertOrderHeader(_purchaseOrderHeader);
+    }
+
+}
+
+_______________________________________________________
+
+class UFTPurchPurchaseOrderMethods extends SRSReportDataProviderBase
+{
+    PurchTable                  purchTableG;
+    
+    /// <summary>
+    /// Get gross price amount of PurchLine table
+    /// </summary>
+    /// <param name = "_purchLine">PurchLine</param>
+    /// <returns>priceUnit</returns>
+    public static Amount getGrossPriceUnit(PurchLine   _purchLine)
+    { 
+        TaxAmount       amountTax;
+        TaxOnItem       taxOnItem;
+        TaxGroupData    taxGroupData;
+        TaxValue        taxValue;
+        Amount          priceUnit;
+
+        if (_purchLine.inclTax())
+        {
+            while select TaxCode, TaxItemGroup from taxOnItem
+                join TaxGroup, TaxCode from taxGroupData
+                    where taxOnItem.TaxItemGroup == _purchLine.TaxItemGroup
+                        && taxGroupData.TaxGroup == _purchLine.TaxGroup
+                        && taxGroupData.TaxCode  == taxOnItem.TaxCode
+            {
+                if (taxOnItem && taxGroupData)
+                {
+                    taxValue  +=  TaxData::find(taxOnItem.TaxCode, Systemdateget(), 0).TaxValue;
+                }
+            }
+             //Scenery 1 - 2
+            if (_purchLine.PriceUnit == 1)
+            {
+                priceUnit = _purchLine.PurchPrice / (1 + taxValue / 100);
+            }
+            else if (_purchLine.PriceUnit > 1)
+            {
+                priceUnit = (_purchLine.PurchPrice / (1 + taxValue / 100)) /  _purchLine.PriceUnit;
+            }   
+        }
+        else
+        {
+            //Sceneryo 3 - 4
+            priceUnit = _purchLine.PurchPrice / _purchLine.PriceUnit;
+        }
+
+        return priceUnit;
+    }
+
+    public Amount priceUnit(PurchId _purchId, ItemId _itemId)
+    {
+        PurchLine                      purchLine;
+        TmpTaxWorkTrans                TmpTaxWorkTrans;
+        real                           priceUnitDec;
+
+        select PurchPrice, PurchQty, PriceUnit from purchLine
+            where purchLine.ItemId == _itemId
+            && purchLine.PurchId == _purchId;
+      
+        if(purchTableG.InclTax)
+        {  
+            
+            if(purchLine.PriceUnit == 1)
+            {
+                priceUnitDec = purchLine.PriceUnit/(1+TmpTaxWorkTrans.TaxAmountCur);
+                } else if(purchLine.PriceUnit > 1)
+                {
+                    priceUnitDec = purchLine.PriceUnit/(1+TmpTaxWorkTrans.TaxAmountCur)/purchLine.PriceUnit;
+                }
+
+        } else {
+            if(purchLine.PriceUnit == 1){
+                priceUnitDec = purchLine.PurchPrice/purchLine.PriceUnit;
+
+            } else if(purchLine.PriceUnit > 1)
+            {
+                priceUnitDec = purchLine.PurchPrice/purchLine.PriceUnit;
+            }
+        } 
+
+        return priceUnitDec;
+    }
+
+    public Amount importFinal(PurchId _purchId, ItemId _itemId)
+    {
+        PurchLine                      purchLine;
+        TmpTaxWorkTrans                tmpTaxWorkTrans;
+        real                           netAmount;
+
+        select PurchPrice, PurchQty, PriceUnit from purchLine
+            where purchLine.ItemId == _itemId
+            && purchLine.PurchId == _purchId;
+      
+        if(purchTableG.InclTax)
+        {
+            netAmount = purchLine.LineAmount/(1+TmpTaxWorkTrans.TaxAmountCur);
+            } else 
+        {
+            netAmount = purchLine.LineAmount == 10;
+        }
+
+        return netAmount;
+    }
+
+}

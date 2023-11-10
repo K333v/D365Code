@@ -1,0 +1,138 @@
+/// <summary>
+/// 20231013 - DIV_8239_GPRD001_PrefixProductNumber - KCL
+/// Validate product number when clicked OK button
+/// </summary>
+[ExtensionOf(formControlStr(EcoResProductCreate, OKButton))]
+final class DIVEcoResProductCreateOK_Form_Extension
+{
+    /// <summary>
+    /// Clicked method
+    /// </summary>
+    public void clicked()
+    {          
+        FormRun             formRun    = this.formRun();        
+        ItemId              itemIdNew  = formRun.design().controlName(formControlStr(EcoResProductCreate, DIVProductNumberNew)).valueStr();
+        EcoResProduct       ecoResProd = EcoResProduct::findByDisplayProductNumber(itemIdNew);
+        FormStringControl   prefixCtrl = formRun.design().controlName(formControlStr(EcoResProductCreate, DIVProductPrefix));
+
+        if (!prefixCtrl.valueStr())
+        {
+            throw Error("@DIV:PrefixProduct_007");
+        }
+
+        if (ecoResProd)
+        {
+            throw Error("@DIV:PrefixProduct_006");
+        }
+
+        next clicked();        
+    }
+
+}
+
+_______________________________________________
+
+/// <summary>
+/// 20231017 - DIV_8239_GPRD001_PrefixProductNumber - KCL
+/// EcoResProductCreate form extension
+/// </summary>
+[ExtensionOf(formStr(EcoResProductCreate))]
+final class DIVEcoResProductCreate_Form_Extension
+{          
+      
+    /// <summary>
+    /// Update new product
+    /// </summary>
+    /// <param name = "_createdEcoResProduct">EcoResProduct</param>
+    /// <returns>EcoResProduct</returns>
+    public EcoResProduct DIVupdateProduct(EcoResProduct  _createdEcoResProduct)
+    {
+        //Update new ItemId
+        EcoResProduct   ecoResProductUpd = EcoResProduct::findByDisplayProductNumber(_createdEcoResProduct.DisplayProductNumber, true);
+
+        if (ecoResProductUpd)
+        {
+            ttsbegin;
+            ecoResProductUpd.DisplayProductNumber = DIVProductNumberNew.valueStr();
+            ecoResProductUpd.update();
+
+            EcoResProductIdentifier ecoResProductId = EcoResProductIdentifier::findByProduct(ecoResProductUpd.RecId, true);
+
+            if (ecoResProductId)
+            {
+                ecoResProductId.ProductNumber = DIVProductNumberNew.valueStr();
+                ecoResProductId.update();
+            }
+            ttscommit;
+
+            _createdEcoResProduct = EcoResProduct::findByDisplayProductNumber(DIVProductNumberNew.valueStr());            
+        }
+
+        return _createdEcoResProduct;
+    }
+
+    /// <summary>
+    /// Close method - Update EcoResProduct DisplayProductNumber field
+    /// </summary>
+    void close()
+    {
+        if (closedOK && createdEcoResProduct)
+        {
+            createdEcoResProduct = this.DIVupdateProduct(createdEcoResProduct);
+        }
+
+        next close();
+    }
+
+}
+
+_________________________________________
+
+
+/// <summary>
+/// The <c>DIVEcoResProductCreate_Form_EventHandler</c> extension class that executes the logic related to DIVPrefix field
+/// 20231017 - DIV_8239_GPRD001_PrefixProductNumber - KCL
+/// </summary>
+final class DIVEcoResProductCreate_Form_EventHandler
+{
+
+    /// <summary>
+    /// Initialize DIVProductNumberNew field value
+    /// </summary>
+    /// <param name="args">XppPrePostArgs</param>
+    [PostHandlerFor(formStr(EcoResProductCreate), formMethodStr(EcoResProductCreate, init))]
+    public static void EcoResProductCreate_Post_init(XppPrePostArgs args)
+    {
+        FormRun             formRun = args.getThis();
+        FormStringControl   productNumberCtrl    = formRun.design().controlName(formControlStr(EcoResProductCreate, Identification_ProductNumber));
+        FormStringControl   productNumberCtrlDIV = formRun.design().controlName(formControlStr(EcoResProductCreate, DIVProductNumberNew));
+        
+        productNumberCtrl.visible(false);
+        productNumberCtrlDIV.text(productNumberCtrl.valueStr());
+    }
+
+    /// <summary>
+    /// Fill in new field called DIVProductNumberNew of the form
+    /// </summary>
+    /// <param name="sender">FormControl</param>
+    /// <param name="e">FormControlEventArgs</param>
+    [FormControlEventHandler(formControlStr(EcoResProductCreate, DIVProductPrefix), FormControlEventType::Modified)]
+    public static void DIVProductPrefix_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun             formRun  = sender.formRun();
+        FormStringControl   prefixCtrl = formRun.design().controlName(formControlStr(EcoResProductCreate, DIVProductPrefix));
+        FormStringControl   productNumberCtrl = formRun.design().controlName(formControlStr(EcoResProductCreate, Identification_ProductNumber));
+        FormStringControl   productNumberCtrlDIV = formRun.design().controlName(formControlStr(EcoResProductCreate, DIVProductNumberNew));
+        DIVPrefixId         prefixId = prefixCtrl.valueStr();
+
+        if (prefixId)
+        {
+            productNumberCtrlDIV.text(prefixId + productNumberCtrl.valueStr());
+        }
+        else
+        {
+            productNumberCtrlDIV.text(productNumberCtrl.valueStr());
+        }
+    }
+
+}

@@ -1,0 +1,1953 @@
+public class EI_ChargeSignWithQR extends RunBase
+{
+    Dialog                      dialog;
+    DialogField                 dlgQRcode;
+    EI_QRCode                   qrCode;
+    EI_RUT                      rut;
+    EI_ChargeLine               chargeLine, lines;
+    EI_EnrollmentBase           baseEnroll;
+    EI_ChargeTable              header, chargeHeader;
+    EI_ChargeType               chargeType;
+
+    public ClassDescription caption()
+    {
+        return "@EIP261:AX0209_0072";
+    }
+
+    public Object dialog()
+    {
+        dialog = super();
+
+        dlgQRcode = dialog.addField(extendedTypeStr(Description255),"@EIP261:AX0209_0073");
+        dlgQRcode.passwordStyle(true);
+
+        return dialog;
+    }
+
+    public boolean getFromDialog()
+    {
+        boolean ret;
+    
+        ret = super();
+
+        qrcode = dlgQRcode.value();
+    
+        return ret;
+    }
+
+    public void headerCharge(EI_ChargeTable _header)
+    {
+        header = _header;
+    }
+
+    public void linesCharge(EI_ChargeLine _lines)
+    {
+        chargeLine = _lines;
+    }
+
+    public void run()
+    {
+        boolean isCharge = false;
+        boolean isReverse = false;
+
+        if(chargeType == EI_ChargeType::Charge)
+        {
+            isCharge = true;
+        }
+
+        if(chargeType == EI_ChargeType::Reverse)
+        {
+            isReverse = true;
+        }
+            
+        rut = EI_VoucherConsumptionHelper::getRutfromQr(qrcode);
+        if(rut == chargeLine.Rut)
+        {
+            baseEnroll = EI_EnrollmentBase::find(rut,chargeLine.ProjId);
+            if(baseEnroll)
+            {
+                if(baseEnroll.EndEnrollment < today() && baseEnroll.EndEnrollment != dateNull())
+                {
+                    checkFailed("@EIP261:AX0209_0068");
+                    return;
+                }
+                ttsBegin;
+                if(isCharge)
+                {
+                    header.selectForUpdate(true);
+                    header.RutFirma = rut;
+                    header.IsSign   = NoYes::Yes;
+                    header.CodigoFirma = qrcode;
+                    header.update();
+                    
+                    while select forUpdate lines
+                        where lines.ChargeId == chargeLine.ChargeId
+                           && lines.ChargeStatus == EI_ChargeStatus::Pending
+                    {
+                        lines.IsSign = NoYes::Yes;
+                        lines.RutFirma  = rut;
+                        lines.update();
+                        //<Update Integration records>
+                        EI_VoucherConsumptionRequest::updStatus(lines.InteVoucherId, EI_IntegrationVoucherStatus::Delivered, NoYes::Yes);
+                        //<End Update>
+                    }
+                }
+                
+                if(isReverse)
+                {
+                    select forupdate firstOnly chargeHeader
+                        where chargeHeader.ChargeId == chargeLine.ChargeId;
+                            chargeHeader.IsSignReturn = NoYes::Yes;
+                            chargeHeader.FirmaReturn = rut;
+                            chargeHeader.CodigoFirma = qrcode;
+                            chargeHeader.ReturnDate = today();
+                            chargeHeader.ReturnUserId = curUserId();
+                            chargeHeader.update();
+
+                    while select forUpdate Lines
+                        where lines.ProjId == chargeLine.ProjId
+                           && lines.Rut == chargeLine.Rut
+                           && lines.IsSelectReverse == NoYes::Yes
+                           && lines.ChargeStatusReturn == EI_ChargeStatus::Pending
+                           && lines.FirmaReturn == ''
+                    {
+                        lines.IsSignReturn = NoYes::Yes;
+                        lines.FirmaReturn = rut;
+                        lines.ReturnDate = today();
+                        lines.update();
+
+                        //<Update Integration records>
+                        EI_VoucherConsumptionRequest::updStatus(lines.InteVoucherId, EI_IntegrationVoucherStatus::Delivered, NoYes::Yes);
+                        //<End Update>
+
+                    }
+                }
+                ttsCommit;
+            }
+            else
+            {
+                checkFailed(strFmt("@EIP261:AX0209_0071", rut, chargeLine.ProjId));
+                return;
+            }
+        }
+        else
+        {
+            throw error("@EIP261:AX0209_0075");
+        }
+    }
+
+    public EI_ChargeType parmChargeType(EI_ChargeType _chargeType = chargeType)
+    {
+        if(!prmIsDefault(_chargeType))
+        {
+            chargeType = _chargeType;
+        }
+
+        return chargeType;
+    }
+
+}
+
+___________________________________________________________________
+
+public class EI_ChargeReverseRegisterBatch extends RunBaseBatch
+{
+    // Packed variables
+    EI_ChargeId                 chargeId;
+
+    // Dialog fields
+    DialogField                 dlgCharge;
+    FormBuildStringControl      dlgChargeControl;
+
+    #define.CurrentVersion(1)
+    #define.Version1(1)
+    #localmacro.CurrentList
+        chargeId
+    #endmacro
+    
+    public Object dialog()
+    {
+        DialogRunbase       dialog = super();        
+        
+        dlgCharge = dialog.addField(extendedTypeStr(EI_ChargeId));
+        dlgChargeControl = dlgCharge.control();
+
+        dlgChargeControl.registerOverrideMethod(methodStr(FormStringControl,lookup), methodStr(EI_ChargeReverseRegisterBatch, reverseChargeId_LookUp),this);
+        
+        return dialog;
+    }
+
+    public void reverseChargeId_LookUp(FormStringControl _control)
+    {
+        Query                   query;
+        QueryBuildDataSource    qbds;
+        SysTableLookup          sysTableLookup;
+        
+        query = new Query();
+        qbds = query.addDataSource(tableNum(EI_ChargeLine));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatus)).value(queryValue(EI_ChargeStatus::Posted));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatusReturn)).value(queryValue(EI_ChargeStatus::Pending));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatusReturn)).value(queryValue(EI_ChargeStatus::NoPosted));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSignReturn)).value(SysQuery::value(NoYes::Yes));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSelectReverse)).value(SysQuery::value(NoYes::Yes));
+        qbds.addGroupByField(fieldNum(EI_ChargeLine,ChargeId));
+        
+        sysTableLookup = SysTableLookup::newParameters(tablenum(EI_ChargeLine), _control);
+        sysTableLookup.addLookupfield(fieldNum(EI_ChargeLine,ChargeId ),true);
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+    public boolean getFromDialog()
+    {
+        chargeId   = dlgCharge.value();
+
+        return super();
+    }
+
+    public container pack()
+    {
+        return [#CurrentVersion,#CurrentList];
+    }
+
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+        
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version,#CurrentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    public void removeReserve(EI_ChargeLine   _lineForRemove)
+    {
+        InventBlocking          InventBlocking;
+        InventDim               InventDim;
+        InventJournalTrans      inventJournalTrans;
+
+        InventDim.clear();
+        InventDim.InventSiteId = _lineForRemove.InventSiteId;
+        InventDim.InventLocationId = _lineForRemove.InventLocationLoan;
+        InventDim.wMSLocationId = _lineForRemove.WMSLocationLoan;
+        inventDim.InventStatusId = WHSInvent::getDefaultStatus(inventDim);
+        InventDim = InventDim::findDim(InventDim);
+
+        while select  inventJournalTrans
+            index hint LineIdx
+            where inventJournalTrans.JournalId == _lineForRemove.InventJournalId
+            && inventJournalTrans.ItemId == _lineForRemove.ItemId
+            && inventJournalTrans.InventDimId == InventDim.inventDimId
+        {
+            InventDim = inventJournalTrans.toInventDim();
+            while select  forUpdate InventBlocking
+                where InventBlocking.ItemId == _lineForRemove.ItemId
+                && InventBlocking.InventDimId == InventDim.inventDimId
+                && InventBlocking.InventTransIdReceipt == inventJournalTrans.InventTransId
+                && InventBlocking.BlockingType == InventBlockingType::Manual
+            {
+                ttsBegin;
+                InventBlocking.delete();
+                ttsCommit;
+            }
+        }
+    }
+
+    public DimensionDefault createDefaultDimension(container _attr, container _value, boolean _createIfNotFound = true)
+    {
+        DimensionAttributeValueSetStorage   valueSetStorage = new DimensionAttributeValueSetStorage();
+        DimensionDefault                    result;
+        int                                 i;
+        DimensionAttribute                  dimensionAttribute;
+        DimensionAttributeValue             dimensionAttributeValue;
+        str                                 dimValue;
+
+        for (i = 1; i <= conLen(_attr); i++)
+        {
+            dimensionAttribute = dimensionAttribute::findByName(conPeek(_attr, i));
+
+            if (dimensionAttribute.RecId == 0)
+            {
+                continue;
+            }
+
+            dimValue = conPeek(_value, i);
+
+            if (dimValue != "")
+            {
+                dimensionAttributeValue = dimensionAttributeValue::findByDimensionAttributeAndValue(dimensionAttribute,
+                                                                                                dimValue,
+                                                                                                false,
+                                                                                                _createIfNotFound
+                                                                                               );
+
+                valueSetStorage.addItem(dimensionAttributeValue);
+            }
+        }
+
+        result = valueSetStorage.save();
+
+        return result;
+    }
+
+    public void createJournal(EI_ChargeId   _chargeId)
+    {
+        InventJournalTable              inventJournalTable;
+        InventJournalTrans              inventJournalTrans;
+        JournalCheckPost                JournalCheckPost;
+        InventJournalName               InventJournalName;
+        NumberSeq                       num;
+        NumberSequenceTable             NumberSequenceTable;
+        InventDim                       frominventDim,ToinventDim;
+        EI_ChargeLine                   chargeLines;
+        int                             nlines;
+        EI_DigitalWarehouseParameters   dwParameters = EI_DigitalWarehouseParameters::find();
+        container                       conName, conValue;
+        DimensionDefault                defaultDimension;
+        
+        if(dwParameters.InventJournalNameReturnCharge)
+        {
+            InventJournalName = InventJournalName::find(dwParameters.InventJournalNameReturnCharge);
+            NumberSequenceTable = NumberSequenceTable::find(InventJournalName.VoucherNumberSequenceTable);
+            num = NumberSeq::newGetNumFromCode(NumberSequenceTable.NumberSequence);
+            try
+            {
+                ttsbegin;
+                inventJournalTable.clear();
+                inventJournalTable.initFromInventJournalName(InventJournalName);
+                inventJournalTable.JournalId = num.num();
+                inventJournalTable.Description = InventJournalName.Description;
+                inventJournalTable.SystemBlocked = true;
+                inventJournalTable.insert();
+                while select chargeLines
+                    where chargeLines.ChargeId == _chargeId
+                    && chargeLines.IsSelectReverse == NoYes::Yes
+                    && chargeLines.IsSignReturn == NoYes::Yes
+                    && chargeLines.ChargeStatus == EI_ChargeStatus::Posted
+                    && (chargeLines.ChargeStatusReturn == EI_ChargeStatus::Pending
+                    || chargeLines.ChargeStatusReturn == EI_ChargeStatus::NoPosted)
+                {
+                    nlines++;
+                    inventJournalTrans.clear();
+                    inventJournalTrans.initFromInventJournalTable(inventJournalTable);
+                    inventJournalTrans.ItemId = chargeLines.ItemId;
+                    
+                    //Eliminar Reserva
+                    this.removeReserve(chargeLines);
+                    
+                    frominventDim.inventSiteId = chargeLines.InventSiteId;
+                    frominventdim.InventLocationId = chargeLines.InventLocationCharge;
+                    frominventdim.wMSLocationId = chargeLines.WMSLocationCharge;
+                    ToinventDim.InventSiteId = chargeLines.InventSiteId;
+                    ToinventDim.InventLocationId = chargeLines.InventLocationLoan;
+                    ToinventDim.wMSLocationId = chargeLines.WMSLocationLoan;
+                    ToinventDim = InventDim::findOrCreate(ToinventDim);
+                    frominventDim = InventDim::findOrCreate(frominventDim);
+                    inventJournalTrans.InventDimId = frominventDim.inventDimId;
+                    inventJournalTrans.initFromInventTable(InventTable::find(chargeLines.ItemId));
+                    inventJournalTrans.Qty = chargeLines.Qty;
+
+                    conName  = conNull();
+                    conValue = conNull();
+                    
+                    conName  += "Proyecto";
+                    conValue += chargeLines.ProjId;
+
+                    defaultDimension = this.createDefaultDimension(conName, conValue);
+
+                    inventJournalTrans.DefaultDimension = defaultDimension;
+
+                    inventJournalTrans.ToInventDimId = ToinventDim.inventDimId;
+                    inventJournalTrans.TransDate = SystemDateget();
+                    if(frominventDim.InventLocationId && ToinventDim.InventLocationId)
+                    {
+                        inventJournalTrans.insert();
+                    }
+                    else
+                    {
+                        if(!ToinventDim.InventLocationId)
+                        {
+                            throw error(strFmt("@EIP261:AX0207_0028",chargeLines.InventLocationLoan,chargeLines.InventSiteId));
+                        }
+                    }
+                }
+
+                inventJournalTable.NumOfLines = nlines;
+                JournalCheckPost = InventJournalCheckPost::newJournalCheckPost(JournalCheckpostType::Post,inventJournalTable);
+                JournalCheckPost.parmThrowCheckFailed(false);
+                JournalCheckPost.run();
+                inventJournalTable.reread();
+                inventJournalTable.NumOfLines = nlines;
+                inventJournalTable.SystemBlocked = false;
+                inventJournalTable.update();
+                ttscommit;
+            }
+            catch(Exception::Error)
+            {
+                ttsBegin;
+                update_recordSet chargeLines
+                setting ChargeStatusReturn = EI_ChargeStatus::NoPosted
+                where chargeLines.ChargeId == _chargeId
+                && chargeLines.IsSignReturn == NoYes::Yes
+                && chargeLines.IsSelectReverse == NoYes::Yes
+                && chargeLines.ChargeStatus == EI_ChargeStatus::Posted
+                && (chargeLines.ChargeStatusReturn == EI_ChargeStatus::Pending
+                || chargeLines.ChargeStatusReturn == EI_ChargeStatus::NoPosted);
+
+                ttsCommit;
+            }
+            if(inventJournalTable.Posted)
+            {
+                ttsBegin;
+                update_recordSet chargeLines
+                setting ChargeStatusReturn = EI_ChargeStatus::Posted,
+                ReturnJournalId = inventJournalTable.JournalId
+                where chargeLines.ChargeId == _chargeId
+                && chargeLines.IsSignReturn == NoYes::Yes
+                && chargeLines.IsSelectReverse == NoYes::Yes
+                && chargeLines.ChargeStatus == EI_ChargeStatus::Posted
+                && (chargeLines.ChargeStatusReturn == EI_ChargeStatus::Pending
+                || chargeLines.ChargeStatusReturn == EI_ChargeStatus::NoPosted);
+                ttsCommit;
+            }
+            else
+            {
+                ttsBegin;
+                update_recordSet chargeLines
+                setting ChargeStatusReturn = EI_ChargeStatus::NoPosted
+                where chargeLines.ChargeId == _chargeId
+                && chargeLines.IsSignReturn == NoYes::Yes
+                && chargeLines.IsSelectReverse == NoYes::Yes
+                && chargeLines.ChargeStatus == EI_ChargeStatus::Posted
+                && (chargeLines.ChargeStatusReturn == EI_ChargeStatus::Pending
+                || chargeLines.ChargeStatusReturn == EI_ChargeStatus::NoPosted);
+                ttsCommit;
+            }
+        }
+    }
+
+    private void processCharge()
+    {
+        Query                   q;
+        QueryRun                qr;
+        QueryBuildDataSource    qbds;
+        EI_ChargeLine           chargeLines;
+        container               ChargesId;
+        
+        q = new Query();
+        qbds = q.addDataSource(tableNum(EI_ChargeLine));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatus)).value(queryValue(EI_ChargeStatus::Posted));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatusReturn)).value(queryValue(EI_ChargeStatus::Pending));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatusReturn)).value(queryValue(EI_ChargeStatus::NoPosted));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSignReturn)).value(SysQuery::value(NoYes::Yes));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSelectReverse)).value(SysQuery::value(NoYes::Yes));
+        if(chargeId)
+        {
+            qbds.addRange(fieldNum(EI_ChargeLine,ChargeId)).value(chargeId);
+        }
+        qbds.addGroupByField(fieldNum(EI_ChargeLine,ChargeId));
+        qr = new QueryRun(q);
+        while(qr.next())
+        {
+            try
+            {
+                chargeLines = qr.get(tableNum(EI_ChargeLine));
+                if(!conFind(ChargesId,chargeLines.ChargeId))
+                {
+                    ttsbegin;
+                    ChargesId+=chargeLines.ChargeId;
+                    this.createJournal(chargeLines.ChargeId);
+                    ttscommit;
+                }
+            }
+            catch(Exception::Error)
+            {
+                continue;
+            }
+        }
+    }
+
+    public void run()
+    {
+        #OCCRetryCount
+        
+        if (!this.validate())
+        {
+            throw error("");
+        }
+        try
+        {
+            this.processCharge();
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+    }
+
+    public boolean validate(Object calledFrom = null)
+    {
+        if (false)
+        {
+            return checkFailed("");
+        }
+
+        return true;
+    }
+
+    server static EI_ChargeReverseRegisterBatch construct()
+    {
+        return new EI_ChargeReverseRegisterBatch();
+    }
+
+    static ClassDescription description()
+    {
+        return "@EIP261:AX0207_0032";
+    }
+
+    static void main(Args args)
+    {
+        EI_ChargeReverseRegisterBatch    chargeReverseRegister;
+        
+        chargeReverseRegister = EI_ChargeReverseRegisterBatch::construct();
+
+        if (chargeReverseRegister.prompt())
+        {
+            chargeReverseRegister.run();
+        }
+    }
+
+}
+
+_____________________________________________________
+class EI_ChargeReset
+{
+    void run(EI_ChargeLine _chargeLine)
+    {
+        EI_VoucherConsumptionRequest        request;
+        EI_ChargeTable                      chargeTable;
+
+        try
+        {
+            chargeTable = EI_ChargeTable::find(_chargeLine.ChargeId,true);
+            if (chargeTable.RecId == 0)
+            {
+                throw error("@EIP261:BOD_DIG_0077");
+            }
+            else
+            {
+                ttsbegin;
+                request = EI_VoucherConsumptionRequest::find(_chargeLine.InteVoucherId,true);
+                If (request.RecId == 0)
+                {
+                    throw error("@EIP261:BOD_DIG_0077");
+                }
+                else
+                {
+                    request.ChargeId = "";
+                    request.doUpdate();
+                }
+
+                chargeTable.delete();
+                ttscommit;
+            }
+        }
+        catch (exception::Deadlock)
+        {
+            ttsAbort;
+        }
+    }
+
+    static EI_ChargeReset  construct()
+    {
+        return new EI_ChargeReset();
+    }
+
+    static void  main(Args  args)
+    {
+        FormRun                     formRun = args.caller();
+        EI_ChargeLine               chargeLine;
+
+        EI_ChargeReset EI_ChargeReset = EI_ChargeReset::construct();
+        if (args)
+        {
+            if (args.dataset() == tablenum(EI_ChargeLine) && args.caller().name() == formstr(EI_ChargeEdit))
+            {
+                chargeLine = args.record();
+                EI_ChargeReset.run(chargeLine);
+            }
+            else
+            {
+                throw error("@EIP261:BOD_DIG_0076");
+            }
+        }
+
+        formRun.close();
+    }
+
+}
+
+_____________________________________________
+
+public class EI_ChargeReprocessBatch extends RunBaseBatch
+{
+    // Packed variables
+    EI_ChargeId                 chargeId;
+
+    // Dialog fields
+    DialogField                 dlgCharge;
+    FormBuildStringControl      dlgChargeControl;
+
+    #define.CurrentVersion(1)
+    #define.Version1(1)
+    #localmacro.CurrentList
+        chargeId
+    #endmacro
+    
+    public Object dialog()
+    {
+        DialogRunbase       dialog = super();
+        
+        dlgCharge = dialog.addField(extendedTypeStr(EI_ChargeId));
+        dlgChargeControl = dlgCharge.control();
+
+        dlgChargeControl.registerOverrideMethod(methodStr(FormStringControl,lookup), methodStr(EI_ChargeReprocessBatch, reprocessChargeId_LookUp),this);
+        
+        return dialog;
+    }
+
+    public void reprocessChargeId_LookUp(FormStringControl _control)
+    {
+        Query                   query;
+        QueryBuildDataSource    qbds;
+        SysTableLookup          sysTableLookup;
+        
+        query = new Query();
+        qbds = query.addDataSource(tableNum(EI_ChargeLine));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatus)).value(queryValue(EI_ChargeStatus::NoPosted));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeType)).value(queryValue(EI_ChargeType::Charge));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSign)).value(SysQuery::value(NoYes::Yes));
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationCharge)).value(SysQuery::valueNotEmptyString());
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationLoan)).value(SysQuery::valueNotEmptyString());
+        qbds.addGroupByField(fieldNum(EI_ChargeLine,ChargeId));
+        
+        sysTableLookup = SysTableLookup::newParameters(tablenum(EI_ChargeLine), _control);
+        sysTableLookup.addLookupfield(fieldNum(EI_ChargeLine,ChargeId ),true);
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+    public boolean getFromDialog()
+    {
+        chargeId   = dlgCharge.value();
+
+        return super();
+    }
+
+    public container pack()
+    {
+        return [#CurrentVersion,#CurrentList];
+    }
+
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+        
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version,#CurrentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    public void removeReserve(EI_ChargeLine   _lineForRemove)
+    {
+        InventTrans             inventTrans;
+        InventTransOrigin       inventTransOrigin;
+        InventMovement          inventMovement;
+        InventUpd_Reservation   inventUpd_Reservation;
+        InventDim               InventDim;
+        InventSumRecalcItem     InventSumRecalcItem;
+
+        // Remove reservations and markings on a reserved salesorder
+        while select inventTrans
+        where inventTrans.ItemId            == _lineForRemove.ItemId
+        &&  inventTrans.StatusReceipt       == StatusReceipt::None
+        && (inventTrans.StatusIssue         == StatusIssue::ReservPhysical
+        ||  inventTrans.StatusIssue         == StatusIssue::ReservOrdered)
+        exists join inventTransOrigin
+        where inventTransOrigin.RecId       == inventTrans.InventTransOrigin
+        {
+            InventDim = inventTrans.inventDim();
+            if(InventDim.InventLocationId == _lineForRemove.InventLocationLoan
+            && InventDim.wMSLocationId == _lineForRemove.WMSLocationLoan)
+            {
+                if (inventTrans.MarkingRefInventTransOrigin)
+                {
+                InventTransOrigin::deleteMarking(inventTrans.MarkingRefInventTransOrigin, inventTrans.InventTransOrigin, -_lineForRemove.Qty, true);
+                InventTransOrigin::deleteMarking(inventTrans.InventTransOrigin, inventTrans.MarkingRefInventTransOrigin, _lineForRemove.Qty, true);
+                }
+
+                if (inventTrans.StatusIssue == StatusIssue::ReservPhysical || inventTrans.StatusIssue == StatusIssue::ReservOrdered)
+                {
+                    Inventmovement = inventTrans.inventmovement(true);
+                    inventUpd_Reservation = InventUpd_Reservation::newInventDim(inventmovement,inventTrans.inventDim(), 1 , false);
+                    inventUpd_Reservation.updatenow();
+                    break;
+                }
+            }
+        }
+        //Recalcular el stock
+        InventSumRecalcItem = new InventSumRecalcItem(_lineForRemove.ItemId, false, checkfix::fix);
+        InventSumRecalcItem.updatenow();
+    }
+
+    public void markReserve(InventJournalTable      _InventJournalTable)
+    {
+        InventJournalTrans      inventJournalTrans;
+        InventBlocking          InventBlocking;
+        InventDim               InventDim;
+        
+        while select inventJournalTrans
+            where inventJournalTrans.JournalId == _InventJournalTable.JournalId
+        {
+            InventDim = inventJournalTrans.toInventDim();
+            InventBlocking.clear();
+            InventBlocking.ItemId = inventJournalTrans.ItemId;
+            InventBlocking.InventDimId = InventDim.inventDimId;
+            InventBlocking.Qty = inventJournalTrans.Qty;
+            InventBlocking.InventTransIdReceipt = inventJournalTrans.InventTransId;
+            InventBlocking.insert();
+        }
+    }
+
+    public DimensionDefault createDefaultDimension(container _attr, container _value, boolean _createIfNotFound = true)
+    {
+        DimensionAttributeValueSetStorage   valueSetStorage = new DimensionAttributeValueSetStorage();
+        DimensionDefault                    result;
+        int                                 i;
+        DimensionAttribute                  dimensionAttribute;
+        DimensionAttributeValue             dimensionAttributeValue;
+        str                                 dimValue;
+
+        for (i = 1; i <= conLen(_attr); i++)
+        {
+            dimensionAttribute = dimensionAttribute::findByName(conPeek(_attr, i));
+
+            if (dimensionAttribute.RecId == 0)
+            {
+                continue;
+            }
+
+            dimValue = conPeek(_value, i);
+
+            if (dimValue != "")
+            {
+                dimensionAttributeValue = dimensionAttributeValue::findByDimensionAttributeAndValue(dimensionAttribute,
+                                                                                                dimValue,
+                                                                                                false,
+                                                                                                _createIfNotFound
+                                                                                               );
+
+                valueSetStorage.addItem(dimensionAttributeValue);
+            }
+        }
+
+        result = valueSetStorage.save();
+
+        return result;
+    }
+
+    public void createJournal(EI_ChargeId  _chargeId)
+    {
+        InventJournalTable              inventJournalTable;
+        InventJournalTrans              inventJournalTrans;
+        JournalCheckPost                JournalCheckPost;
+        InventJournalName               InventJournalName;
+        NumberSeq                       num = new NumberSeq();
+        NumberSequenceTable             NumberSequenceTable;
+        InventDim                       frominventDim,ToinventDim;
+        EI_ChargeLine                   chargeLine, lines;
+        int                             nlines;
+        EI_DigitalWarehouseParameters   dwParameters = EI_DigitalWarehouseParameters::find();
+        container                       conName, conValue;
+        DimensionDefault                defaultDimension;
+        boolean                         insJournal = true;
+        InventSum                       inventSum;
+        WMSLocation                     wmslocation;
+        Qty                             availPhysical, availPhysLoc, qtyOrder;
+        container                       chargeLineRecIds = conNull();
+        RecId                           chargeLineRecId;
+
+        if(dwParameters.InventJournalNameCharge)
+        {
+            InventJournalName = InventJournalName::find(dwParameters.InventJournalNameCharge);
+            NumberSequenceTable = NumberSequenceTable::find(InventJournalName.VoucherNumberSequenceTable);
+            num = NumberSeq::newGetNumFromCode(NumberSequenceTable.NumberSequence);
+            try
+            {
+                ttsbegin;
+                inventJournalTable.clear();
+                inventJournalTable.initFromInventJournalName(InventJournalName);
+                inventJournalTable.JournalId = num.num();
+                inventJournalTable.Description = InventJournalName.Description;
+                inventJournalTable.SystemBlocked = true;
+                inventJournalTable.insert();
+                while select chargeLine
+                    where chargeLine.ChargeId == _chargeId
+                    && chargeLine.IsSign == NoYes::Yes
+                    && chargeLine.ChargeStatus == EI_ChargeStatus::NoPosted
+                {
+                    availPhysical = 0;
+                    qtyOrder = 0;
+
+                    while select inventSum
+                        where inventSum.ItemId == chargeLine.ItemId
+                        && inventSum.InventSiteId == chargeLine.InventSiteId
+                        && inventsum.InventLocationId == chargeLine.InventLocationLoan
+                        && inventSum.wMSLocationId == chargeLine.WMSLocationLoan
+                        join wmsLocation
+                        where wmsLocation.inventLocationId == inventsum.InventLocationId
+                        && wmsLocation.wMSLocationId == inventSum.wMSLocationId
+                        && wmsLocation.EI_IsLoan == NoYes::Yes
+                    {
+                        availPhysical += inventSum.physicalInventCalculated();
+                    }
+
+                    if(availPhysical)
+                    {
+                        while select lines
+                            index hint ChargeIdx
+                            where lines.ChargeId == chargeLine.ChargeId
+                               && lines.ItemId == chargeLine.ItemId
+                               && lines.InventSiteId == chargeLine.InventSiteId
+                               && lines.InventLocationLoan == chargeLine.InventLocationLoan
+                               && lines.WMSLocationLoan == chargeLine.WMSLocationLoan
+                               && lines.ChargeStatus != EI_ChargeStatus::Posted
+                        {
+                            if(conFind(chargeLineRecIds, lines.RecId))
+                            {
+                                qtyOrder += lines.Qty;
+                            }
+                        }
+                        availPhysical -= qtyOrder;
+                    }
+
+                    if(availPhysical < 1)
+                    {
+                        insJournal = checkFailed(strFmt("@EIP261:BOD_DIG_0003", chargeLine.ItemId));
+                    }
+                    else
+                    {
+                        insJournal = true;
+                    }
+
+                    if(insJournal)
+                    {
+                        nlines++;
+                        inventJournalTrans.clear();
+                        inventJournalTrans.initFromInventJournalTable(inventJournalTable);
+                        inventJournalTrans.ItemId = chargeLine.ItemId;
+                    
+                        //Eliminar Reserva
+                        this.removeReserve(chargeLine);
+                    
+                        frominventDim.inventSiteId = chargeLine.InventSiteId;
+                        frominventdim.InventLocationId = chargeLine.InventLocationLoan;
+                        frominventdim.wMSLocationId = chargeLine.WMSLocationLoan;
+                        ToinventDim.InventSiteId = chargeLine.InventSiteId;
+                        ToinventDim.InventLocationId = chargeLine.InventLocationCharge;
+                        ToinventDim.wMSLocationId = chargeLine.WMSLocationCharge;
+                        ToinventDim = InventDim::findOrCreate(ToinventDim);
+                        frominventDim = InventDim::findOrCreate(frominventDim);
+                        inventJournalTrans.InventDimId = frominventDim.inventDimId;
+                        inventJournalTrans.initFromInventTable(InventTable::find(chargeLine.ItemId));
+                        inventJournalTrans.Qty = chargeLine.Qty;
+
+                        conName  = conNull();
+                        conValue = conNull();
+                    
+                        conName  += "Proyecto";
+                        conValue += chargeLine.ProjId;
+
+                        defaultDimension = this.createDefaultDimension(conName, conValue);
+
+                        inventJournalTrans.DefaultDimension = defaultDimension;
+
+                        inventJournalTrans.ToInventDimId = ToinventDim.inventDimId;
+                        inventJournalTrans.TransDate = SystemDateget();
+                        if(frominventDim.InventLocationId && ToinventDim.InventLocationId)
+                        {
+                            inventJournalTrans.insert();
+                        }
+                        else
+                        {
+                            if(!ToinventDim.InventLocationId)
+                            {
+                                throw error(strFmt("@EIP261:AX0207_0028",chargeLine.InventLocationLoan,chargeLine.InventSiteId));
+                            }
+                        }
+
+                        chargeLineRecIds += chargeLine.RecId;
+                    }
+                }
+
+                if(nlines < 1 && inventJournalTable)
+                {
+                    inventJournalTable.delete();
+                    inventJournalTable.clear();
+                }
+                
+                if(inventJournalTable)
+                {
+                    JournalCheckPost = InventJournalCheckPost::newJournalCheckPost(JournalCheckpostType::Post,inventJournalTable);
+                    JournalCheckPost.parmThrowCheckFailed(false);
+                    JournalCheckPost.run();
+                    inventJournalTable.reread();
+                    inventJournalTable.NumOfLines = nlines;
+                    inventJournalTable.SystemBlocked = false;
+                    inventJournalTable.update();
+                }
+                ttscommit;
+            }
+            catch(Exception::Error)
+            {
+                info(strFmt("@EIP261:AX0207_0029",_chargeId));
+                ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::NoPosted
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::NoPosted;
+                ttsCommit;
+            }
+
+            if(inventJournalTable.Posted)
+            {
+                EI_ChargeLine chargeLineUpd;
+
+                for(int i=1; i <= conlen(chargeLineRecIds); i++)
+                {
+                    chargeLineRecId = conpeek(chargeLineRecIds,i);
+
+                    ttsbegin;
+                    select forupdate chargeLineUpd
+                        where chargeLineUpd.RecId == chargeLineRecId;
+
+                    if(chargeLineUpd)
+                    {
+                        chargeLineUpd.ChargeStatus = EI_ChargeStatus::Posted;
+                        chargeLineUpd.InventJournalId = inventJournalTable.JournalId;
+                        chargeLineUpd.update();
+                    }
+                    ttscommit;
+                }
+
+                /*ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::Posted,
+                    InventJournalId = inventJournalTable.JournalId
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::NoPosted;
+                ttsCommit;*/
+                
+                //this.MarkReserve(inventJournalTable);
+            }
+            else
+            {
+                ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::NoPosted
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::NoPosted;
+                ttsCommit;
+            }
+        }
+        else
+        {
+            throw Error("@EIP261:AX0207_0043");
+        }
+    }
+
+    private void processCharge()
+    {
+        Query                   q;
+        QueryRun                qr;
+        QueryBuildDataSource    qbds;
+        EI_ChargeLine           chargeLine;
+        container               chargesIds;
+    
+        q = new Query();
+        qbds = q.addDataSource(tableNum(EI_ChargeLine));
+
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatus)).value(queryValue(EI_ChargeStatus::NoPosted));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeType)).value(queryValue(EI_ChargeType::Charge));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSign)).value(SysQuery::value(NoYes::Yes));
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationCharge)).value(SysQuery::valueNotEmptyString());
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationLoan)).value(SysQuery::valueNotEmptyString());
+        if(chargeId)
+        {
+            qbds.addRange(fieldNum(EI_ChargeLine,chargeid)).value(chargeId);
+        }
+        
+        qbds.addGroupByField(fieldNum(EI_ChargeLine,chargeid));
+        qr = new QueryRun(q);
+        while(qr.next())
+        {
+            try
+            {
+                chargeLine = qr.get(tableNum(EI_ChargeLine));
+                if(!conFind(chargesIds,chargeLine.ChargeId))
+                {
+                    ttsBegin;
+                    chargesIds += chargeLine.ChargeId;
+                    this.createJournal(chargeLine.ChargeId);
+                    ttsCommit;
+                }
+            }
+            catch(Exception::Error)
+            {
+                continue;
+            }
+        }
+    }
+
+    public void run()
+    {
+        #OCCRetryCount
+        
+        if (!this.validate())
+        {
+            throw error("");
+        }
+        try
+        {
+            this.processCharge();
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+    }
+
+    public boolean validate(Object calledFrom = null)
+    {
+        if (false)
+        {
+            return checkFailed("");
+        }
+
+        return true;
+    }
+
+    server static EI_ChargeReprocessBatch construct()
+    {
+        return new EI_ChargeReprocessBatch();
+    }
+
+    static ClassDescription description()
+    {
+        return "@EIP261:BOD_DIG_0047";
+    }
+
+    static void main(Args args)
+    {
+        EI_ChargeReprocessBatch    chargeRegister;
+        
+        chargeRegister = EI_ChargeReprocessBatch::construct();
+
+        if (chargeRegister.prompt())
+        {
+            chargeRegister.run();
+        }
+    }
+
+}
+
+_________________________________________________
+
+
+public class EI_ChargeRegisterBatch extends RunBaseBatch
+{
+    // Packed variables
+    EI_ChargeId                 chargeId;
+
+    // Dialog fields
+    DialogField                 dlgCharge;
+    FormBuildStringControl      dlgChargeControl;
+
+    #define.CurrentVersion(1)
+    #define.Version1(1)
+    #localmacro.CurrentList
+        chargeId
+    #endmacro
+    
+    public Object dialog()
+    {
+        DialogRunbase       dialog = super();
+        
+        dlgCharge = dialog.addField(extendedTypeStr(EI_ChargeId));
+        dlgChargeControl = dlgCharge.control();
+
+        dlgChargeControl.registerOverrideMethod(methodStr(FormStringControl,lookup), methodStr(EI_ChargeRegisterBatch, registerChargeId_LookUp),this);
+        
+        return dialog;
+    }
+
+    public void registerChargeId_LookUp(FormStringControl _control)
+    {
+        Query                   query;
+        QueryBuildDataSource    qbds;
+        SysTableLookup          sysTableLookup;
+        
+        query = new Query();
+        qbds = query.addDataSource(tableNum(EI_ChargeLine));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatus)).value(queryValue(EI_ChargeStatus::Pending));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeType)).value(queryValue(EI_ChargeType::Charge));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSign)).value(SysQuery::value(NoYes::Yes));
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationCharge)).value(SysQuery::valueNotEmptyString());
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationLoan)).value(SysQuery::valueNotEmptyString());
+        qbds.addGroupByField(fieldNum(EI_ChargeLine,ChargeId));
+        
+        sysTableLookup = SysTableLookup::newParameters(tablenum(EI_ChargeLine), _control);
+        sysTableLookup.addLookupfield(fieldNum(EI_ChargeLine,ChargeId ),true);
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+    public boolean getFromDialog()
+    {
+        chargeId   = dlgCharge.value();
+
+        return super();
+    }
+
+    public container pack()
+    {
+        return [#CurrentVersion,#CurrentList];
+    }
+
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+        
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version,#CurrentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    public void removeReserve(EI_ChargeLine   _lineForRemove)
+    {
+        InventTrans             inventTrans;
+        InventTransOrigin       inventTransOrigin;
+        InventMovement          inventMovement;
+        InventUpd_Reservation   inventUpd_Reservation;
+        InventDim               InventDim;
+        InventSumRecalcItem     InventSumRecalcItem;
+
+        // Remove reservations and markings on a reserved salesorder
+        while select inventTrans
+        where inventTrans.ItemId            == _lineForRemove.ItemId
+        &&  inventTrans.StatusReceipt       == StatusReceipt::None
+        && (inventTrans.StatusIssue         == StatusIssue::ReservPhysical
+        ||  inventTrans.StatusIssue         == StatusIssue::ReservOrdered)
+        exists join inventTransOrigin
+        where inventTransOrigin.RecId       == inventTrans.InventTransOrigin
+        {
+            InventDim = inventTrans.inventDim();
+            if(InventDim.InventLocationId == _lineForRemove.InventLocationLoan
+            && InventDim.wMSLocationId == _lineForRemove.WMSLocationLoan)
+            {
+                if (inventTrans.MarkingRefInventTransOrigin)
+                {
+                InventTransOrigin::deleteMarking(inventTrans.MarkingRefInventTransOrigin, inventTrans.InventTransOrigin, -_lineForRemove.Qty, true);
+                InventTransOrigin::deleteMarking(inventTrans.InventTransOrigin, inventTrans.MarkingRefInventTransOrigin, _lineForRemove.Qty, true);
+                }
+
+                if (inventTrans.StatusIssue == StatusIssue::ReservPhysical || inventTrans.StatusIssue == StatusIssue::ReservOrdered)
+                {
+                    Inventmovement = inventTrans.inventmovement(true);
+                    inventUpd_Reservation = InventUpd_Reservation::newInventDim(inventmovement,inventTrans.inventDim(), 1 , false);
+                    inventUpd_Reservation.updatenow();
+                    break;
+                }
+            }
+        }
+        //Recalcular el stock
+        InventSumRecalcItem = new InventSumRecalcItem(_lineForRemove.ItemId, false, checkfix::fix);
+        InventSumRecalcItem.updatenow();
+    }
+
+    public void markReserve(InventJournalTable      _InventJournalTable)
+    {
+        InventJournalTrans      inventJournalTrans;
+        InventBlocking          InventBlocking;
+        InventDim               InventDim;
+        
+        while select inventJournalTrans
+            where inventJournalTrans.JournalId == _InventJournalTable.JournalId
+        {
+            InventDim = inventJournalTrans.toInventDim();
+            InventBlocking.clear();
+            InventBlocking.ItemId = inventJournalTrans.ItemId;
+            InventBlocking.InventDimId = InventDim.inventDimId;
+            InventBlocking.Qty = inventJournalTrans.Qty;
+            InventBlocking.InventTransIdReceipt = inventJournalTrans.InventTransId;
+            InventBlocking.insert();
+        }
+    }
+
+    public DimensionDefault createDefaultDimension(container _attr, container _value, boolean _createIfNotFound = true)
+    {
+        DimensionAttributeValueSetStorage   valueSetStorage = new DimensionAttributeValueSetStorage();
+        DimensionDefault                    result;
+        int                                 i;
+        DimensionAttribute                  dimensionAttribute;
+        DimensionAttributeValue             dimensionAttributeValue;
+        str                                 dimValue;
+
+        for (i = 1; i <= conLen(_attr); i++)
+        {
+            dimensionAttribute = dimensionAttribute::findByName(conPeek(_attr, i));
+
+            if (dimensionAttribute.RecId == 0)
+            {
+                continue;
+            }
+
+            dimValue = conPeek(_value, i);
+
+            if (dimValue != "")
+            {
+                dimensionAttributeValue = dimensionAttributeValue::findByDimensionAttributeAndValue(dimensionAttribute,
+                                                                                                dimValue,
+                                                                                                false,
+                                                                                                _createIfNotFound
+                                                                                               );
+
+                valueSetStorage.addItem(dimensionAttributeValue);
+            }
+        }
+
+        result = valueSetStorage.save();
+
+        return result;
+    }
+
+    public void createJournal(EI_ChargeId  _chargeId)
+    {
+        InventJournalTable              inventJournalTable;
+        InventJournalTrans              inventJournalTrans;
+        JournalCheckPost                JournalCheckPost;
+        InventJournalName               InventJournalName;
+        NumberSeq                       num = new NumberSeq();
+        NumberSequenceTable             NumberSequenceTable;
+        InventDim                       frominventDim,ToinventDim;
+        EI_ChargeLine                   chargeLine;
+        int                             nlines;
+        EI_DigitalWarehouseParameters   dwParameters = EI_DigitalWarehouseParameters::find();
+        container                       conName, conValue;
+        DimensionDefault                defaultDimension;
+
+        if(dwParameters.InventJournalNameCharge)
+        {
+            InventJournalName = InventJournalName::find(dwParameters.InventJournalNameCharge);
+            NumberSequenceTable = NumberSequenceTable::find(InventJournalName.VoucherNumberSequenceTable);
+            num = NumberSeq::newGetNumFromCode(NumberSequenceTable.NumberSequence);
+            try
+            {
+                ttsbegin;
+                inventJournalTable.clear();
+                inventJournalTable.initFromInventJournalName(InventJournalName);
+                inventJournalTable.JournalId = num.num();
+                inventJournalTable.Description = InventJournalName.Description;
+                inventJournalTable.SystemBlocked = true;
+                inventJournalTable.insert();
+                while select chargeLine
+                    where chargeLine.ChargeId == _chargeId
+                    && chargeLine.IsSign == NoYes::Yes
+                    && chargeLine.ChargeStatus == EI_ChargeStatus::Pending
+                {
+                    nlines++;
+                    inventJournalTrans.clear();
+                    inventJournalTrans.initFromInventJournalTable(inventJournalTable);
+                    inventJournalTrans.ItemId = chargeLine.ItemId;
+                    
+                    //Eliminar Reserva
+                    this.removeReserve(chargeLine);
+                    
+                    frominventDim.inventSiteId = chargeLine.InventSiteId;
+                    frominventdim.InventLocationId = chargeLine.InventLocationLoan;
+                    frominventdim.wMSLocationId = chargeLine.WMSLocationLoan;
+                    ToinventDim.InventSiteId = chargeLine.InventSiteId;
+                    ToinventDim.InventLocationId = chargeLine.InventLocationCharge;
+                    ToinventDim.wMSLocationId = chargeLine.WMSLocationCharge;
+                    ToinventDim = InventDim::findOrCreate(ToinventDim);
+                    frominventDim = InventDim::findOrCreate(frominventDim);
+                    inventJournalTrans.InventDimId = frominventDim.inventDimId;
+                    inventJournalTrans.initFromInventTable(InventTable::find(chargeLine.ItemId));
+                    inventJournalTrans.Qty = chargeLine.Qty;
+
+                    conName  = conNull();
+                    conValue = conNull();
+                    
+                    conName  += "Proyecto";
+                    conValue += chargeLine.ProjId;
+
+                    defaultDimension = this.createDefaultDimension(conName, conValue);
+
+                    inventJournalTrans.DefaultDimension = defaultDimension;
+                    inventJournalTrans.ToInventDimId = ToinventDim.inventDimId;
+                    inventJournalTrans.TransDate = SystemDateget();
+                    if(frominventDim.InventLocationId && ToinventDim.InventLocationId)
+                    {
+                        inventJournalTrans.insert();
+                    }
+                    else
+                    {
+                        if(!ToinventDim.InventLocationId)
+                        {
+                            throw error(strFmt("@EIP261:AX0207_0028",chargeLine.InventLocationLoan,chargeLine.InventSiteId));
+                        }
+                    }
+                }
+                
+                JournalCheckPost = InventJournalCheckPost::newJournalCheckPost(JournalCheckpostType::Post,inventJournalTable);
+                JournalCheckPost.parmThrowCheckFailed(false);
+                JournalCheckPost.run();
+                inventJournalTable.reread();
+                inventJournalTable.NumOfLines = nlines;
+                inventJournalTable.SystemBlocked = false;
+                inventJournalTable.update();
+                ttscommit;
+            }
+            catch(Exception::Error)
+            {
+                info(strFmt("@EIP261:AX0207_0029",_chargeId));
+                ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::NoPosted
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::Pending;
+                ttsCommit;
+            }
+
+            if(inventJournalTable.Posted)
+            {
+                ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::Posted,
+                    InventJournalId = inventJournalTable.JournalId
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::Pending;
+                ttsCommit;
+                
+                //this.MarkReserve(inventJournalTable);
+            }
+            else
+            {
+                ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::NoPosted
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::Pending;
+                ttsCommit;
+            }
+        }
+        else
+        {
+            throw Error("@EIP261:AX0207_0043");
+        }
+    }
+
+    private void processCharge()
+    {
+        Query                   q;
+        QueryRun                qr;
+        QueryBuildDataSource    qbds;
+        EI_ChargeLine           chargeLine;
+        container               chargesIds;
+    
+        q = new Query();
+        qbds = q.addDataSource(tableNum(EI_ChargeLine));
+
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatus)).value(queryValue(EI_ChargeStatus::Pending));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeType)).value(queryValue(EI_ChargeType::Charge));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSign)).value(SysQuery::value(NoYes::Yes));
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationCharge)).value(SysQuery::valueNotEmptyString());
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationLoan)).value(SysQuery::valueNotEmptyString());
+        if(chargeId)
+        {
+            qbds.addRange(fieldNum(EI_ChargeLine,chargeid)).value(chargeId);
+        }
+        
+        qbds.addGroupByField(fieldNum(EI_ChargeLine,chargeid));
+        qr = new QueryRun(q);
+        while(qr.next())
+        {
+            try
+            {
+                chargeLine = qr.get(tableNum(EI_ChargeLine));
+                if(!conFind(chargesIds,chargeLine.ChargeId))
+                {
+                    ttsBegin;
+                    chargesIds += chargeLine.ChargeId;
+                    this.createJournal(chargeLine.ChargeId);
+                    ttsCommit;
+                }
+            }
+            catch(Exception::Error)
+            {
+                continue;
+            }
+        }
+    }
+
+    public void run()
+    {
+        #OCCRetryCount
+        
+        if (!this.validate())
+        {
+            throw error("");
+        }
+        try
+        {
+            this.processCharge();
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+    }
+
+    public boolean validate(Object calledFrom = null)
+    {
+        if (false)
+        {
+            return checkFailed("");
+        }
+
+        return true;
+    }
+
+    server static EI_ChargeRegisterBatch construct()
+    {
+        return new EI_ChargeRegisterBatch();
+    }
+
+    static ClassDescription description()
+    {
+        return "@EIP261:AX0207_0027";
+    }
+
+    static void main(Args args)
+    {
+        EI_ChargeRegisterBatch    chargeRegister;
+        
+        chargeRegister = EI_ChargeRegisterBatch::construct();
+
+        if (chargeRegister.prompt())
+        {
+            chargeRegister.run();
+        }
+    }
+
+}
+
+_____________________________________________________
+
+Proceso batch que registra lo anterior
+
+public class EI_ChargeRegisterBatch extends RunBaseBatch
+{
+    // Packed variables
+    EI_ChargeId                 chargeId;
+
+    // Dialog fields
+    DialogField                 dlgCharge;
+    FormBuildStringControl      dlgChargeControl;
+
+    #define.CurrentVersion(1)
+    #define.Version1(1)
+    #localmacro.CurrentList
+        chargeId
+    #endmacro
+    
+    public Object dialog()
+    {
+        DialogRunbase       dialog = super();
+        
+        dlgCharge = dialog.addField(extendedTypeStr(EI_ChargeId));
+        dlgChargeControl = dlgCharge.control();
+
+        dlgChargeControl.registerOverrideMethod(methodStr(FormStringControl,lookup), methodStr(EI_ChargeRegisterBatch, registerChargeId_LookUp),this);
+        
+        return dialog;
+    }
+
+    public void registerChargeId_LookUp(FormStringControl _control)
+    {
+        Query                   query;
+        QueryBuildDataSource    qbds;
+        SysTableLookup          sysTableLookup;
+        
+        query = new Query();
+        qbds = query.addDataSource(tableNum(EI_ChargeLine));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatus)).value(queryValue(EI_ChargeStatus::Pending));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeType)).value(queryValue(EI_ChargeType::Charge));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSign)).value(SysQuery::value(NoYes::Yes));
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationCharge)).value(SysQuery::valueNotEmptyString());
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationLoan)).value(SysQuery::valueNotEmptyString());
+        qbds.addGroupByField(fieldNum(EI_ChargeLine,ChargeId));
+        
+        sysTableLookup = SysTableLookup::newParameters(tablenum(EI_ChargeLine), _control);
+        sysTableLookup.addLookupfield(fieldNum(EI_ChargeLine,ChargeId ),true);
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+    public boolean getFromDialog()
+    {
+        chargeId   = dlgCharge.value();
+
+        return super();
+    }
+
+    public container pack()
+    {
+        return [#CurrentVersion,#CurrentList];
+    }
+
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+        
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version,#CurrentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    public void removeReserve(EI_ChargeLine   _lineForRemove)
+    {
+        InventTrans             inventTrans;
+        InventTransOrigin       inventTransOrigin;
+        InventMovement          inventMovement;
+        InventUpd_Reservation   inventUpd_Reservation;
+        InventDim               InventDim;
+        InventSumRecalcItem     InventSumRecalcItem;
+
+        // Remove reservations and markings on a reserved salesorder
+        while select inventTrans
+        where inventTrans.ItemId            == _lineForRemove.ItemId
+        &&  inventTrans.StatusReceipt       == StatusReceipt::None
+        && (inventTrans.StatusIssue         == StatusIssue::ReservPhysical
+        ||  inventTrans.StatusIssue         == StatusIssue::ReservOrdered)
+        exists join inventTransOrigin
+        where inventTransOrigin.RecId       == inventTrans.InventTransOrigin
+        {
+            InventDim = inventTrans.inventDim();
+            if(InventDim.InventLocationId == _lineForRemove.InventLocationLoan
+            && InventDim.wMSLocationId == _lineForRemove.WMSLocationLoan)
+            {
+                if (inventTrans.MarkingRefInventTransOrigin)
+                {
+                InventTransOrigin::deleteMarking(inventTrans.MarkingRefInventTransOrigin, inventTrans.InventTransOrigin, -_lineForRemove.Qty, true);
+                InventTransOrigin::deleteMarking(inventTrans.InventTransOrigin, inventTrans.MarkingRefInventTransOrigin, _lineForRemove.Qty, true);
+                }
+
+                if (inventTrans.StatusIssue == StatusIssue::ReservPhysical || inventTrans.StatusIssue == StatusIssue::ReservOrdered)
+                {
+                    Inventmovement = inventTrans.inventmovement(true);
+                    inventUpd_Reservation = InventUpd_Reservation::newInventDim(inventmovement,inventTrans.inventDim(), 1 , false);
+                    inventUpd_Reservation.updatenow();
+                    break;
+                }
+            }
+        }
+        //Recalcular el stock
+        InventSumRecalcItem = new InventSumRecalcItem(_lineForRemove.ItemId, false, checkfix::fix);
+        InventSumRecalcItem.updatenow();
+    }
+
+    public void markReserve(InventJournalTable      _InventJournalTable)
+    {
+        InventJournalTrans      inventJournalTrans;
+        InventBlocking          InventBlocking;
+        InventDim               InventDim;
+        
+        while select inventJournalTrans
+            where inventJournalTrans.JournalId == _InventJournalTable.JournalId
+        {
+            InventDim = inventJournalTrans.toInventDim();
+            InventBlocking.clear();
+            InventBlocking.ItemId = inventJournalTrans.ItemId;
+            InventBlocking.InventDimId = InventDim.inventDimId;
+            InventBlocking.Qty = inventJournalTrans.Qty;
+            InventBlocking.InventTransIdReceipt = inventJournalTrans.InventTransId;
+            InventBlocking.insert();
+        }
+    }
+
+    public DimensionDefault createDefaultDimension(container _attr, container _value, boolean _createIfNotFound = true)
+    {
+        DimensionAttributeValueSetStorage   valueSetStorage = new DimensionAttributeValueSetStorage();
+        DimensionDefault                    result;
+        int                                 i;
+        DimensionAttribute                  dimensionAttribute;
+        DimensionAttributeValue             dimensionAttributeValue;
+        str                                 dimValue;
+
+        for (i = 1; i <= conLen(_attr); i++)
+        {
+            dimensionAttribute = dimensionAttribute::findByName(conPeek(_attr, i));
+
+            if (dimensionAttribute.RecId == 0)
+            {
+                continue;
+            }
+
+            dimValue = conPeek(_value, i);
+
+            if (dimValue != "")
+            {
+                dimensionAttributeValue = dimensionAttributeValue::findByDimensionAttributeAndValue(dimensionAttribute,
+                                                                                                dimValue,
+                                                                                                false,
+                                                                                                _createIfNotFound
+                                                                                               );
+
+                valueSetStorage.addItem(dimensionAttributeValue);
+            }
+        }
+
+        result = valueSetStorage.save();
+
+        return result;
+    }
+
+    public void createJournal(EI_ChargeId  _chargeId)
+    {
+        InventJournalTable              inventJournalTable;
+        InventJournalTrans              inventJournalTrans;
+        JournalCheckPost                JournalCheckPost;
+        InventJournalName               InventJournalName;
+        NumberSeq                       num = new NumberSeq();
+        NumberSequenceTable             NumberSequenceTable;
+        InventDim                       frominventDim,ToinventDim;
+        EI_ChargeLine                   chargeLine;
+        int                             nlines;
+        EI_DigitalWarehouseParameters   dwParameters = EI_DigitalWarehouseParameters::find();
+        container                       conName, conValue;
+        DimensionDefault                defaultDimension;
+
+        if(dwParameters.InventJournalNameCharge)
+        {
+            InventJournalName = InventJournalName::find(dwParameters.InventJournalNameCharge);
+            NumberSequenceTable = NumberSequenceTable::find(InventJournalName.VoucherNumberSequenceTable);
+            num = NumberSeq::newGetNumFromCode(NumberSequenceTable.NumberSequence);
+            try
+            {
+                ttsbegin;
+                inventJournalTable.clear();
+                inventJournalTable.initFromInventJournalName(InventJournalName);
+                inventJournalTable.JournalId = num.num();
+                inventJournalTable.Description = InventJournalName.Description;
+                inventJournalTable.SystemBlocked = true;
+                inventJournalTable.insert();
+                while select chargeLine
+                    where chargeLine.ChargeId == _chargeId
+                    && chargeLine.IsSign == NoYes::Yes
+                    && chargeLine.ChargeStatus == EI_ChargeStatus::Pending
+                {
+                    nlines++;
+                    inventJournalTrans.clear();
+                    inventJournalTrans.initFromInventJournalTable(inventJournalTable);
+                    inventJournalTrans.ItemId = chargeLine.ItemId;
+                    
+                    //Eliminar Reserva
+                    this.removeReserve(chargeLine);
+                    
+                    frominventDim.inventSiteId = chargeLine.InventSiteId;
+                    frominventdim.InventLocationId = chargeLine.InventLocationLoan;
+                    frominventdim.wMSLocationId = chargeLine.WMSLocationLoan;
+                    ToinventDim.InventSiteId = chargeLine.InventSiteId;
+                    ToinventDim.InventLocationId = chargeLine.InventLocationCharge;
+                    ToinventDim.wMSLocationId = chargeLine.WMSLocationCharge;
+                    ToinventDim = InventDim::findOrCreate(ToinventDim);
+                    frominventDim = InventDim::findOrCreate(frominventDim);
+                    inventJournalTrans.InventDimId = frominventDim.inventDimId;
+                    inventJournalTrans.initFromInventTable(InventTable::find(chargeLine.ItemId));
+                    inventJournalTrans.Qty = chargeLine.Qty;
+
+                    conName  = conNull();
+                    conValue = conNull();
+                    
+                    conName  += "Proyecto";
+                    conValue += chargeLine.ProjId;
+
+                    defaultDimension = this.createDefaultDimension(conName, conValue);
+
+                    inventJournalTrans.DefaultDimension = defaultDimension;
+                    inventJournalTrans.ToInventDimId = ToinventDim.inventDimId;
+                    inventJournalTrans.TransDate = SystemDateget();
+                    if(frominventDim.InventLocationId && ToinventDim.InventLocationId)
+                    {
+                        inventJournalTrans.insert();
+                    }
+                    else
+                    {
+                        if(!ToinventDim.InventLocationId)
+                        {
+                            throw error(strFmt("@EIP261:AX0207_0028",chargeLine.InventLocationLoan,chargeLine.InventSiteId));
+                        }
+                    }
+                }
+                
+                JournalCheckPost = InventJournalCheckPost::newJournalCheckPost(JournalCheckpostType::Post,inventJournalTable);
+                JournalCheckPost.parmThrowCheckFailed(false);
+                JournalCheckPost.run();
+                inventJournalTable.reread();
+                inventJournalTable.NumOfLines = nlines;
+                inventJournalTable.SystemBlocked = false;
+                inventJournalTable.update();
+                ttscommit;
+            }
+            catch(Exception::Error)
+            {
+                info(strFmt("@EIP261:AX0207_0029",_chargeId));
+                ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::NoPosted
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::Pending;
+                ttsCommit;
+            }
+
+            if(inventJournalTable.Posted)
+            {
+                ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::Posted,
+                    InventJournalId = inventJournalTable.JournalId
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::Pending;
+                ttsCommit;
+                
+                //this.MarkReserve(inventJournalTable);
+            }
+            else
+            {
+                ttsBegin;
+                update_recordSet chargeLine
+                    setting ChargeStatus = EI_ChargeStatus::NoPosted
+                where chargeLine.ChargeId == _chargeId
+                && chargeLine.IsSign == NoYes::Yes
+                && chargeLine.ChargeStatus == EI_ChargeStatus::Pending;
+                ttsCommit;
+            }
+        }
+        else
+        {
+            throw Error("@EIP261:AX0207_0043");
+        }
+    }
+
+    private void processCharge()
+    {
+        Query                   q;
+        QueryRun                qr;
+        QueryBuildDataSource    qbds;
+        EI_ChargeLine           chargeLine;
+        container               chargesIds;
+    
+        q = new Query();
+        qbds = q.addDataSource(tableNum(EI_ChargeLine));
+
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeStatus)).value(queryValue(EI_ChargeStatus::Pending));
+        qbds.addRange(fieldNum(EI_ChargeLine,ChargeType)).value(queryValue(EI_ChargeType::Charge));
+        qbds.addRange(fieldNum(EI_ChargeLine,IsSign)).value(SysQuery::value(NoYes::Yes));
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationCharge)).value(SysQuery::valueNotEmptyString());
+        qbds.addRange(fieldNum(EI_ChargeLine,InventLocationLoan)).value(SysQuery::valueNotEmptyString());
+        if(chargeId)
+        {
+            qbds.addRange(fieldNum(EI_ChargeLine,chargeid)).value(chargeId);
+        }
+        
+        qbds.addGroupByField(fieldNum(EI_ChargeLine,chargeid));
+        qr = new QueryRun(q);
+        while(qr.next())
+        {
+            try
+            {
+                chargeLine = qr.get(tableNum(EI_ChargeLine));
+                if(!conFind(chargesIds,chargeLine.ChargeId))
+                {
+                    ttsBegin;
+                    chargesIds += chargeLine.ChargeId;
+                    this.createJournal(chargeLine.ChargeId);
+                    ttsCommit;
+                }
+            }
+            catch(Exception::Error)
+            {
+                continue;
+            }
+        }
+    }
+
+    public void run()
+    {
+        #OCCRetryCount
+        
+        if (!this.validate())
+        {
+            throw error("");
+        }
+        try
+        {
+            this.processCharge();
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+    }
+
+    public boolean validate(Object calledFrom = null)
+    {
+        if (false)
+        {
+            return checkFailed("");
+        }
+
+        return true;
+    }
+
+    server static EI_ChargeRegisterBatch construct()
+    {
+        return new EI_ChargeRegisterBatch();
+    }
+
+    static ClassDescription description()
+    {
+        return "@EIP261:AX0207_0027";
+    }
+
+    static void main(Args args)
+    {
+        EI_ChargeRegisterBatch    chargeRegister;
+        
+        chargeRegister = EI_ChargeRegisterBatch::construct();
+
+        if (chargeRegister.prompt())
+        {
+            chargeRegister.run();
+        }
+    }
+
+}

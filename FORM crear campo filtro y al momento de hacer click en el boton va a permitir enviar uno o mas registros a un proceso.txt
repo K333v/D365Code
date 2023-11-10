@@ -1,0 +1,112 @@
+[Control("CommandButton")]
+    class DIVPost
+    {
+        /// <summary>
+        /// Crea y registra factura
+        /// </summary>
+        public void clicked()
+        {
+            DIVSalesMServiceFreeTextInvoice  freeTextInvoice;
+            super();
+            freeTextInvoice = new DIVSalesMServiceFreeTextInvoice();
+            freeTextInvoice.readDatasource(DIVSalesMServiceInvoiceHeaderTable_DS);
+            DIVSalesMServiceInvoiceHeaderTable_DS.executeQuery();
+        }
+
+    } 
+
+
+/// <summary>
+    /// Method readDatasource
+    /// </summary>
+    /// <param name = "_datasource">FormDataSource</param>
+    public void readDatasource(FormDataSource _datasource)
+    {
+        #Characters_CN
+        str                         response,messageError,messageInfo;
+        boolean                     result;
+        int                         correctRecords,RecordsWithError;
+        DIVSalesMServiceInvoiceHeaderTable  tableHeaderUpd;
+
+        MultiSelectionHelper selection = MultiSelectionHelper::construct();
+        selection.parmDatasource(_datasource);
+        DIVSalesMServiceInvoiceHeaderTable headerTable = selection.getFirst();
+        
+        while (headerTable.RecId !=0)
+        {
+            infolog.clear();
+            //do something with your table buffer.
+            [result,response] = this.createFreeText(headerTable);
+            if(result == false)
+            {
+                if(messageError)
+                {
+                    messageError += #space;
+                }
+
+                messageError += response;
+
+                update_recordset tableHeaderUpd setting Log = response,
+                    StatusIntegration = DIVIntegrationStatus::Error
+                    where tableHeaderUpd.DvcNumRefer == headerTable.DvcNumRefer;
+
+
+                RecordsWithError++;
+            }
+            else
+            {
+                if(messageInfo)
+                {
+                    messageInfo += #space;
+                }
+                messageInfo += response;
+
+                update_recordset tableHeaderUpd setting Log = response,
+                    StatusIntegration = DIVIntegrationStatus::Finished,
+                    Estado = DIVSalesMBStatus::Posted
+                    where tableHeaderUpd.DvcNumRefer == headerTable.DvcNumRefer;
+
+                correctRecords++;
+            }
+            
+            headerTable = selection.getNext();
+        }
+
+        if(RecordsWithError > 0)
+        {
+            Error(messageError);
+        }
+
+        if(correctRecords > 0)
+        {
+            info(messageInfo);
+        }
+    }
+
+
+
+_______________
+
+    [Control("ComboBox")]
+    class JobStatusFilter
+    {
+        /// <summary>
+        /// Method modified
+        /// </summary>
+        /// <returns>boolean</returns>
+        public boolean modified()
+        {
+            boolean ret;
+
+            ret = super();
+
+            SysQuery::findOrCreateRange(DIVSalesMServiceInvoiceHeaderTable_DS.queryBuildDataSource(), fieldnum(DIVSalesMServiceInvoiceHeaderTable, Estado)).value(this.selection() == DIVSalesMBStatus::Draft ?
+                                                                                                                            SysQuery::valueEmptyString() :
+                                                                                                           SysQuery::value(this.selection()));
+
+            DIVSalesMServiceInvoiceHeaderTable_DS.executeQuery();
+
+            return ret;
+        }
+
+    }

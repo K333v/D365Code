@@ -1,0 +1,4 @@
+DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+
+select firstonly crosscompany inventJournalTableLocal
+            where inventJournalTableLocal.JournalId == _journalId;

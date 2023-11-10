@@ -1,0 +1,260 @@
+public class EI_ConciliationPost
+{
+    void createLogInteg(EI_IntegPackingSlipHeader _packingSlipHeader, EI_RegStatusLog _regStatusLog, str _errorMsg = "")
+    {
+        EI_IntegPackingSlipLog packingSlipLog;
+        
+        packingSlipLog = null;
+        packingSlipLog.clear();
+        packingSlipLog.AppRegId = _packingSlipHeader.AppRegId;
+        packingSlipLog.PurchId  = _packingSlipHeader.PurchId;
+        packingSlipLog.PackingSlipDate = _packingSlipHeader.PackingSlipDate;
+        packingSlipLog.PackingSlipId = _packingSlipHeader.PackingSlipId;
+        packingSlipLog.TransDate = systemDateGet();
+        packingSlipLog.RefDataAreaId = _packingSlipHeader.RefDataAreaId;
+        packingSlipLog.RegStatus = _regStatusLog;
+        packingSlipLog.ErrorMsg = _errorMsg;
+        packingSlipLog.insert();
+    }
+    private str getErrorMessage()
+    {
+        SysInfologEnumerator    sysInfologEnumerator;
+        SysInfologMessageStruct infoMessageStruct;
+        str                     logMessage;
+        str                     logString;
+        int                     i;
+        #Define.NewLine('\n')
+        ;
+
+        sysInfologEnumerator = SysInfologEnumerator::newData(infolog.infologData());
+
+        while (sysInfologEnumerator.moveNext())
+        {
+            i = 1;
+
+            if (logMessage)
+            {
+                logMessage += #Newline;
+            }
+
+            infoMessageStruct = SysInfologMessageStruct::construct(sysInfologEnumerator.currentMessage());
+
+            while (i <= infoMessageStruct.prefixDepth())
+            {
+                logString = logString + infoMessageStruct.preFixTextElement(i) + '. ';
+                i++;
+            }
+
+            logString = logString + infoMessageStruct.message();
+            logMessage = logMessage + infoMessageStruct.message();
+        }
+
+        return logMessage;
+    }
+    private str postOrderCreated(PurchTable _purchTable, EI_IntegPackingSlipHeader _packingSlipHeader)
+    {
+        PurchFormLetter     purchFormLetter = purchFormLetter::construct(DocumentStatus::PackingSlip);
+        TransDate           transDate = systemDateGet();
+        str                 errorMsg;
+
+        try
+        {
+            purchFormLetter.purchTable(_purchTable);
+            purchFormLetter.initParmDefault();
+            purchFormLetter.transDate          (transDate);
+            purchFormLetter.parmAccountingDate (transDate);
+            purchFormLetter.specQty            (PurchUpdate::ReceiveNow);
+            purchFormLetter.parmParmTableNum   (_packingSlipHeader.PackingSlipId);
+            purchFormLetter.proforma           (false);
+            purchFormLetter.printFormLetter    (false);
+            purchFormLetter.initParameters(purchFormLetter.purchParmUpdate(), PrintOut::Current);
+            //purchFormLetter.parmparmDocumentDate   (_packingSlipHeader.PackingSlipDate);
+            purchFormLetter.initLinesQuery();
+            purchFormLetter.updatePurchParmTableNum(_packingSlipHeader.PackingSlipId, purchFormLetter.ParmId());
+            purchFormLetter.parmNumber(_packingSlipHeader.PackingSlipId);
+            purchFormLetter.run();
+        }
+        catch (exception::Error)
+        {
+            errorMsg = this.getErrorMessage();
+        }
+
+        return errorMsg;
+    }
+    void run(formdatasource _record)
+    {
+        Formdatasource              record = _record;
+        EI_IntegPackingSlipHeader   requestCache;
+        EI_IntegPackingSlipHeader   packingSlipHeader;
+        EI_IntegPackingSlipLine     packingSlipLine;
+        PurchTable                  purchTable;
+        PurchLine                   purchLine;
+        VendPackingSlipJour         vendPackingSlipJour;
+        int                         k;
+        
+        try
+        {
+            ttsbegin;
+
+            for (requestCache = record.getFirst(true) ? record.getFirst(true) : record.cursor(); requestCache; requestCache = record.getNext())
+            {
+                packingSlipHeader = EI_IntegPackingSlipHeader::findRecId(requestCache.RecId,true);
+                
+                changecompany (packingSlipHeader.RefDataAreaId)
+                {
+                    packingSlipLine = null;
+                    purchTable = null;
+                    purchTable = purchTable::find(packingSlipHeader.PurchId);
+                    if (purchTable.RecId == 0)
+                    {
+                        this.createLogInteg(packingSlipHeader, EI_RegStatusLog::Error, strFmt("@EIP261:BOD_DIG_0104", packingSlipHeader.PurchId));
+                    }
+                    else
+                    {
+                        k = 0;
+                        purchLine = null;
+                        ttsBegin;
+                        while select forUpdate purchLine
+                        where purchLine.PurchId == packingSlipHeader.PurchId
+                        {
+                            purchLine.PurchReceivedNow = 0;
+                            purchLine.InventReceivedNow = 0;
+                            purchLine.doUpdate();
+                        }
+                        ttsCommit;
+                        While select packingSlipLine
+                        where packingSlipLine.AppRegId == packingSlipHeader.AppRegId
+                        {
+                            purchLine = null;
+                            select firstOnly purchLine
+                            where purchLine.PurchId         == packingSlipHeader.PurchId
+                                && purchLine.ItemId             == packingSlipLine.ItemId
+                                && purchLine.PurchReceivedNow   == 0;
+                            if(purchLine)
+                            {
+                                ttsBegin;
+                                PurchLine.selectForUpdate(true);
+                                purchLine.PurchReceivedNow = packingSlipLine.RecepQty;
+                                purchLine.InventReceivedNow = packingSlipLine.RecepQty;
+                                purchLine.doUpdate();
+                                ttsCommit;
+                                k++;
+                            }
+                        }
+                        if (k==0)
+                        {
+                            this.createLogInteg(packingSlipHeader, EI_RegStatusLog::Error, strFmt("@EIP261:BOD_DIG_0105", packingSlipHeader.PurchId));
+                        }
+                        else
+                        {
+                            if (purchTable.DocumentState == VersioningDocumentState::Confirmed)
+                            {
+                                this.postOrderCreated(purchTable, packingSlipHeader);
+                                purchTable.reread();
+                            
+                                select firstOnly recid, PackingSlipId from vendPackingSlipJour
+                                where vendPackingSlipJour.PackingSlipId == packingSlipHeader.PackingSlipId
+                                    && vendPackingSlipJour.InvoiceAccount == purchTable.OrderAccount;
+                                if (vendPackingSlipJour.RecId == 0)
+                                {
+                                    this.createLogInteg(packingSlipHeader, EI_RegStatusLog::Error, strFmt("@EIP261:BOD_DIG_0106", packingSlipHeader.PackingSlipId, packingSlipHeader.PurchId));
+                                }
+                                else
+                                {
+                                    this.createLogInteg(packingSlipHeader, EI_RegStatusLog::Registered);
+                                
+                                    ttsBegin;
+                                    packingSlipHeader.selectForUpdate(true);
+                                    packingSlipHeader.ConciliationStatus = EI_ConciliationStatus::Conciliated;
+                                    packingSlipHeader.update();
+                                    ttsCommit;
+                                }
+                            }
+                            else
+                            {
+                                this.createLogInteg(packingSlipHeader, EI_RegStatusLog::Error, strFmt("@EIP261:BOD_DIG_0107", packingSlipHeader.PurchId));
+                            }
+                        }
+                    }
+                }
+            }
+            ttscommit;
+
+        }
+        catch (exception::Deadlock)
+        {
+            retry;
+        }
+
+        record.research();
+    }
+    static EI_ConciliationPost  construct()
+    {
+        return new EI_ConciliationPost();
+    }
+    static void  main(Args  _args)
+    {
+        FormRun         formRun = _args.caller();
+        FormDataSource  record = formRun.dataSource();
+
+        EI_ConciliationPost  request = EI_ConciliationPost::construct();
+        request.run(record);
+    }
+}
+
+
+____________________________________________________
+
+public class EI_ConciliationCancel
+{
+    void run(formdatasource _record)
+    {
+        Formdatasource              record = _record;
+        EI_IntegPackingSlipHeader   requestCache;
+        EI_IntegPackingSlipHeader   requestLocal;
+
+        if (Box::yesNo('@EIP261:BOD_DIG_0041', DialogButton::No,'@EIP261:BOD_DIG_0042') == DialogButton::Yes)
+        {
+            try
+            {
+                ttsbegin;
+
+                for (requestCache = record.getFirst(true) ? record.getFirst(true) : record.cursor(); requestCache; requestCache = record.getNext())
+                {
+                    requestLocal = EI_IntegPackingSlipHeader::findRecId(requestCache.RecId,true);
+
+                    requestLocal.ConciliationStatus = EI_ConciliationStatus::Cancelled;
+
+                    requestLocal.doUpdate();
+                }
+                ttscommit;
+
+            }
+            catch (exception::Deadlock)
+            {
+                retry;
+            }
+
+            record.research();
+        }
+        else
+        {
+            Box::warning('@EIP261:BOD_DIG_0043');
+        }
+    }
+
+    static EI_ConciliationCancel  construct()
+    {
+        return new EI_ConciliationCancel();
+    }
+
+    static void  main(Args  _args)
+    {
+        FormRun         formRun = _args.caller();
+        FormDataSource  record = formRun.dataSource();
+
+        EI_ConciliationCancel  request = EI_ConciliationCancel::construct();
+        request.run(record);
+    }
+
+}

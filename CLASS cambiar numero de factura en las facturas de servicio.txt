@@ -1,0 +1,37 @@
+/// <summary>
+/// 20231109 - DIV_Bug8331_CustFreeTextInvoice_FIX - KCL
+/// The CustPostInvoice_DIV_Extension class stores extension methods for DIVERSUR.
+/// </summary>
+[Extensionof(classstr(CustPostInvoice))]
+final class CustPostInvoice_DIV_Extension
+{
+    private CustInvoiceJour custInvoiceJour;
+
+    /// <summary>
+    /// Creates the journal header.
+    /// </summary>
+    /// <param name = "_numberSeq">The number sequence to use.</param>
+    /// <param name = "_creditNote">Indicates whether this is a credit note or not.</param>
+    /// <returns>The created <c>CustInvoiceJour</c></returns>
+    protected CustInvoiceJour createJournalHeader(NumberSeq _numberSeq, NoYes _creditNote)
+    {
+        CustInvoiceTable custInvoiceTableLocal;
+
+        custInvoiceJour  = next createJournalHeader(_numberSeq, _creditNote);
+        
+        custInvoiceTableLocal = CustInvoiceTable::findRecId(custInvoiceTable.RecId, true);
+        custInvoiceJour       = CustInvoiceJour::findRecId(custInvoiceJour.RecId, true);
+        
+        if (custInvoiceTableLocal.DIVSalesMonitorIntegration && custInvoiceTableLocal && custInvoiceJour)
+        {
+            custInvoiceJour.InvoiceId = custInvoiceTableLocal.ExternalInvoiceId;
+            custInvoiceJour.update();
+
+            custInvoiceTable.InvoiceId = custInvoiceJour.InvoiceId;
+            custInvoiceTable.update();
+        }
+
+        return custInvoiceJour;
+    }
+
+}

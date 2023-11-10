@@ -1,0 +1,49 @@
+public class EI_NumberSeqModuleDigitalWarehouse extends NumberSeqApplicationModule
+{
+    protected void loadModule()
+    {
+        NumberSeqDatatype datatype = NumberSeqDatatype::construct();
+      
+        datatype.parmDatatypeId(extendedtypenum(EI_IdVoucherConsumption));
+        datatype.parmReferenceHelp(literalstr("@EIP261:AX0209_0100"));
+        datatype.parmWizardIsContinuous(false);
+        datatype.parmWizardIsManual(NoYes::No);
+        datatype.parmWizardIsChangeDownAllowed(NoYes::No);
+        datatype.parmWizardIsChangeUpAllowed(NoYes::No);
+        datatype.parmSortField(1);
+        datatype.addParameterType(NumberSeqParameterType::DataArea, true, false);
+        this.create(datatype);
+
+        datatype.parmDatatypeId(extendedtypenum(EI_ChargeId));
+        datatype.parmReferenceHelp(literalstr("@EIP261:AX0207_0033"));
+        datatype.parmWizardIsContinuous(false);
+        datatype.parmWizardIsManual(NoYes::No);
+        datatype.parmWizardIsChangeDownAllowed(NoYes::No);
+        datatype.parmWizardIsChangeUpAllowed(NoYes::No);
+        datatype.parmSortField(2);
+        datatype.addParameterType(NumberSeqParameterType::DataArea, true, false);
+        this.create(datatype);
+    }
+
+    [SubscribesTo(classStr(NumberSeqGlobal), delegateStr(NumberSeqGlobal,buildModulesMapDelegate))]
+    static void buildModulesMapSubscriber(Map _numberSeqModuleNameMap)
+    {
+        NumberSeqGlobal::addModuleToMap(classNum(EI_NumberSeqModuleDigitalWarehouse), _numberSeqModuleNameMap);
+    }
+
+    static numberSequenceReference numRefIdVoucherConsumption()
+    {
+        return NumberSeqReference::findReference(extendedTypeNum(EI_IdVoucherConsumption));
+    }
+
+    static numberSequenceReference numRefChargeId()
+    {
+        return NumberSeqReference::findReference(extendedTypeNum(EI_ChargeId));
+    }
+
+    public NumberSeqModule numberSeqModule()
+    {
+        return NumberSeqModule::EI_DigitalWarehouse;
+    }
+
+}

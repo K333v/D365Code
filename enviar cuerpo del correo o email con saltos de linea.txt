@@ -1,0 +1,100 @@
+message += "dfjejfdkfjkdkjfkd");                      
+message += ", ";
+                        
+message = subStr(message, 1, strLen(message) - 2);
+
+str mailBody = strReplace(message, ', ', '<br>');
+
+___________________________________________________________
+
+ public void processEmail()
+    {       
+        #define.mailPriority(1)
+        SysIMailerNonInteractive    sysMailer = SysMailerFactory::getNonInteractiveMailer();
+        boolean                     isEmailThrottlingEnabled = false;
+
+        // Determine if the current non-interactive mailer extends
+        // the SysMailerThrottled abstract class. If so, turn off
+        // its built-in throttling as the batch job will do its own.
+        if (SysMailerThrottling::isMailerThrottled(sysMailer))
+        {
+            SysMailerThrottled mailerThrottled;
+            mailerThrottled = sysMailer;
+            mailerThrottled.parmIsThrottlingEnabled(false);
+        }
+
+        SysMailerId mailerId = sysMailer.getId();
+        
+        try
+        {
+            // Instantiate email
+            var messageBuilder = new SysMailerMessageBuilder();
+            messageBuilder.setFrom(fromEmail, "@SYS115063")
+                          .setSubject("@UFINET_AP:IPRV001_010")
+                          .addTo(toEmail)
+                          .setPriority(#mailPriority)
+                          .setBody(bodyEmail);
+            
+            // Send mail.
+            sysMailer.sendNonInteractive(messageBuilder.getMessage());
+
+        }
+        catch
+        {
+            warning(strfmt("@SYS324464", toEmail));
+            sysMailer = null;
+        }
+        
+    }
+
+_________________________________________________
+
+VendParameters  vendParameters = VendParameters::find();
+
+            if (vendParameters.UFTEmailActiveBody && vendParameters.UFTEmailBody)
+            {
+                emailContract.parmBody(strReplace(vendParameters.UFTEmailBody, '\n\n', '<br><br>')); //RESPETA LOS SALTOS DE LINEA EN EL CUERPO CONFIGURADO
+            }
+
+____________________________________________________
+
+/// <summary>
+/// 20220901 - UFT_WI7010_SAC_CC - KCL
+/// </summary>
+[ExtensionOf(classstr(SrsReportRunMailer))]
+final class UFTSrsReportRunMailer_Extension
+{       
+    /// <summary>
+    /// Send email with new configured body for the Purchase order report
+    /// </summary>
+    /// <param name = "emailContract">Email contract from printer settings.</param>
+    /// <param name = "reportBytes">Byte data of rendered report.</param>
+    /// <param name = "fileName">The name of attached file.</param>
+    /// <returns>True, if sending correctly, otherwise, False.</returns>
+    public boolean emailReport(SrsReportEMailDataContract emailContract, System.Byte[] reportBytes, str fileName)
+    {   
+        #Define.moduleName('Compra')
+
+        if (!emailContract)
+        {
+            throw error(strfmt("@SYS318601", 'emailContract'));
+        }
+
+        int x = 0;
+  
+        x = match(#moduleName, fileName); 
+
+        if (x && !emailContract.parmBody())
+        {
+            VendParameters  vendParameters = VendParameters::find();
+
+            if (vendParameters.UFTEmailActiveBody && vendParameters.UFTEmailBody)
+            {
+                emailContract.parmBody(strReplace(vendParameters.UFTEmailBody, '\n\n', '<br><br>'));
+            }
+        }
+        
+        return next emailReport(emailContract, reportBytes, fileName);
+    }
+
+}

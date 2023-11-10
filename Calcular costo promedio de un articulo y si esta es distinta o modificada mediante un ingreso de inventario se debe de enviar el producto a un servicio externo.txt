@@ -1,0 +1,220 @@
+ /// <summary>
+    /// Get average cost price of the item  //KCL
+    /// </summary>
+    /// <param name = "_itemId">ItemId</param>
+    /// <returns>InventAverageCostPrice</returns>
+    public static InventAverageCostPrice getAvgCostPrice(ItemId  _itemId)
+    {
+        InventSum                       inventSum;
+        InventTable                     inventTable = InventTable::find(_itemId);
+        InventCostPriceCache            costPriceCache;
+        UnitOfMeasureConverter_Product  converterProduct;
+        UnitOfMeasureRecId              fromUOM, toUOM;
+        InventAverageCostPrice          avgCostPrice;
+
+        select sum(PostedQty), sum(PostedValue), sum(ReservPhysical), sum(AvailOrdered), sum(PhysicalValue), sum(Deducted), sum(Received)
+            from inventSum  group by ItemId
+            where inventSum.ItemId == _itemId;
+
+        //Create an object of invent cost price cache class
+        costPriceCache = InventCostPriceCache::construct();
+
+        fromUOM = UnitOfMeasure::findBySymbol(inventTable.salesUnitId()).RecId;
+        toUOM   = UnitOfMeasure::findBySymbol(inventTable.inventUnitId()).RecId;
+
+        converterProduct = UnitOfMeasureConverter_Product::construct();
+        converterProduct.parmProduct(inventTable.Product);
+        converterProduct.parmFromUnitOfMeasure(fromUOM);
+        converterProduct.parmToUnitOfMeasure(toUOM);
+        converterProduct.parmRoundAbsoluteValue(NoYes::Yes);
+        converterProduct.parmApplyRounding(NoYes::Yes);
+
+        avgCostPrice = costPriceCache.costPricePcs(inventSum) * converterProduct.convertValue(1);
+
+        return avgCostPrice;
+    }
+    //KCL
+
+_______________________________________________________________
+
+[ExtensionOf(classstr(InventUpdate))]
+final class InventUpdate_DIV_Extension
+{
+    //20231010 - DIV_8247_DPLIntegration - KCL - Start
+    public InventQty updateDimReservePhysical(InventDim           _inventDim,
+                                              InventQty           _qtyReserv,
+                                              InventTransOriginId _markingRefInventTransOrigin,
+                                              PdsCWInventQty      _cwQty)
+    {
+        InventQty qtyReserv = next updateDimReservePhysical(_inventDim, _qtyReserv, _markingRefInventTransOrigin, _cwQty);
+                                              
+        
+        //Send to DPL
+        ItemId                  productId = movement.itemId();
+        DIVShipmentSetupTable   shipSetupTable = InventTable::findDIVShipSetupTable(productId);
+
+        if (shipSetupTable && shipSetupTable.AvgCost)
+        {
+            List    itemList = new List(Types::String);
+
+            itemList.addEnd(productId);
+
+            InventAverageCostPrice  avgCostPrice = DIVDPLWebProductService::getAvgCostPrice(productId);
+            InventTable             inventTableLocal = movement.inventTable();
+
+            if (inventTableLocal)
+            {
+                ttsbegin;
+                inventTableLocal.selectForUpdate(true);
+                inventTableLocal.DIVInventAvgCostPrice = avgCostPrice;
+                inventTableLocal.update();
+                ttscommit;
+            }
+
+            //if (inventTableLocal && (inventTableLocal.DIVInventAvgCostPrice != avgCostPrice))
+            //{
+            //    DIVDPLWebServiceExecute::executeService(itemList, true, SysOperationExecutionMode::ScheduledBatch);                
+            //}               
+        }          
+
+        return qtyReserv;
+    }
+    //20231010 - DIV_8247_DPLIntegration - KCL - End
+
+}
+
+
+________________________________________________________
+
+[ExtensionOf(TableStr(InventItemPrice))]
+final class DIVInventItemPrice_Table_Extension
+{
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name = "_inventTableModule"></param>
+    /// <param name = "_priceType"></param>
+    /// <param name = "_inventDim"></param>
+    static void updateLastPrice(InventTableModule       _inventTableModule,
+                                CostingVersionPriceType _priceType,
+                                InventDim               _inventDim
+                                )
+    {
+        next updateLastPrice(_inventTableModule, _priceType, _inventDim);
+
+        //Send to DPL
+        InventTable             inventTableLocal = _inventTableModule.inventTable();
+        DIVShipmentSetupTable   shipSetupTable   = InventTable::findDIVShipSetupTable(inventTableLocal.ItemId);
+
+        if (shipSetupTable && shipSetupTable.AvgCost)
+        {
+            List    itemList = new List(Types::String);
+
+            itemList.addEnd(inventTableLocal.ItemId);
+                        
+            if (inventTableLocal.DIVInventAvgCostPrice != _inventTableModule.Price)
+            {
+                DIVDPLWebServiceExecute::executeService(itemList, true, SysOperationExecutionMode::ScheduledBatch);
+            }
+        }
+    }
+
+}
+_______________________________________________________
+
+Enviar produto a un servicio externo cuando se modifica el costo de un producto
+/// <summary>
+/// InventTableModule table extension.
+/// </summary>
+[ExtensionOf(TableStr(InventTableModule))]
+final class DIVInventTableModule_Table_Extension
+{
+    /// <summary>
+    /// Update method extension
+    /// </summary>
+    /// <param name="_updatePriceDate">Update price date</param>
+    /// <param name="_updatePrice">Update price</param>    
+    public void update(boolean _updatePriceDate, boolean _updatePrice)
+    {
+        InventTableModule   orig = this.orig();            
+        List                itemList = new List(Types::String);
+
+        next update(_updatePriceDate, _updatePrice);
+
+        if(!orig.Price && this.Price)
+        {
+            itemList.addEnd(this.ItemId);
+            //20231010 - DIV_8247_DPLIntegration - KCL - Start
+            DIVShipmentSetupTable   shipSetupTable = InventTable::findDIVShipSetupTable(this.ItemId);
+
+            if (shipSetupTable && shipSetupTable.ZeroCost)
+            {
+                DIVDPLWebServiceExecute::executeService(itemList, true, SysOperationExecutionMode::ScheduledBatch);
+            }
+            //20231010 - DIV_8247_DPLIntegration - KCL - End
+            
+        }
+    }
+
+}
+______________________________________________________________
+
+[ExtensionOf(classStr(InventUpdateOnhand))]
+final class InventUpdateOnhand_DIV_Extension
+{
+    protected void updateInventSum()
+    {
+        next updateInventSum();
+
+        if (inventSumDeltaCnt != 1)
+        {
+            //Send to DPL
+        }
+    }
+
+}
+________________________________JOB
+
+final class JobInventOnHand
+{
+    /// <summary>
+    /// Class entry point. The system will call this method when a designated menu 
+    /// is selected or when execution starts and this class is set as the startup class.
+    /// </summary>
+    /// <param name = "_args">The specified arguments.</param>
+    public static void main(Args _args)
+    {
+        InventDim                       dimension, inventDim;
+        InventSum                       inventSum;
+        InventTable                     inventTable;
+        InventCostPriceCache            costPriceCache;
+        UnitOfMeasureConverter_Product  converterProduct;
+        UnitOfMeasureRecId              fromUOM, toUOM;
+        ItemId                          itemId = 'A000018';
+
+        inventTable = InventTable::find(itemId);
+        select sum(PostedQty), sum(PostedValue), sum(ReservPhysical), sum(AvailOrdered), sum(PhysicalValue), sum(Deducted), sum(Received)
+            from inventSum  group by ItemId
+            where inventSum.ItemId == itemId;
+
+        //Create an object of invent cost price cache class
+        costPriceCache = InventCostPriceCache::construct();
+        
+        //inventTable = inventSum.inventTable();
+
+        fromUOM = UnitOfMeasure::findBySymbol(inventTable.salesUnitId()).RecId;
+        toUOM   = UnitOfMeasure::findBySymbol(inventTable.inventUnitId()).RecId;
+
+        converterProduct = UnitOfMeasureConverter_Product::construct();
+        converterProduct.parmProduct(inventTable.Product);
+        converterProduct.parmFromUnitOfMeasure(fromUOM);
+        converterProduct.parmToUnitOfMeasure(toUOM);
+        converterProduct.parmRoundAbsoluteValue(NoYes::Yes);
+        converterProduct.parmApplyRounding(NoYes::Yes);
+
+        //Info(strFmt("%1", costPriceCache.costPricePcs(inventSum, inventDim) * converterProduct.convertValue(1)));
+
+        Info(strFmt("%1", costPriceCache.costPricePcs(inventSum) * converterProduct.convertValue(1)));         
+    }
+
+}

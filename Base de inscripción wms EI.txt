@@ -1,0 +1,374 @@
+public class EI_EnrollmentBaseWMS extends RunBase
+{
+    ProjId              projId;
+    EI_EnrollmentBase   enrollmentBase;
+
+    DialogField         dlgProjId;
+
+    #define.CurrentVersion(1)
+    #define.Version1(1)
+    #localmacro.CurrentList
+        projId
+    #endmacro
+
+    public Object dialog()
+    {
+        DialogRunbase   dialog = super();
+        
+        dialog.addTabPage("@SYS176231");
+        dlgProjId = dialog.addFieldValue(extendedTypeStr(ProjId),ProjId);
+
+        return dialog;
+    }
+
+    public boolean getFromDialog()
+    {
+        projId = dlgProjId.value();
+
+        return super();
+    }
+
+    public container pack()
+    {
+        return [#CurrentVersion,#CurrentList];
+    }
+
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+        
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version,#CurrentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    public boolean validaDatos(str _especialidad, str _area, str _rut)
+    {
+        EI_Especialidad     especialidad;
+        EI_AreaObra         areaObra;
+        boolean             esp,area;
+
+        select firstOnly especialidad where especialidad.IdEspecialidad == _especialidad;
+
+          if(especialidad)
+          {
+              esp = true;
+          }
+          else
+          {
+              error(strFmt('@EIP261:BOD_DIG_0072',_especialidad, _rut));
+              esp = false;
+          }
+
+       /* select firstOnly areaObra where areaObra.IdArea == _area;
+
+          if(areaObra)
+          {
+              area = true;
+          }
+          else
+          {
+              info(strFmt('Error - El área "%1" asociada al Rut %2 no existe', _area, _rut));
+              area = false;
+          }*/
+
+        if(esp)
+            return true;
+        else
+            return false;
+    }
+
+    public System.IO.Stream importFile()
+    {
+        System.IO.Stream                    stream;
+        FileUploadBuild                     fileUploadBuild;
+        DialogGroup                         dialogUploadGroup;
+        FormBuildControl                    FormBuildControl;
+        Dialog                              dialog = new dialog("@EIP261:AX0209_0104");
+
+        dialogUploadGroup = dialog.addGroup("@SYS4820");
+        FormBuildControl = dialog.formBuildDesign().control(dialogUploadGroup.name());
+        fileUploadBuild = FormBuildControl.addControlEx(classStr(Fileupload),"FileUploadName");
+        fileUploadBuild.style(FileUploadStyle::MinimalWithFilename);
+        fileUploadBuild.fileTypesAccepted(".xlsx");
+        fileUploadBuild.fileNameLabel("@SYS308842");
+        
+        if(dialog.run() && dialog.closedOk())
+        {
+            FileUpload  fileUploadControl = dialog.formRun().control(dialog.formRun().controlId("FileUploadName"));
+            FileUploadTemporaryStorageResult fileUploadResult = fileUploadControl.getFileUploadResult();
+            if(fileUploadResult != null && fileUploadResult.getUploadStatus())
+            {
+                stream = fileUploadResult.openResult();
+            }
+        }
+
+        return stream;
+    }
+
+    public void loadData()
+    {
+        System.IO.Stream                stream;
+        OfficeOpenXml.ExcelWorkbook     workbook;
+        OfficeOpenXml.ExcelWorksheets   worksheets;
+        OfficeOpenXml.ExcelWorksheet    worksheet;
+        OfficeOpenXml.ExcelRange        cells;
+        OfficeOpenXml.ExcelPackage      package;
+        str                             fileName, rut, name, especialidad, area;
+        int                             totalRows,totalCells,rowCounter,cellCounter;
+        int                             row;
+        COMVariantType                  type;
+
+        stream = this.importFile();
+
+        if(stream)
+        {
+            package = new OfficeOpenXml.ExcelPackage(stream);
+            if(package)
+            {                
+                worksheet       = package.get_Workbook().get_Worksheets().get_Item(1);
+                cells           = worksheet.Cells;
+                totalRows       = worksheet.Dimension.End.Row ;
+                totalCells      = worksheet.Dimension.End.Column;
+
+                for (rowCounter = 2; rowCounter <= totalRows; rowCounter++)
+                {
+                    rut             = '';
+                    name            = '';
+                    especialidad    = '';
+                    area            = '';
+                    rut             = cells.get_Item(rowCounter,1).value;
+                    name            = cells.get_Item(rowCounter,2).value;
+                    especialidad    = cells.get_Item(rowCounter,3).value;
+                    area            = cells.get_Item(rowCounter,4).value;
+
+                    if(this.validaDatos(especialidad, area, rut))
+                    {
+                        if(!EI_EnrollmentBase::find(rut,ProjId))
+                        {
+                            enrollmentBase.clear();
+                            enrollmentBase.ProjId               = ProjId;
+                            enrollmentBase.Rut                  = rut;
+                            enrollmentBase.Name                 = name;
+                            enrollmentBase.IdEspecialidad       = especialidad;
+                            enrollmentBase.IdArea2              = area;
+                            //enrollmentBase.Passwd               = '123456';
+                            enrollmentBase.insert();
+
+                            info(strFmt("@EIP261:BOD_DIG_0069",rut));
+                        }
+                        else
+                        {
+                            warning(strFmt("@EIP261:BOD_DIG_0070",rut,ProjId));
+                        }
+                    }
+                }
+                info("@EIP261:BOD_DIG_0071");
+            }
+        }
+    }
+
+    public void run()
+    {
+        #OCCRetryCount
+        
+        if(!this.validate())
+        {
+            throw error("");
+        }
+        try
+        {
+            if(EI_VoucherConsumptionHelper::validateUser(projId))
+            {
+                this.loadData();
+            }
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+
+    }
+
+    static ClassDescription description()
+    {
+        return "@EIP261:AX0209_0104";
+    }
+
+    server static EI_EnrollmentBaseWMS construct()
+    {
+        return new EI_EnrollmentBaseWMS();
+    }
+
+    static void main(Args args)
+    {
+        EI_EnrollmentBaseWMS    enrollmentBaseWMS;
+        
+        enrollmentBaseWMS = EI_EnrollmentBaseWMS::construct();
+        if (enrollmentBaseWMS.prompt())
+        {
+            enrollmentBaseWMS.run();
+        }
+    }
+
+}
+________________________________________
+
+public class EI_EnrollmentBaseChangePassword extends RunBase
+{
+    Password            Password;
+    EI_EnrollmentBase   baseRecord;
+
+    DialogField         dlgPass;
+
+    #define.CurrentVersion(1)
+    #define.Version1(1)
+    #localmacro.CurrentList
+        Password,
+        baseRecord
+    #endmacro
+        
+    public Object dialog()
+    {
+        DialogRunbase       dialog = super();
+
+        dialog.addTabPage("@SYS176231");
+        dlgPass = dialog.addFieldValue(extendedTypeStr(Password),Password);
+        dlgPass.passwordStyle(true);
+        dlgPass.value('');
+        
+        return dialog;
+    }
+
+    public boolean getFromDialog()
+    {
+        Password = dlgPass.value();
+
+        return super();
+    }
+
+    protected void new()
+    {
+        baseRecord.data();
+        
+        super();
+    }
+
+    public container pack()
+    {
+        return [#CurrentVersion,#CurrentList];
+    }
+
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+        
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version,#CurrentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    public void changePwd(EI_EnrollmentBase _pwd)
+    {
+        EI_EnrollmentBase   enrollmentBase;
+        container           CryptoBlob;
+        #OCCRetryCount
+        
+        if (!this.validate())
+        {
+            throw error("");
+        }
+
+        try
+        {
+            baseRecord = _pwd;
+            
+            ttsbegin;
+            if(baseRecord && Password)
+            {
+                baseRecord.selectForUpdate(true);
+                baseRecord.Password = EI_VoucherConsumptionHelper::encryptPass(Password);
+                baseRecord.update();
+                info("@EIP261:AX0209_0102");
+            }
+            ttscommit;
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+
+    }
+
+    static ClassDescription description()
+    {
+        return "@EIP261:AX0209_0103";
+    }
+
+    server static EI_EnrollmentBaseChangePassword construct()
+    {
+        return new EI_EnrollmentBaseChangePassword();
+    }
+
+    static void main(Args args)
+    {
+        EI_EnrollmentBaseChangePassword    changePassword;
+        
+        changePassword = EI_EnrollmentBaseChangePassword::construct();
+        if (changePassword.prompt())
+        changePassword.changePwd(args.record());
+    }
+
+}
+
+_______________________________________________

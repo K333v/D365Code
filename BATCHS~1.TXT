@@ -1,0 +1,2880 @@
+PROCESO POR LOTE O BATCH
+
+Tendrá la opción de ser manual también, desde el formulario.
+
+Creará diarios de movimiento tipo ajuste siempre y cuando el disponible no alcance para crear posteriormente el diario de consumo
+
+Tendrá la opción de reprocesar los registros con errores
+
+/// <summary>
+/// Class used to populate report using batch
+/// </summary>
+/// 20230914 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+class DIVInventConsumptionServiceBatch extends SysOperationServiceBase
+{
+    container       itemQtyAdjCon;       
+    container       adjustJournalCon, consumJournalCon;
+    boolean         posted;
+    Notes           errors;
+    #OCCRetryCount
+    
+
+    /// <summary>
+    /// Main logic to run the batch job
+    /// </summary>
+    /// <param name = "_contract">Parameter Contract</param>
+    public void run(DIVInventConsumptionContractBatch   _contract)
+    {
+        
+        
+        try
+        {
+            ttsbegin;
+            if (_contract.parmMonitorTable())
+            {
+                //Manual process
+                this.manualProcess(_contract.parmMonitorTable());                 
+                info("@DIV:SalesMonitor_C_014");
+            } 
+            ttscommit;
+        }
+        catch (Exception::Error)
+        {
+            errors = '';
+            errors = strFmt(DIVInventConsumptionHelper::getErrorStr());
+            error(strFmt(errors));
+            ttsabort;
+            
+            DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(_contract.parmMonitorTable().RecId);
+
+            if (monitorTableUpd)
+            {
+                ttsbegin;
+                monitorTableUpd.selectForUpdate(true);
+                monitorTableUpd.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                monitorTableUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                monitorTableUpd.ErrorLog = errors;
+                monitorTableUpd.update();
+
+                DIVConsumptionFromSalesMonitorLine  monitorLine;
+
+                update_recordset monitorLine
+                setting ErrorLog = errors,
+                IntegrationStatus = DIVIntegrationStatusConsumption::Error,
+                ProcessingStatus = DIVProcessingStatusConsumption::Error
+                    where monitorLine.RefRecId == monitorTableUpd.RecId;
+                ttscommit;
+            }
+            
+        }
+
+        //Auto process
+        if (!_contract.parmMonitorTable())
+        {
+            ttsbegin;
+            this.autoProcess();
+            info("@DIV:SalesMonitor_C_031");
+            ttscommit;
+        }
+
+        //Process used for posting journals
+        if (!_contract.parmMonitorTable() && !errors)
+        {
+            //Posting adjustment journal
+            this.autoPostingJournal();
+            //Process 3: Create consumption journal
+            this.consumJournalSubProcess();
+            //Posting consumption journal
+            this.autoPostingJournal();
+
+            this.reProcessedJournalSubProcess();
+
+            if (posted)
+            {
+                info("@DIV:SalesMonitor_C_032");
+            }
+        }
+        
+    }
+
+    /// <summary>
+    /// Manual process that creates Movement journal
+    /// </summary>
+    /// <param name = "_monitorTable">DIVConsumptionFromSalesMonitorTable</param>
+    public void manualProcess(DIVConsumptionFromSalesMonitorTable _monitorTable)
+    {
+        DIVConsumptionFromSalesMonitorLine  lines;
+        CompanyInfo                         companyInfo;
+        int                                 cont;
+        #DIVModel
+
+        if (_monitorTable.IntegrationStatus != DIVIntegrationStatusConsumption::Received && _monitorTable.InventJournalId)
+        {
+            throw error("@DIV:SalesMonitor_C_033");
+        }
+        //Update status
+        if (_monitorTable)
+        {
+            _monitorTable.selectForUpdate(true);
+            _monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Execution;
+            _monitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+            _monitorTable.update();
+        }
+
+        //Validate header data
+        str         errorHeader = DIVInventConsumptionHelper::validateHeader(_monitorTable);
+        str         errorLine;
+        boolean     withError;
+                        
+        select firstonly DataArea from companyInfo
+            where companyInfo.DIVLegacyCompany == _monitorTable.LegacyCompany;
+
+        changecompany(companyInfo.DataArea)
+        {
+            ttsbegin;
+            itemQtyAdjCon = conNull();
+
+            while select forupdate lines
+                where lines.RefRecId == _monitorTable.RecId
+            {
+                //Validate lines data
+                errorLine = DIVInventConsumptionHelper::validateLines(lines);
+            
+                if (!errorLine)
+                {
+                    //Validate available physical qty - This allows the Invent Adjustment Journal creation
+                    //Set InventDim
+                    InventDim   inventDimLocal;
+
+                    inventDimLocal.InventLocationId = _monitorTable.InventLocationId;
+                    inventDimLocal.InventSiteId     = InventLocation::find(_monitorTable.InventLocationId).InventSiteId;
+                    inventDimLocal.wMSLocationId    = lines.WMSLocationId;
+                    inventDimLocal.inventBatchId    = lines.InventBatchId;
+                    inventDimLocal = InventDim::findOrCreate(inventDimLocal);
+
+                    Qty availableQty = DIVInventConsumptionHelper::getQtyAvailPhysical(lines.ItemId, inventDimLocal);
+
+                    if (availableQty < lines.Qty)
+                    {
+                        errorLine = DIVInventConsumptionHelper::validateLines(lines, DIVIntegrationParameters::find().InventJournalNameId);
+
+                        if (!errorLine)
+                        {
+                            int     adjQty = lines.Qty - availableQty;
+                            itemQtyAdjCon  += int2Str(adjQty) + #hyphen + int642Str(lines.RecId);
+                        }
+                    }
+                }
+
+                if (errorLine)
+                {
+                    lines.ErrorLog = errorLine;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                    lines.update();
+                    withError = true;
+                }
+                else
+                {
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::PostingValidate;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                    lines.update();
+                }
+
+            }
+
+            //If there's not error, the Movement journal is created
+            if (!errorHeader && !withError)
+            {
+                //Create Invent Adjustment Journal
+                int             i;
+                Qty             itemQty;
+                List            valuelist = new List(Types::String);
+                ListIterator    iterador;
+                container       packedlist;
+
+                DIVConsumptionFromSalesMonitorLine  adjustmentLine;
+                InventJournalTable                  adjustJournalTable;
+
+                if (itemQtyAdjCon != conNull())
+                {
+                    //Create Adjustment journal header
+                    adjustJournalTable = DIVInventConsumptionHelper::createMovementJournalHeader(DIVIntegrationParameters::find().InventJournalNameId, _monitorTable);
+                }
+
+                for (i=1; i <= conLen(itemQtyAdjCon); i++)
+                {
+                    valuelist = Global::strSplit(conPeek(itemQtyAdjCon, i), #hyphen);
+                    iterador  = new ListIterator(valuelist);
+
+                    packedlist = conNull();
+
+                    while (iterador.more())
+                    {
+                        packedlist += iterador.value();
+                        iterador.next();
+                    }
+
+                    itemQty = conPeek(packedlist, 1);
+                    adjustmentLine = DIVConsumptionFromSalesMonitorLine::findRecId(conPeek(packedlist, 2));
+
+                    //Create Adjustment journal lines
+                    DIVInventConsumptionHelper::createMovementJournalLines(adjustJournalTable, adjustmentLine, itemQty, _monitorTable.CostCenter);
+
+                    DIVConsumptionFromSalesMonitorLine  monitorLineUpd = DIVConsumptionFromSalesMonitorLine::findRecId(adjustmentLine.RecId, true);
+
+                    if (monitorLineUpd)
+                    {
+                        monitorLineUpd.InventJournalId   = adjustJournalTable.JournalId;
+                        monitorLineUpd.IntegrationStatus = DIVIntegrationStatusConsumption::CreationJournal;
+                        monitorLineUpd.update();
+                    }                    
+
+                    cont++;
+                }
+                //Post Adjustment invent journal
+                if (adjustJournalTable)
+                {
+                    adjustJournalTable.selectForUpdate(true);
+                    adjustJournalTable.NumOfLines = cont;
+                    adjustJournalTable.update();
+
+                    DIVInventConsumptionHelper::postInventJournal(adjustJournalTable);
+                }
+                
+                _monitorTable.selectForUpdate(true);
+                _monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::PostingJournal;
+                _monitorTable.update();
+
+                cont = 0;
+                //Create Movement journal header
+                InventJournalTable  journalTable = DIVInventConsumptionHelper::createMovementJournalHeader(_monitorTable.InventJournalNameId, _monitorTable);
+                //Create Movement journal lines - All records
+                while select lines index hint ItemIdx
+                    where lines.RefRecId == _monitorTable.RecId
+                {
+                    DIVInventConsumptionHelper::createMovementJournalLines(journalTable, lines, 0, _monitorTable.CostCenter);
+                    cont++;
+                }
+
+                //Post Consum invent journal
+                if (journalTable)
+                {
+                    journalTable.selectForUpdate(true);
+                    journalTable.NumOfLines = cont;
+                    journalTable.DIVMonitorRefRecId = _monitorTable.RecId;
+                    journalTable.update();
+
+                    DIVInventConsumptionHelper::postInventJournal(journalTable);
+                }
+                
+                _monitorTable.selectForUpdate(true);
+                _monitorTable.InventJournalId   = journalTable.JournalId;
+                _monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Posted;
+                _monitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Completed;
+                _monitorTable.PostingDate       = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+                _monitorTable.JournalPosted     = NoYes::Yes;
+                _monitorTable.update();
+            }
+            else
+            {
+                _monitorTable.selectForUpdate(true);
+                _monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                _monitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                _monitorTable.update();
+            }
+            ttscommit;
+        }
+    }
+
+    /// <summary>
+    /// Auto process that creates Movement journal
+    /// </summary>
+    public void autoProcess()
+    {           
+        //Process 1: Validation
+        this.validationSubProcess();
+        this.validationSubReProcess();
+        //Process 2: Create adjustment journal
+        this.ajustmentJournalSubProcess();
+    }
+
+    /// <summary>
+    /// Posting process used in autoProcess method
+    /// </summary>
+    public void autoPostingJournal()
+    {
+        InventJournalTable  adjustJournal, consumJournal;
+        InventJournalId     journalId;             
+        int                 q;
+        Notes               errorLog;
+        #DIVModel
+
+        try
+        {
+            
+            
+            for (q=1; q <= conLen(adjustJournalCon); q++)
+            {
+                journalId = conPeek(adjustJournalCon, q);
+
+                select crosscompany adjustJournal
+                    where adjustJournal.JournalId == journalId;
+
+                changecompany(adjustJournal.DataAreaId)
+                {
+                    ttsbegin;
+                    //Post adjustment invent journal
+                    DIVInventConsumptionHelper::postInventJournal(adjustJournal);
+                    ttscommit;
+                }
+            }
+
+            adjustJournalCon = conNull();
+
+            q = 0;
+
+            for (q=1; q <= conLen(consumJournalCon); q++)
+            {
+                journalId = conPeek(consumJournalCon, q);
+                posted    = false;
+
+                select crosscompany consumJournal
+                    where consumJournal.JournalId == journalId;
+
+                changecompany(consumJournal.DataAreaId)
+                {
+                    ttsbegin;
+                    //Post consumption invent journal
+                    DIVInventConsumptionHelper::postInventJournal(consumJournal);
+
+                    DIVConsumptionFromSalesMonitorTable salesMonitorTable = DIVConsumptionFromSalesMonitorTable::findRecId(consumJournal.DIVMonitorRefRecId, true);
+
+                    if (salesMonitorTable)
+                    {
+                        salesMonitorTable.InventJournalId   = consumJournal.JournalId;
+                        salesMonitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Posted;
+                        salesMonitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Completed;
+                        salesMonitorTable.PostingDate       = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+                        salesMonitorTable.JournalPosted     = NoYes::Yes;
+                        salesMonitorTable.ErrorLog          = #blank;
+                        salesMonitorTable.update();
+
+                        posted = true;
+                    }
+                    ttscommit;
+                }
+            }   
+            
+        }
+        catch (Exception::Error)
+        {   
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+
+            if (!errorLog)
+            {
+                errorLog = "@DIV:SalesMonitor_C_034";
+            }
+            this.updateErrorInMonitorTable(journalId, errorLog);
+
+            retry;
+        }
+        
+    }
+
+    /// <summary>
+    /// Update ErrorLog field of the DIVConsumptionFromSalesMonitorTable table
+    /// </summary>
+    /// <param name = "_journalId">InventJournalId</param>
+    /// <param name = "_error">Error</param>
+    public void updateErrorInMonitorTable(InventJournalId  _journalId, Notes  _error) 
+    {
+        InventJournalTable  inventJournalTableLocal;
+        InventJournalId     consumJournalId;
+        #DIVModel
+
+        select firstonly crosscompany inventJournalTableLocal
+            where inventJournalTableLocal.JournalId == _journalId;
+
+        changecompany(inventJournalTableLocal.DataAreaId)
+        {
+            DIVConsumptionFromSalesMonitorTable salesMonitorTable = DIVConsumptionFromSalesMonitorTable::findRecId(inventJournalTableLocal.DIVMonitorRefRecId, true);
+
+            if (salesMonitorTable)
+            {                   
+                //Delete journalId (with error) in the container to later not post it
+                int deleteItem = conFind(adjustJournalCon, _journalId);
+
+                if (deleteItem)
+                {
+                    adjustJournalCon = conDel(adjustJournalCon, deleteItem, #one);
+                }
+                else
+                {
+                    deleteItem = conFind(consumJournalCon, _journalId);
+                    consumJournalCon = conDel(consumJournalCon, deleteItem, #one);
+                    consumJournalId  = _journalId;
+                }
+
+                ttsbegin;
+                salesMonitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                salesMonitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                salesMonitorTable.ErrorLog = _error;
+
+                if (consumJournalId)
+                {
+                    salesMonitorTable.InventJournalId = consumJournalId;
+                }
+                salesMonitorTable.update();
+                ttscommit;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Update ErrorLog field of the DIVConsumptionFromSalesMonitorLine table
+    /// </summary>
+    /// <param name = "_header">InventJournalId</param>
+    /// <param name = "_error">Error</param>
+    public void updateErrorLines(DIVConsumptionFromSalesMonitorTable  _header, Notes  _error)
+    {
+        DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(_header.RecId);
+
+        if (monitorTableUpd)
+        {
+            ttsbegin;
+            monitorTableUpd.selectForUpdate(true);
+            monitorTableUpd.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+            monitorTableUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+            monitorTableUpd.ErrorLog = _error;
+            monitorTableUpd.update();
+
+            DIVConsumptionFromSalesMonitorLine  monitorLine;
+
+            update_recordset monitorLine
+            setting ErrorLog = _error,
+                IntegrationStatus = DIVIntegrationStatusConsumption::Error,
+                ProcessingStatus = DIVProcessingStatusConsumption::Error
+                where monitorLine.RefRecId == monitorTableUpd.RecId;
+            ttscommit;
+        }
+    }
+
+    /// <summary>
+    /// Validation process used in autoProcess method
+    /// </summary>    
+    public void validationSubProcess()    
+    {
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+        DIVConsumptionFromSalesMonitorLine      lines;
+        CompanyInfo                             companyInfo;
+        //Validate header data
+        str                                     errorHeader, errorLine;
+        RefRecId                                monitorTableRecId;
+        #DIVModel
+
+        
+        itemQtyAdjCon = conNull();
+        
+        while select forupdate crosscompany monitorTable index hint MonitorIdx order by LegacyCompany asc
+            join forupdate lines index hint ItemIdx
+            where lines.RefRecId == monitorTable.RecId
+            && lines.InventJournalId == #blank 
+            && (monitorTable.IntegrationStatus == DIVIntegrationStatusConsumption::Received
+            || monitorTable.IntegrationStatus == DIVIntegrationStatusConsumption::Error)
+            && !monitorTable.InventJournalId
+            && !monitorTable.JournalPosted
+        {
+            select firstonly DataArea from companyInfo
+                where companyInfo.DIVLegacyCompany == monitorTable.LegacyCompany;
+
+            changecompany(companyInfo.DataArea)
+            {
+                //Update status
+                if (monitorTableRecId != monitorTable.RecId)
+                {
+                    ttsbegin;
+                    DIVConsumptionFromSalesMonitorTable monitorHeader = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+
+                    monitorHeader.IntegrationStatus = DIVIntegrationStatusConsumption::Execution;
+                    monitorHeader.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                    monitorHeader.update();
+                    ttscommit;
+                }
+            
+                //Validate header data               
+                errorHeader = DIVInventConsumptionHelper::validateHeader(monitorTable);
+
+                if (errorHeader)
+                {
+                    this.updateErrorLines(monitorTable, errorHeader);
+                    continue;
+                }
+
+                //Fill in WMSLocationId
+                WMSLocation         wmLocationTable;
+                InventLocationId    locationId = monitorTable.InventLocationId;
+
+                select firstonly wmLocationTable
+                    where wmLocationTable.inventLocationId == locationId
+                    && wmLocationTable.wMSLocationId == lines.WMSLocationId;
+
+                if (!wmLocationTable)
+                {
+                    lines.WMSLocationId = InventLocation::find(locationId).WMSLocationIdDefaultReceipt;
+                }
+
+                //Validate lines data
+                errorLine = DIVInventConsumptionHelper::validateLines(lines);
+
+                if (!errorLine)
+                {
+                    //Validate available physical qty - This allows the Invent Adjustment Journal creation
+                    //Set InventDim
+                    InventDim   inventDimLocal;
+
+                    inventDimLocal.InventLocationId = monitorTable.InventLocationId;
+                    inventDimLocal.InventSiteId     = InventLocation::find(monitorTable.InventLocationId).InventSiteId;
+                    inventDimLocal.wMSLocationId    = lines.WMSLocationId;
+                    inventDimLocal.inventBatchId    = lines.InventBatchId;
+                    inventDimLocal = InventDim::findOrCreate(inventDimLocal);
+
+                    Qty availableQty = DIVInventConsumptionHelper::getQtyAvailPhysical(lines.ItemId, inventDimLocal);
+
+                    if (availableQty < lines.Qty)
+                    {
+                        errorLine = DIVInventConsumptionHelper::validateLines(lines, DIVIntegrationParameters::find().InventJournalNameId);
+
+                        if (!errorLine)
+                        {
+                            int     adjQty = lines.Qty - availableQty;
+                            itemQtyAdjCon  += int2Str(adjQty) + #hyphen + int642Str(lines.RecId);
+                        }
+                    }
+                }
+                
+
+                if (errorLine)
+                {
+                    ttsbegin;
+                    lines.ErrorLog = errorLine;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                    lines.update();
+
+                    DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+                    
+                    if (monitorTableUpd)
+                    {
+                        monitorTableUpd.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                        monitorTableUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                        monitorTableUpd.ErrorLog = "@DIV:SalesMonitor_C_035";
+                        monitorTableUpd.update();
+                    }
+                    ttscommit;
+                }
+                else
+                {
+                    ttsbegin;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::PostingValidate;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                    lines.ErrorLog          = #blank;
+                    lines.update();
+
+                    DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+                    
+                    if (monitorTableUpd)
+                    {
+                        monitorTableUpd.ErrorLog = #blank;
+                        monitorTableUpd.update();
+                    }
+                    ttscommit;
+                }
+
+                monitorTableRecId = monitorTable.RecId;
+            }
+            
+        }
+        
+    }
+
+    /// <summary>
+    /// Validation Reprocessed records used in autoProcess method
+    /// </summary>
+    public void validationSubReProcess()
+    {
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+        DIVConsumptionFromSalesMonitorLine      lines;
+        CompanyInfo                             companyInfo;
+        //Validate header data
+        str                                     errorLine;
+        RefRecId                                monitorTableRecId;
+        #DIVModel
+                       
+        
+        while select forupdate crosscompany monitorTable index hint MonitorIdx order by LegacyCompany asc
+            join forupdate lines index hint ItemIdx
+            where lines.RefRecId == monitorTable.RecId
+            && lines.InventJournalId == #blank
+            && monitorTable.IntegrationStatus == DIVIntegrationStatusConsumption::Error
+            && monitorTable.ProcessingStatus == DIVProcessingStatusConsumption::Reprocess
+            && monitorTable.InventJournalId
+            && !monitorTable.JournalPosted
+        {
+            select firstonly DataArea from companyInfo
+                where companyInfo.DIVLegacyCompany == monitorTable.LegacyCompany;
+
+            changecompany(companyInfo.DataArea)
+            {  
+                //Validate lines data
+                errorLine = DIVInventConsumptionHelper::validateLines(lines);
+
+                if (!errorLine)
+                {
+                    //Validate available physical qty - This allows the Invent Adjustment Journal creation
+                    //Set InventDim
+                    InventDim   inventDimLocal;
+
+                    inventDimLocal.InventLocationId = monitorTable.InventLocationId;
+                    inventDimLocal.InventSiteId     = InventLocation::find(monitorTable.InventLocationId).InventSiteId;
+                    inventDimLocal.wMSLocationId    = lines.WMSLocationId;
+                    inventDimLocal.inventBatchId    = lines.InventBatchId;
+                    inventDimLocal = InventDim::findOrCreate(inventDimLocal);
+
+                    Qty availableQty = DIVInventConsumptionHelper::getQtyAvailPhysical(lines.ItemId, inventDimLocal);
+
+                    if (availableQty < lines.Qty)
+                    {
+                        errorLine = DIVInventConsumptionHelper::validateLines(lines, DIVIntegrationParameters::find().InventJournalNameId);
+
+                        if (!errorLine)
+                        {
+                            int     adjQty = lines.Qty - availableQty;
+                            itemQtyAdjCon  += int2Str(adjQty) + #hyphen + int642Str(lines.RecId);
+                        }
+                    }
+                }
+            
+                if (errorLine)
+                {
+                    ttsbegin;
+                    lines.ErrorLog = errorLine;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                    lines.update();
+
+                    DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+                    
+                    if (monitorTableUpd)
+                    {
+                        monitorTableUpd.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                        monitorTableUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                        monitorTableUpd.ErrorLog = "@DIV:SalesMonitor_C_035";
+                        monitorTableUpd.update();
+                    }
+                    ttscommit;
+                }
+                else
+                {
+                    ttsbegin;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::PostingValidate;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                    lines.ErrorLog          = #blank;
+                    lines.update();
+
+                    DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+                    
+                    if (monitorTableUpd)
+                    {
+                        monitorTableUpd.ErrorLog = #blank;
+                        monitorTableUpd.update();
+                    }
+                    ttscommit;
+                }
+
+                monitorTableRecId = monitorTable.RecId;
+            }
+            
+        }
+        
+    }
+
+    /// <summary>
+    /// Create ajustment journal process used in autoProcess method
+    /// </summary>
+    public void ajustmentJournalSubProcess()
+    {
+        //Create Invent Adjustment Journal
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+        DIVConsumptionFromSalesMonitorLine      adjustmentLine;
+        InventJournalTable                      adjustJournalTable;
+
+        int                                     i;
+        Qty                                     itemQty;
+        List                                    valuelist = new List(Types::String);
+        ListIterator                            iterador;
+        container                               packedlist;
+        RefRecId                                headerRecId;
+        boolean                                 createJournalHeader;
+        Notes                                   errorLog;
+        #DIVModel
+
+        try
+        {
+
+            for (i=1; i <= conLen(itemQtyAdjCon); i++)
+            {
+                valuelist = Global::strSplit(conPeek(itemQtyAdjCon, i), #hyphen);
+                iterador  = new ListIterator(valuelist);
+
+                packedlist = conNull();
+
+                while (iterador.more())
+                {
+                    packedlist += iterador.value();
+                    iterador.next();
+                }
+
+                itemQty = conPeek(packedlist, 1);
+
+                select firstonly crosscompany adjustmentLine where adjustmentLine.RecId == conPeek(packedlist, 2);
+
+                if (headerRecId != adjustmentLine.RefRecId)
+                {
+                    headerRecId = adjustmentLine.RefRecId;
+                    createJournalHeader = true;
+                }
+                else
+                {
+                    createJournalHeader = false;
+                }
+
+                if (adjustmentLine)
+                {
+                    changecompany(adjustmentLine.DataAreaId) 
+                    {
+                        select firstonly monitorTable where monitorTable.RecId == adjustmentLine.RefRecId;
+
+                        if (monitorTable)
+                        {
+                            //Create Adjustment journal header
+                            ttsbegin;
+                            if (createJournalHeader)
+                            {
+                                adjustJournalTable = DIVInventConsumptionHelper::createMovementJournalHeader(DIVIntegrationParameters::find().InventJournalNameId, monitorTable);
+                            
+                                if (adjustJournalTable)
+                                {
+                                    adjustJournalTable.selectForUpdate(true);
+                                    adjustJournalTable.DIVMonitorRefRecId = monitorTable.RecId;
+                                    adjustJournalTable.update();
+                                }
+                                //Save adjustment journal to later post
+                                adjustJournalCon += adjustJournalTable.JournalId;
+                            }
+
+                            //Create Adjustment journal lines
+                            DIVInventConsumptionHelper::createMovementJournalLines(adjustJournalTable, adjustmentLine, itemQty, monitorTable.CostCenter);
+
+                            DIVConsumptionFromSalesMonitorLine  adjustmentLineUpd = DIVConsumptionFromSalesMonitorLine::findRecId(adjustmentLine.RecId, true);
+
+                            if (adjustmentLineUpd)
+                            {         
+                                adjustmentLineUpd.InventJournalId   = adjustJournalTable.JournalId;
+                                adjustmentLineUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                                adjustmentLineUpd.IntegrationStatus = DIVIntegrationStatusConsumption::CreationJournal;
+                                adjustmentLineUpd.update();
+                            }
+                            ttscommit;
+                        }
+                    }
+                 
+                }
+            }
+        }
+        catch (Exception::Error)
+        {
+            errorLog = '';
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+
+            this.updateErrorInMonitorTable(adjustJournalTable.JournalId, errorLog);
+
+            retry;
+        }
+        catch(Exception::CLRError)
+        {
+            errorLog = '';
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+            this.updateErrorInMonitorTable(adjustJournalTable.JournalId, errorLog);
+        }
+    }
+
+    /// <summary>
+    /// Create consumption journal process used in autoProcess method
+    /// </summary>
+    public void consumJournalSubProcess()
+    {
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+        DIVConsumptionFromSalesMonitorLine      lines;
+        CompanyInfo                             companyInfo;
+        InventJournalTable                      journalTable;
+
+        boolean                                 createJournalHeader;
+        RefRecId                                headerRecId;
+        Notes                                   errorLog;
+
+        try
+        {
+            //--------------- Create Movement Journal ---------------
+            while select forupdate crosscompany monitorTable index hint MonitorIdx order by LegacyCompany asc
+            join forupdate lines index hint ItemIdx
+                where monitorTable.ProcessingStatus == DIVProcessingStatusConsumption::Execution
+                && !monitorTable.InventJournalId
+                && !monitorTable.JournalPosted
+                && lines.RefRecId == monitorTable.RecId
+            {
+                select firstonly DataArea from companyInfo
+                    where companyInfo.DIVLegacyCompany == monitorTable.LegacyCompany;
+
+                changecompany(companyInfo.DataArea)
+                {
+                    ttsbegin;
+                    if (headerRecId != monitorTable.RecId)
+                    {
+                        headerRecId = monitorTable.RecId;
+                        createJournalHeader = true;
+
+                        monitorTable.selectForUpdate(true);
+                        monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::CreationConsumJournal;
+                        monitorTable.update();
+                    }
+                    else
+                    {
+                        createJournalHeader = false;
+                    }
+
+                    if (createJournalHeader)
+                    {
+                        //Create Movement journal header
+                        journalTable = DIVInventConsumptionHelper::createMovementJournalHeader(monitorTable.InventJournalNameId, monitorTable);
+
+                        if (journalTable)
+                        {
+                            journalTable.selectForUpdate(true);
+                            journalTable.DIVMonitorRefRecId = monitorTable.RecId;
+                            journalTable.update();
+
+                            monitorTable.selectForUpdate(true);
+                            monitorTable.InventJournalId = journalTable.JournalId;
+                            monitorTable.update();
+                        }
+                        //Save consumption journal to later post
+                        consumJournalCon += journalTable.JournalId;
+                    }
+                    //Create Movement journal lines
+                    DIVInventConsumptionHelper::createMovementJournalLines(journalTable, lines, 0, monitorTable.CostCenter);
+
+                    ttscommit;
+                }
+            }
+
+        }
+        catch (Exception::Error)
+        {
+            errorLog = '';
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+
+            this.updateErrorInMonitorTable(journalTable.JournalId, errorLog);
+
+            retry;
+        }
+
+    }
+
+    /// <summary>
+    /// Post records with inventJournalId associated
+    /// </summary>
+    public void reProcessedJournalSubProcess()
+    {          
+        DIVConsumptionFromSalesMonitorTable     monitorTable, salesMonitorTable;
+        InventJournalTable                      consumJournal;
+        Notes                                   errorLog;
+        #DIVModel
+
+        try
+        {   
+            while select forupdate crosscompany monitorTable index hint MonitorIdx order by LegacyCompany asc           
+                where monitorTable.IntegrationStatus == DIVIntegrationStatusConsumption::Error
+                && monitorTable.InventJournalId
+                && !monitorTable.JournalPosted
+            {
+                select crosscompany consumJournal
+                    where consumJournal.JournalId == monitorTable.InventJournalId;
+
+                changecompany(consumJournal.DataAreaId)
+                {
+                    ttsbegin;
+                    //Post consumption invent journal
+                    DIVInventConsumptionHelper::postInventJournal(consumJournal);
+
+                    salesMonitorTable = DIVConsumptionFromSalesMonitorTable::findRecId(consumJournal.DIVMonitorRefRecId, true);
+
+                    if (salesMonitorTable)
+                    {
+                        salesMonitorTable.InventJournalId   = consumJournal.JournalId;
+                        salesMonitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Posted;
+                        salesMonitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Completed;
+                        salesMonitorTable.PostingDate       = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+                        salesMonitorTable.JournalPosted     = NoYes::Yes;
+                        salesMonitorTable.ErrorLog          = #blank;
+                        salesMonitorTable.update();
+                    }
+                    posted = true;
+                    ttscommit;
+                }
+            }
+        }     
+        catch (Exception::Error)
+        {
+            errorLog = '';
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+
+            if (!errorLog)
+            {
+                errorLog = "@DIV:SalesMonitor_C_034";
+            }
+            
+            salesMonitorTable = DIVConsumptionFromSalesMonitorTable::findRecId(consumJournal.DIVMonitorRefRecId, true);
+
+            if (salesMonitorTable)
+            {
+                ttsbegin;
+                salesMonitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                salesMonitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Reprocess;
+                salesMonitorTable.ErrorLog          = errorLog;
+                salesMonitorTable.update();
+                ttscommit;
+            }
+        }
+    }
+
+}
+_________________________________________________________
+
+/// <summary>
+/// Class used to run the batch job
+/// </summary>
+/// 20230914 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+class DIVInventConsumptionControllerBatch extends SysOperationServiceController
+{
+    /// <summary>
+    /// Main logic to run this class
+    /// </summary>
+    /// <param name = "_args">Passing args</param>
+    public static void main(Args _args)
+    {
+        DIVInventConsumptionControllerBatch     controller;
+        DIVInventConsumptionContractBatch       contract;
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+
+        FormRun                                 callerForm = _args.caller();
+
+        if (_args.record() && _args.dataset() == tableNum(DIVConsumptionFromSalesMonitorTable))
+        {
+            monitorTable = _args.record();
+        }
+
+        controller = new DIVInventConsumptionControllerBatch();
+        controller.parmDialogCaption("@DIV:SalesMonitor_C_009");
+        controller.parmLoadFromSysLastValue(false);
+        contract = controller.getDataContractObject();
+        //Manual process
+        if (monitorTable)
+        {
+            contract.parmMonitorTable(monitorTable);
+        }
+
+        controller.startOperation();
+
+        if (callerForm)
+        {
+            callerForm.datasource().reread();
+            callerForm.datasource().refresh();
+            callerForm.datasource().research(true);
+        }
+    }
+
+    /// <summary>
+    /// Mapping the service class to run the batch job
+    /// </summary>
+    protected void new()
+    {
+        super(classStr(DIVInventConsumptionServiceBatch), methodStr(DIVInventConsumptionServiceBatch, run), SysOperationExecutionMode::Synchronous);
+    }
+
+}
+_______________________________________________
+
+/// <summary>
+/// Class contract of the batch job
+/// </summary>
+/// 20230914 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+[DataContractAttribute]
+class DIVInventConsumptionContractBatch
+{
+    DIVConsumptionFromSalesMonitorTable     monitorTable;
+
+    /// <summary>
+    /// DIVConsumptionFromSalesMonitorTable parm
+    /// </summary>
+    /// <param name = "_monitorTable">DIVConsumptionFromSalesMonitorTable</param>
+    /// <returns>DIVConsumptionFromSalesMonitorTable</returns>
+    [DataMemberAttribute]
+    public DIVConsumptionFromSalesMonitorTable parmMonitorTable(DIVConsumptionFromSalesMonitorTable _monitorTable = monitorTable)
+    {
+        monitorTable = _monitorTable;
+
+        return monitorTable;
+    }
+
+}
+
+_____________________________________________________
+
+CLASE HELPER , DE AYUDA PARA REALIZAR DISTINTAS TAREAS
+
+/// <summary>
+/// Helper class that contains processes related to InventConsumptions
+/// 20230915 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+/// </summary>
+public class DIVInventConsumptionHelper
+{      
+
+    /// <summary>
+    /// Populate DIVConsumptionFromSalesMonitorTable table
+    /// </summary>
+    /// <param name = "_contract">DIVInventConsumptionContract</param>
+    /// <returns>DIVConsumptionFromSalesMonitorTable</returns>
+    public static DIVConsumptionFromSalesMonitorTable insertFromSalesMonitorTable(DIVInventConsumptionContract  _contract)
+    {
+        DIVConsumptionFromSalesMonitorTable     header; 
+        InventLocation                          inventLocation;
+        #DIVModel
+        
+        //Format DateTime
+        str                 consumHour    = subStr(_contract.parmConsumDate(), 9, 2); 
+        str                 consumMin     = subStr(_contract.parmConsumDate(), 11, 2); 
+        TransDate           consumDate    = str2Date(subStr(_contract.parmConsumDate(), 1, 8), 321);
+        str                 consumTimestr = consumHour + #TwoPoints + consumMin + #AddSeconds;
+        TransDateTime       dateTimeConv  = DateTimeUtil::newDateTime(consumDate, str2Time(consumTimestr));
+
+        header.clear();
+        header.InventJournalNameId  = _contract.parmOperationType(); //Consumption journal name
+        header.ConsumDateTime       = dateTimeConv;
+        header.InventJournalType    = InventJournalName::find(header.InventJournalNameId).JournalType;
+        header.LegacyCompany        = _contract.parmEmpId();
+        header.IntegrationStatus    = DIVIntegrationStatusConsumption::Received;
+        header.ProcessingStatus     = DIVProcessingStatusConsumption::Waiting;
+        header.InventLocIntegration = _contract.parmLocation();               
+        //Find InventLocationId
+        select firstonly inventLocationId from inventLocation
+            where inventLocation.DIVInventLocIntegration == header.InventLocIntegration;
+
+        header.InventLocationId = inventLocation.InventLocationId;
+        header.CostCenter       = _contract.parmCenterConsumption();
+        header.insert();
+
+        return header;
+    }
+
+    /// <summary>
+    /// Populate DIVConsumptionFromSalesMonitorLine table
+    /// </summary>
+    /// <param name = "_contract">DIVInventConsumptionDetailContract</param>
+    /// <param name = "_header">DIVConsumptionFromSalesMonitorTable record</param>
+    /// <returns>DIVConsumptionFromSalesMonitorLine</returns>
+    public static DIVConsumptionFromSalesMonitorLine insertFromSalesMonitorLine(DIVInventConsumptionDetailContract  _contract, DIVConsumptionFromSalesMonitorTable _header)
+    {
+        DIVConsumptionFromSalesMonitorLine  line;          
+        WMSLocation                         wmsLocation;
+        WMSLocationId                       wmsLocationId;
+
+        line.clear();
+        line.ItemId        = _contract.parmItemId();
+        line.InventSiteId  = InventSite::find(curExt()).SiteId;
+        
+        if (!_contract.parmWMSLocationId())
+        {
+            select firstonly wMSLocationId from wmsLocation
+                where wmsLocation.inventLocationId == _header.InventLocationId;
+
+            wmsLocationId = wmsLocation.wMSLocationId;
+        }
+        else
+        {
+            wmsLocationId = _contract.parmWMSLocationId();
+        }
+
+        line.WMSLocationId = wmsLocationId;
+        line.Qty           = _contract.parmQty();
+        line.Unit          = (_contract.parmUnitId()) ? _contract.parmUnitId() : InventTable::find(line.ItemId).inventUnitId();
+        
+        if (DIVInventConsumptionHelper::isBatchRequired(line.ItemId))
+        {
+            line.InventBatchId = _contract.parmInventBatchId();
+        }
+
+        line.IntegrationStatus = DIVIntegrationStatusConsumption::Received;
+        line.ProcessingStatus  = DIVProcessingStatusConsumption::Waiting;
+        line.RefRecId          = _header.RecId;
+        line.insert();
+
+        return line;
+    }
+
+    /// <summary>
+    /// Create Movement Journal Header
+    /// </summary>
+    /// <param name = "_inventJournalNameId">InventJournalNameId</param>
+    /// <param name = "_header">DIVConsumptionFromSalesMonitorTable</param>
+    /// <returns>InventJournalTable</returns>
+    public static InventJournalTable createMovementJournalHeader(InventJournalNameId _inventJournalNameId, DIVConsumptionFromSalesMonitorTable _header)
+    {
+        InventJournalTable      inventJournalTable;
+
+        changecompany(_header.DataAreaId)
+        {
+            inventJournalTable.clear();
+            inventJournalTable.initFromInventJournalName(InventJournalName::find(_inventJournalNameId));
+
+            InventLocation  inventLocation = InventLocation::find(_header.InventLocationId);
+            InventSite      inventSite = InventSite::find(inventLocation.InventSiteId);
+            
+            inventJournalTable.InventLocationId = inventLocation.InventLocationId;
+            inventJournalTable.InventSiteId     = inventSite.SiteId;
+            inventJournalTable.APPE_InventOperTypeCode = DIVIntegrationParameters::find().InventOperTypeCode;
+            inventJournalTable.insert();
+        }
+
+        return inventJournalTable;
+    }
+
+    /// <summary>
+    /// Create Movement Journal Lines
+    /// </summary>
+    /// <param name = "_inventJournalTable">InventJournalTable</param>
+    /// <param name = "_lines">DIVConsumptionFromSalesMonitorLine</param>
+    /// <param name = "_adjQty">Adjustment qty</param>
+    /// <param name = "_costCenter">cost center value</param>
+    /// <returns>True or false</returns>
+    public static boolean createMovementJournalLines(InventJournalTable _inventJournalTable, 
+                                                     DIVConsumptionFromSalesMonitorLine   _lines,
+                                                     Qty    _adjQty = 0,
+                                                     str    _costCenter = '')
+    {
+        InventJournalTrans      inventJournalTrans;
+        InventDim               inventDim;
+        InventTable             inventTable;
+        container               dimAttr, dimValue;
+        Qty                     itemQty;
+        
+        #DIVModel
+
+        dimAttr = conNull();
+        dimValue = conNull();
+
+        changecompany(_lines.DataAreaId)
+        {               
+            inventJournalTrans.clear();
+            inventJournalTrans.initFromInventJournalTable(_inventJournalTable);
+            inventJournalTrans.TransDate = DateTimeUtil::date(DIVConsumptionFromSalesMonitorTable::findRecId(_lines.RefRecId).ConsumDateTime);
+            inventJournalTrans.ItemId    = _lines.ItemId;
+            inventTable = InventTable::find(inventJournalTrans.ItemId);
+            inventJournalTrans.initFromInventTable(inventTable);
+
+            //Set InventDim
+            inventDim.InventLocationId = _inventJournalTable.InventLocationId;
+            inventDim.InventSiteId     = _inventJournalTable.InventSiteId;
+            inventDim.wMSLocationId    = _lines.WMSLocationId;
+            inventDim.inventBatchId    = _lines.InventBatchId;
+        
+            inventJournalTrans.InventDimId = InventDim::findOrCreate(inventDim).inventDimId;
+       
+            if (_adjQty)
+            {
+                itemQty = _adjQty;
+            }
+            else
+            {
+                itemQty = _lines.Qty * -1;
+            }
+
+            inventJournalTrans.Qty = itemQty;
+            inventJournalTrans.setCostPrice(inventJournalTrans.inventDimId, inventDim);
+
+            ItemGroupId             itemGroup = inventTable.itemGroupId();
+            LedgerDimensionAccount  ledgerDimension = DIVInventConsumptionHelper::getLedgerDimension(_inventJournalTable.JournalNameId, itemGroup);
+       
+            if (ledgerDimension)
+            {
+                inventJournalTrans.LedgerDimension = ledgerDimension;
+            }
+
+            if (_costCenter)
+            {
+                inventJournalTrans.DefaultDimension = DIVInventConsumptionHelper::addDimToDefaultDimension(inventJournalTrans.DefaultDimension, #costCenter, _costCenter);
+            }
+            inventJournalTrans.modifiedFieldValue(inventJournalTrans.Unit);
+            inventJournalTrans.insert();
+
+            //update inventTransId field from DIVConsumptionFromSalesMonitorLine
+            DIVConsumptionFromSalesMonitorLine  monitorLine = DIVConsumptionFromSalesMonitorLine::findRecId(_lines.RecId, true);
+
+            if (monitorLine)
+            {
+                monitorLine.InventTransId = inventJournalTrans.InventTransId;
+                monitorLine.update();
+            }
+
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Validate if Batch is required
+    /// </summary>
+    /// <param name = "_itemId">ItemId</param>
+    /// <returns>True or false</returns>
+    public static boolean isBatchRequired(ItemId _itemId)
+    {
+        InventDimGroupFieldSetup    inventDimGroupFieldSetup;
+
+        inventDimGroupFieldSetup = EcoResDimensionGroupSetup::getFieldSetupForItem(_itemId, fieldNum(InventDim, InventBatchId));
+
+        if (!inventDimGroupFieldSetup.dimFieldId() || !inventDimGroupFieldSetup.isActive() ||  inventDimGroupFieldSetup.isAllowBlankReceiptEnabled())
+        {
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Validate DIVConsumptionFromSalesMonitorTable record
+    /// </summary>
+    /// <param name = "_header">DIVConsumptionFromSalesMonitorTable</param>
+    /// <returns>Error</returns>
+    public static str validateHeader(DIVConsumptionFromSalesMonitorTable _header)
+    {
+        CompanyInfo companyInfo;
+        #DIVModel
+       
+        select firstonly DataArea from companyInfo
+            where companyInfo.DIVLegacyCompany == _header.LegacyCompany;
+               
+        if (!companyInfo)
+        {
+            return strFmt("@DIV:SalesMonitor_C_015", int2Str(_header.LegacyCompany));
+        }
+
+        changecompany(companyInfo.DataArea)
+        {
+            if (!InventJournalName::find(_header.InventJournalNameId))
+            {
+                return strFmt("@DIV:SalesMonitor_C_016");
+            }
+
+            if (!_header.InventLocationId)
+            {
+                return strFmt("@DIV:DPL_0019", _header.InventLocationId);
+            }
+                         
+            DimAttributeOMCostCenter    costCenterDim;
+
+            select firstonly Value from costCenterDim
+                where costCenterDim.Value == _header.CostCenter;                             
+
+            if (!costCenterDim)
+            {
+                return strFmt("@DIV:SalesMonitor_C_029", _header.CostCenter);
+            }
+
+            DimensionAttribute                  dimAttribute = DimensionAttribute::findByName(#costCenter);
+            DimensionAttributeValue             dimAttrValue = DimensionAttributeValue::findByDimensionAttributeAndValue(dimAttribute, _header.CostCenter);
+            DimensionAttrValueLedgerOverride    dimvalueLedger = DimensionAttrValueLedgerOverride::findByDimensionAttrValueLedgerOverride(dimAttrValue.RecId, Ledger::current());
+
+            if (dimvalueLedger.IsSuspended)
+            {
+                return strFmt("@DIV:SalesMonitor_C_036", _header.CostCenter);
+            }
+        }
+
+        return #blank;
+    }
+
+    /// <summary>
+    /// Validate DIVConsumptionFromSalesMonitorLine record
+    /// </summary>
+    /// <param name = "_lines">DIVConsumptionFromSalesMonitorLine</param>
+    /// <param name = "_journalId">InventJournalNameId</param>
+    /// <param name = "_isBatchRequired">isBatchRequired</param>
+    /// <returns>Error</returns>
+    public static str validateLines(DIVConsumptionFromSalesMonitorLine _lines,
+                                    InventJournalNameId _journalId = "",
+                                    boolean _isBatchRequired = false)
+    {
+        InventTable                             inventTableLocal = InventTable::find(_lines.ItemId);
+        DIVConsumptionFromSalesMonitorTable     monitorTableLocal = DIVConsumptionFromSalesMonitorTable::findRecId(_lines.RefRecId);        
+        ItemGroupId                             itemGroup = inventTableLocal.itemGroupId();
+        LedgerDimensionAccount                  ledgerDim = 0;
+          
+        if (_journalId)
+        {
+            ledgerDim = InventJournalName::find(_journalId).LedgerDimension;
+
+            if (!ledgerDim)
+            {
+                ledgerDim = DIVInventConsumptionHelper::getLedgerDimension(_journalId, itemGroup);
+
+                if (!ledgerDim)
+                {
+                    return strFmt("@DIV:SalesMonitor_C_030", _lines.ItemId, inventTableLocal.itemName());
+                }
+            }
+        }
+        else
+        {
+            if (!inventTableLocal)
+            {
+                return strFmt("@DIV:SalesMonitor_C_024", _lines.ItemId);
+            }
+
+            ledgerDim = InventJournalName::find(monitorTableLocal.InventJournalNameId).LedgerDimension;
+
+            if (!ledgerDim)
+            {
+                ledgerDim = DIVInventConsumptionHelper::getLedgerDimension(monitorTableLocal.InventJournalNameId, itemGroup);
+
+                if (!ledgerDim)
+                {
+                    return strFmt("@DIV:SalesMonitor_C_030", _lines.ItemId, inventTableLocal.itemName());
+                }
+            }
+        
+            if (!_lines.LineNum)
+            {
+                return "@DIV:SalesMonitor_C_025";
+            }
+
+            if (InventItemPurchSetup::findDefault(_lines.ItemId).Stopped)
+            {
+                return strFmt("@DIV:SalesMonitor_C_026", _lines.ItemId);
+            }
+
+            if (!InventTableModule::find(_lines.ItemId, ModuleInventPurchSales::Invent).Price)
+            {
+                return strFmt("@DIV:SalesMonitor_C_027", _lines.ItemId);
+            }
+
+            if (_isBatchRequired && !InventBatch::find(_lines.InventBatchId, _lines.ItemId))
+            {
+                return strFmt("@DIV:SalesMonitor_C_028", _lines.ItemId);
+            }
+            
+            if (!_lines.WMSLocationId)
+            {
+                return strFmt("@DIV:SalesMonitor_C_037", _lines.WMSLocationId, monitorTableLocal.InventLocationId);
+            }
+
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Get available physical qty
+    /// </summary>
+    /// <param name = "_itemId">ItemId</param>
+    /// <param name = "_inventDim">InventDim</param>
+    /// <returns>Available physical qty</returns>
+    public static real getQtyAvailPhysical(ItemId _itemId, InventDim _inventDim)
+    {
+        InventDimParm   inventDimParm;
+        InventOnHand    inventOnHand;
+        InventSum       inventSum;
+
+        select firstOnly inventSum
+            where inventSum.ItemId == _itemId;
+
+        inventDimParm.initFrominventDim(_inventDim);
+        inventOnHand = InventOnHand::newItemDim(inventSum.ItemId, _inventDim, inventDimParm);
+        
+        return inventOnHand.availPhysical();
+    }
+
+    /// <summary>
+    /// Post invent movement journal
+    /// </summary>
+    /// <param name = "_inventJournalTable">InventJournalTable record</param>
+    public static void postInventJournal(InventJournalTable _inventJournalTable)
+    {
+        JournalCheckPost    journalCheckPost = InventJournalCheckPost::newPostJournal(_inventJournalTable);
+        
+        journalCheckPost.runOperation();
+    }
+
+    /// <summary>
+    /// Get error message
+    /// </summary>
+    /// <returns>Message error</returns>
+    public static str getErrorStr()
+    {
+        SysInfologEnumerator    enumerator;
+        SysInfologMessageStruct msgStruct;
+        Exception               exception;
+        str                     error;
+        int                     i;
+
+        enumerator = SysInfologEnumerator::newData(infolog.cut());
+        
+        while (enumerator.moveNext())
+        {
+            msgStruct = new SysInfologMessageStruct(enumerator.currentMessage());
+            exception = enumerator.currentException();
+            
+            if (i > 0)
+            {
+                error = strfmt("@DIV:SalesMonitor_A_016", error, msgStruct.message());
+            }
+            else
+            {
+                error = strfmt("@DIV:SalesMonitor_A_017", msgStruct.message());
+            }
+            i++;
+        }
+
+        return error;
+    }
+
+    /// <summary>
+    /// Get LedgerDimension RecId from Main Account Id
+    /// </summary>
+    /// <param name = "_journalnameId">InventJournalNameId</param>
+    /// <param name = "_itemGroupId">ItemGroupId</param>
+    /// <returns>LedgerDimension</returns>
+    public static LedgerDimensionAccount getLedgerDimension(InventJournalNameId _journalnameId, ItemGroupId _itemGroupId)
+    {
+        DIVConsumAccountHomologationTable   accountHomoTable;
+        LedgerDimensionAccount              ledgerDimension;
+
+        accountHomoTable = DIVConsumAccountHomologationTable::find(_journalnameId, _itemGroupId);
+        ledgerDimension  = LedgerDefaultAccountHelper::getDefaultAccountFromMainAccountId(accountHomoTable.MainAccountId);//LedgerDynamicAccountHelper::getDynamicAccountFromAccountNumber(accountHomoTable.MainAccountId, LedgerJournalACType::Ledger);
+        
+        return  ledgerDimension;
+    }
+
+    /// <summary>
+    /// Get dimension value
+    /// </summary>
+    /// <param name = "_defaultDimension">DefaultDimension</param>
+    /// <param name = "_dimName">Dimension name</param>
+    /// <returns>Dimension display value</returns>
+    public static str getDimensionDisplayValue(RecId  _defaultDimension, Name  _dimName)
+    {
+        DimensionAttributeValueSetStorage   dimStorage;
+
+        dimStorage = DimensionAttributeValueSetStorage::find(_defaultDimension);
+        
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(_dimName).RecId);
+    }
+
+    /// <summary>
+    /// Add new dimension value to the DefaultDimension
+    /// </summary>
+    /// <param name = "_defaultDimension">DefaultDimension</param>
+    /// <param name = "_dimName">Dimension name</param>
+    /// <param name = "_addDimValue">Dimension value</param>
+    /// <returns>New recId of the DefaultDimension</returns>
+    public static RecId addDimToDefaultDimension(RecId  _defaultDimension, Name  _dimName, DimensionValue  _addDimValue)
+    {
+        DimensionAttributeValueSetStorage   dimStorage = new DimensionAttributeValueSetStorage();
+        DimensionAttribute                  dimAttribute;
+        DimensionAttributeValue             dimAttributeValue;
+        DimensionDefault                    defaultDimension = _defaultDimension;
+
+        //Default Dimension modified or updated including the new dimension value
+        dimStorage        = DimensionAttributeValueSetStorage::find(defaultDimension);
+        dimAttribute      = DimensionAttribute::findByName(_dimName);
+        dimAttributeValue = DimensionAttributeValue::findByDimensionAttributeAndValue(dimAttribute, _addDimValue, false, true);
+
+        dimStorage.addItem(dimAttributeValue);
+        defaultDimension = dimStorage.save();
+
+        return defaultDimension;
+    }
+
+}
+
+______________________________________________________________________
+
+SERVICIO QUE CREA REGISTROS EN LAS TABLAS CABECERA DETALLE DE CONSUMOS DESDE MONITOR
+
+/// <summary>
+/// 20230911 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+/// </summary>
+[DataContractAttribute('Consumption')]
+class DIVInventConsumptionContract
+{
+    int     empId;
+    int     division;
+    int     unit;
+    str     operationType;
+    str     consumDate;
+    str     location;
+    int     centerResponsability;
+    str     centerConsumption;
+    str     gloss;
+    int     projectType;
+    int     projectNum;
+    int     imputationConcept;
+    List    consumptionDetailList;
+    
+
+    /// <summary>
+    /// Company code parameter request
+    /// </summary>
+    /// <param name = "_empId">Company</param>
+    /// <returns>Company</returns>
+    [DataMemberAttribute('empId')]
+    public int parmEmpId(int _empId = empId)
+    {
+        empId = _empId;
+        return empId;
+    }
+
+    /// <summary>
+    /// Division code parameter request
+    /// </summary>
+    /// <param name = "_division">Division</param>
+    /// <returns>Division</returns>
+    [DataMemberAttribute('division')]
+    public int parmDivision(int _division = division)
+    {
+        division = _division;
+        return division;
+    }
+
+    /// <summary>
+    /// Unit code parameter request
+    /// </summary>
+    /// <param name = "_unit">Unit</param>
+    /// <returns>Unit</returns>
+    [DataMemberAttribute('unit')]
+    public int parmUnit(int _unit = unit)
+    {
+        unit = _unit;
+        return unit;
+    }
+
+    /// <summary>
+    /// Operation type parameter request
+    /// </summary>
+    /// <param name = "_operationType">Operation type</param>
+    /// <returns>Operation type</returns>
+    [DataMemberAttribute('operationType')]
+    public str parmOperationType(str _operationType = operationType)
+    {
+        operationType = _operationType;
+        return operationType;
+    }
+
+    /// <summary>
+    /// ConsumDate parameter request
+    /// </summary>
+    /// <param name = "_consumDate">Consum date</param>
+    /// <returns>Consum date</returns>
+    [DataMemberAttribute('consumDate')]
+    public str parmConsumDate(str _consumDate = consumDate)
+    {
+        consumDate = _consumDate;
+        return consumDate;
+    }
+
+    /// <summary>
+    /// Location parameter request
+    /// </summary>
+    /// <param name = "_location">location</param>
+    /// <returns>location</returns>
+    [DataMemberAttribute('location')]
+    public str parmLocation(str _location = location)
+    {
+        location = _location;
+        return location;
+    }
+
+    /// <summary>
+    /// CenterResponsability parameter request
+    /// </summary>
+    /// <param name = "_centerResponsability">Center responsability</param>
+    /// <returns>centerResponsability</returns>
+    [DataMemberAttribute('centerResponsability')]
+    public int parmCenterResponsability(int _centerResponsability = centerResponsability)
+    {
+        centerResponsability = _centerResponsability;
+        return centerResponsability;
+    }
+
+    /// <summary>
+    /// CenterConsumption parameter request
+    /// </summary>
+    /// <param name = "_centerConsumption">Center consumption</param>
+    /// <returns>centerConsumption</returns>
+    [DataMemberAttribute('centerConsumption')]
+    public str parmCenterConsumption(str _centerConsumption = centerConsumption)
+    {
+        centerConsumption = _centerConsumption;
+        return centerConsumption;
+    }
+
+    /// <summary>
+    /// Gloss parameter request
+    /// </summary>
+    /// <param name = "_gloss">Gloss</param>
+    /// <returns>gloss</returns>
+    [DataMemberAttribute('gloss')]
+    public str parmGloss(str _gloss = gloss)
+    {
+        gloss = _gloss;
+        return gloss;
+    }
+
+    /// <summary>
+    /// Project type parameter request
+    /// </summary>
+    /// <param name = "_projectType">Project type</param>
+    /// <returns>Project type</returns>
+    [DataMemberAttribute('projectType')]
+    public int parmProjectType(int _projectType = projectType)
+    {
+        projectType = _projectType;
+        return projectType;
+    }
+
+    /// <summary>
+    /// Project num parameter request
+    /// </summary>
+    /// <param name = "_projectNum">Project num</param>
+    /// <returns>Project num</returns>
+    [DataMemberAttribute('projectNum')]
+    public int parmProjectNum(int _projectNum = projectNum)
+    {
+        projectNum = _projectNum;
+        return projectNum;
+    }
+
+    /// <summary>
+    /// Imputation concept parameter request
+    /// </summary>
+    /// <param name = "_imputationConcept">Imputation concept</param>
+    /// <returns>Imputation concept</returns>
+    [DataMemberAttribute('imputationConcept')]
+    public int parmImputationConcept(int _imputationConcept = imputationConcept)
+    {
+        imputationConcept = _imputationConcept;
+        return imputationConcept;
+    }
+
+    /// <summary>
+    /// Data detail list
+    /// </summary>
+    /// <param name = "_consumptionDetailList">List</param>
+    /// <returns>List</returns>
+    [
+        DataMemberAttribute('ConsumptionDetail'),
+        AifCollectionType("_consumptionDetailList", Types::Class, classStr(DIVInventConsumptionDetailContract)), 
+        AifCollectionType("return", Types::Class, classStr(DIVInventConsumptionDetailContract))
+    ]
+    public List parmConsumptionDetailList(List _consumptionDetailList = consumptionDetailList)
+    {
+        consumptionDetailList = _consumptionDetailList;
+        return consumptionDetailList;
+    }
+
+}
+
+__________________________________
+
+
+/// <summary>
+/// The <c>DIVInventConsumptionDetailContract</c> class that shows the lines of the DIVConsumptionFromSalesMonitorLine table
+/// 20230911 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+/// </summary>
+[DataContractAttribute('Details')]
+class DIVInventConsumptionDetailContract
+{
+    str     itemId;
+    int     qty;
+    str     unitId;
+    str     wmsLocationId;
+    str     inventBatchId;
+
+    
+    /// <summary>
+    /// ItemId parameter request
+    /// </summary>
+    /// <param name = "_itemId">ItemId</param>
+    /// <returns>ItemId</returns>
+    [DataMemberAttribute('itemId')]
+    public str parmItemId(str _itemId = itemId)
+    {
+        itemId = _itemId;
+        return itemId;
+    }
+
+    /// <summary>
+    /// Qty parameter request
+    /// </summary>
+    /// <param name = "_qty">Qty</param>
+    /// <returns>Qty</returns>
+    [DataMemberAttribute('qty')]
+    public int parmQty(int _qty = qty)
+    {
+        qty = _qty;
+        return qty;
+    }
+
+    /// <summary>
+    /// UnitId parameter request
+    /// </summary>
+    /// <param name = "_unitId">Unit id</param>
+    /// <returns>Unit id</returns>
+    [DataMemberAttribute('unitId')]
+    public str parmUnitId(str _unitId = unitId)
+    {
+        unitId = _unitId;
+        return unitId;
+    }
+
+    /// <summary>
+    /// WMSLocationId parameter request
+    /// </summary>
+    /// <param name = "_wmsLocationId">WMSLocationId</param>
+    /// <returns>wmsLocationId</returns>
+    [DataMemberAttribute('WMSLocationId')]
+    public str parmWMSLocationId(str _wmsLocationId = wmsLocationId)
+    {
+        wmsLocationId = _wmsLocationId;
+        return wmsLocationId;
+    }
+
+    /// <summary>
+    /// InventBatchId parameter request
+    /// </summary>
+    /// <param name = "_inventBatchId">InventBatchId</param>
+    /// <returns>InventBatchId</returns>
+    [DataMemberAttribute('inventBatchId')]
+    public str parmInventBatchId(str _inventBatchId = inventBatchId)
+    {
+        inventBatchId = _inventBatchId;
+        return inventBatchId;
+    }
+
+}
+________________________________
+
+/// <summary>
+/// The <c>DIVInventConsumptionResponse</c> class declares the Final Response service
+/// 20230911 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+/// </summary>
+[DataContractAttribute]
+class DIVInventConsumptionResponse
+{
+    str     message;
+
+    /// <summary>
+    /// Message parameter response
+    /// </summary>
+    /// <param name = "_value">Message</param>
+    /// <returns>Message</returns>
+    [DataMember("Message")]
+    public str parmMessage(str _value = message)
+    {
+        if (!prmIsDefault(_value))
+        {
+            message = _value;
+        }
+        return message;
+    }
+
+}
+
+___________________________
+
+/// <summary>
+/// The <c>DIVInventConsumptionService</c> main class that executes the logic of the service
+/// Populate records in DIVConsumptionFromSalesMonitorTable and DIVConsumptionFromSalesMonitorLine tables
+/// 20230913 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+/// </summary>
+public class DIVInventConsumptionService
+{ 
+
+    /// <summary>
+    /// Main service method
+    /// </summary>
+    /// <param name = "_contract">DIVInventConsumptionContract</param>
+    /// <returns>Response class</returns>
+    public DIVInventConsumptionResponse process(DIVInventConsumptionContract  _contract)
+    {
+        DIVInventConsumptionResponse        response = new DIVInventConsumptionResponse();
+        DIVInventConsumptionDetailContract  contractList;
+
+        DIVConsumptionFromSalesMonitorTable fromSalesMonitorTable;
+        DIVConsumptionFromSalesMonitorLine  fromSalesMonitorLine;
+
+        ListEnumerator                      listEnumerator;
+        List                                dataContractList = new List(Types::Class);                                                      
+        str                                 message;
+
+        //Validate company - Esto se valida en el Helper 
+        CompanyInfo  companyInfo;
+                
+        select firstonly DataArea from companyInfo
+            where companyInfo.DIVLegacyCompany == _contract.parmEmpId();
+               
+        if (!companyInfo)
+        {
+            throw Error(strFmt("@DIV:SalesMonitor_C_015"), int2Str(_contract.parmEmpId()));
+        }
+
+        //Loop through a list of data journal
+        dataContractList = _contract.parmConsumptionDetailList();
+        listEnumerator   = dataContractList.getEnumerator();
+
+        try
+        {
+            ttsbegin;
+            //Populate DIVConsumptionFromSalesMonitorTable table - Header
+            changecompany(companyInfo.DataArea)
+            {
+                fromSalesMonitorTable = DIVInventConsumptionHelper::insertFromSalesMonitorTable(_contract);
+            
+                while (listEnumerator.moveNext())
+                {
+                    contractList = listEnumerator.current();
+                    //Populate DIVConsumptionFromSalesMonitorLine table - Lines
+                    fromSalesMonitorLine = DIVInventConsumptionHelper::insertFromSalesMonitorLine(contractList, fromSalesMonitorTable);
+                }
+            }
+
+            ttscommit;
+            
+            message += "@DIV:SalesMonitor_C_014";
+            response.parmMessage(message);
+        }
+        catch (Exception::Error)
+        {
+            message += DIVInventConsumptionHelper::getErrorStr();
+            response.parmMessage(message);
+        }
+        catch(Exception::CLRError)
+        {
+            message += DIVInventConsumptionHelper::getErrorStr();
+            response.parmMessage(message);
+        }
+
+        return response;
+    }
+
+}
+
+
+
+
+
+________________________________________________________________________________________________________BACKUP
+
+/// <summary>
+/// Class used to populate report using batch
+/// </summary>
+/// 20230914 - DIV_8225_SalesMonitor_InventConsumptions - KCL
+class DIVInventConsumptionServiceBatch extends SysOperationServiceBase
+{
+    container       itemQtyAdjCon;       
+    container       adjustJournalCon, consumJournalCon;
+    boolean         posted;
+    Notes           errors;
+    #OCCRetryCount
+    
+
+    /// <summary>
+    /// Main logic to run the batch job
+    /// </summary>
+    /// <param name = "_contract">Parameter Contract</param>
+    public void run(DIVInventConsumptionContractBatch   _contract)
+    {
+        
+        
+        try
+        {
+            ttsbegin;
+            if (_contract.parmMonitorTable())
+            {
+                //Manual process
+                this.manualProcess(_contract.parmMonitorTable());                 
+                info("@DIV:SalesMonitor_C_014");
+            } 
+            ttscommit;
+        }
+        catch (Exception::Error)
+        {
+            errors = '';
+            errors = strFmt(DIVInventConsumptionHelper::getErrorStr());
+            error(strFmt(errors));
+            ttsabort;
+            
+            DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(_contract.parmMonitorTable().RecId);
+
+            if (monitorTableUpd)
+            {
+                ttsbegin;
+                monitorTableUpd.selectForUpdate(true);
+                monitorTableUpd.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                monitorTableUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                monitorTableUpd.ErrorLog = errors;
+                monitorTableUpd.update();
+
+                DIVConsumptionFromSalesMonitorLine  monitorLine;
+
+                update_recordset monitorLine
+                setting ErrorLog = errors,
+                IntegrationStatus = DIVIntegrationStatusConsumption::Error,
+                ProcessingStatus = DIVProcessingStatusConsumption::Error
+                    where monitorLine.RefRecId == monitorTableUpd.RecId;
+                ttscommit;
+            }
+            
+        }
+
+        //Auto process
+        if (!_contract.parmMonitorTable())
+        {
+            ttsbegin;
+            this.autoProcess();
+            info("@DIV:SalesMonitor_C_031");
+            ttscommit;
+        }
+
+        //Process used for posting journals
+        if (!_contract.parmMonitorTable() && !errors)
+        {
+            //Posting adjustment journal
+            this.autoPostingJournal();
+            //Process 3: Create consumption journal
+            this.consumJournalSubProcess();
+            //Posting consumption journal
+            this.autoPostingJournal();
+
+            this.reProcessedJournalSubProcess();
+
+            if (posted)
+            {
+                info("@DIV:SalesMonitor_C_032");
+            }
+        }
+        
+    }
+
+    /// <summary>
+    /// Manual process that creates Movement journal
+    /// </summary>
+    /// <param name = "_monitorTable">DIVConsumptionFromSalesMonitorTable</param>
+    public void manualProcess(DIVConsumptionFromSalesMonitorTable _monitorTable)
+    {
+        DIVConsumptionFromSalesMonitorLine  lines;
+        CompanyInfo                         companyInfo;
+        int                                 cont;
+        #DIVModel
+
+        if (_monitorTable.IntegrationStatus != DIVIntegrationStatusConsumption::Received && _monitorTable.InventJournalId)
+        {
+            throw error("@DIV:SalesMonitor_C_033");
+        }
+        //Update status
+        if (_monitorTable)
+        {
+            _monitorTable.selectForUpdate(true);
+            _monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Execution;
+            _monitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+            _monitorTable.update();
+        }
+
+        //Validate header data
+        str         errorHeader = DIVInventConsumptionHelper::validateHeader(_monitorTable);
+        str         errorLine;
+        boolean     withError;
+                        
+        select firstonly DataArea from companyInfo
+            where companyInfo.DIVLegacyCompany == _monitorTable.LegacyCompany;
+
+        changecompany(companyInfo.DataArea)
+        {
+            ttsbegin;
+            itemQtyAdjCon = conNull();
+
+            while select forupdate lines
+                where lines.RefRecId == _monitorTable.RecId
+            {
+                //Validate lines data
+                errorLine = DIVInventConsumptionHelper::validateLines(lines);
+            
+                if (!errorLine)
+                {
+                    //Validate available physical qty - This allows the Invent Adjustment Journal creation
+                    //Set InventDim
+                    InventDim   inventDimLocal;
+
+                    inventDimLocal.InventLocationId = _monitorTable.InventLocationId;
+                    inventDimLocal.InventSiteId     = InventLocation::find(_monitorTable.InventLocationId).InventSiteId;
+                    inventDimLocal.wMSLocationId    = lines.WMSLocationId;
+                    inventDimLocal.inventBatchId    = lines.InventBatchId;
+                    inventDimLocal = InventDim::findOrCreate(inventDimLocal);
+
+                    Qty availableQty = DIVInventConsumptionHelper::getQtyAvailPhysical(lines.ItemId, inventDimLocal);
+
+                    if (availableQty < lines.Qty)
+                    {
+                        errorLine = DIVInventConsumptionHelper::validateLines(lines, DIVIntegrationParameters::find().InventJournalNameId);
+
+                        if (!errorLine)
+                        {
+                            Qty     adjQty = lines.Qty - availableQty;
+                            itemQtyAdjCon  += num2expstr(adjQty) + #hyphen + int642Str(lines.RecId);
+                        }
+                    }
+                }
+
+                if (errorLine)
+                {
+                    lines.ErrorLog = errorLine;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                    lines.update();
+                    withError = true;
+                }
+                else
+                {
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::PostingValidate;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                    lines.update();
+                }
+
+            }
+
+            //If there's not error, the Movement journal is created
+            if (!errorHeader && !withError)
+            {
+                //Create Invent Adjustment Journal
+                int             i;
+                Qty             itemQty;
+                List            valuelist = new List(Types::String);
+                ListIterator    iterador;
+                container       packedlist;
+
+                DIVConsumptionFromSalesMonitorLine  adjustmentLine;
+                InventJournalTable                  adjustJournalTable;
+
+                if (itemQtyAdjCon != conNull())
+                {
+                    //Create Adjustment journal header
+                    adjustJournalTable = DIVInventConsumptionHelper::createMovementJournalHeader(DIVIntegrationParameters::find().InventJournalNameId, _monitorTable);
+                }
+
+                for (i=1; i <= conLen(itemQtyAdjCon); i++)
+                {
+                    valuelist = Global::strSplit(conPeek(itemQtyAdjCon, i), #hyphen);
+                    iterador  = new ListIterator(valuelist);
+
+                    packedlist = conNull();
+
+                    while (iterador.more())
+                    {
+                        packedlist += iterador.value();
+                        iterador.next();
+                    }
+
+                    itemQty = conPeek(packedlist, 1);
+                    adjustmentLine = DIVConsumptionFromSalesMonitorLine::findRecId(conPeek(packedlist, 2));
+
+                    //Create Adjustment journal lines
+                    DIVInventConsumptionHelper::createMovementJournalLines(adjustJournalTable, adjustmentLine, itemQty, _monitorTable.CostCenter);
+
+                    DIVConsumptionFromSalesMonitorLine  monitorLineUpd = DIVConsumptionFromSalesMonitorLine::findRecId(adjustmentLine.RecId, true);
+
+                    if (monitorLineUpd)
+                    {
+                        monitorLineUpd.InventJournalId   = adjustJournalTable.JournalId;
+                        monitorLineUpd.IntegrationStatus = DIVIntegrationStatusConsumption::CreationJournal;
+                        monitorLineUpd.update();
+                    }                    
+
+                    cont++;
+                }
+                //Post Adjustment invent journal
+                if (adjustJournalTable)
+                {
+                    adjustJournalTable.selectForUpdate(true);
+                    adjustJournalTable.NumOfLines = cont;
+                    adjustJournalTable.update();
+
+                    DIVInventConsumptionHelper::postInventJournal(adjustJournalTable);
+                }
+                
+                _monitorTable.selectForUpdate(true);
+                _monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::PostingJournal;
+                _monitorTable.update();
+
+                cont = 0;
+                //Create Movement journal header
+                InventJournalTable  journalTable = DIVInventConsumptionHelper::createMovementJournalHeader(_monitorTable.InventJournalNameId, _monitorTable);
+                //Create Movement journal lines - All records
+                while select lines index hint ItemIdx
+                    where lines.RefRecId == _monitorTable.RecId
+                {
+                    DIVInventConsumptionHelper::createMovementJournalLines(journalTable, lines, 0, _monitorTable.CostCenter);
+                    cont++;
+                }
+
+                //Post Consum invent journal
+                if (journalTable)
+                {
+                    journalTable.selectForUpdate(true);
+                    journalTable.NumOfLines = cont;
+                    journalTable.DIVMonitorRefRecId = _monitorTable.RecId;
+                    journalTable.update();
+
+                    DIVInventConsumptionHelper::postInventJournal(journalTable);
+                }
+                
+                _monitorTable.selectForUpdate(true);
+                _monitorTable.InventJournalId   = journalTable.JournalId;
+                _monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Posted;
+                _monitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Completed;
+                _monitorTable.PostingDate       = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+                _monitorTable.JournalPosted     = NoYes::Yes;
+                _monitorTable.update();
+            }
+            else
+            {
+                _monitorTable.selectForUpdate(true);
+                _monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                _monitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                _monitorTable.update();
+            }
+            ttscommit;
+        }
+    }
+
+    /// <summary>
+    /// Auto process that creates Movement journal
+    /// </summary>
+    public void autoProcess()
+    {           
+        //Process 1: Validation
+        this.validationSubProcess();
+        this.validationSubReProcess();
+        //Process 2: Create adjustment journal
+        this.ajustmentJournalSubProcess();
+    }
+
+    /// <summary>
+    /// Posting process used in autoProcess method
+    /// </summary>
+    public void autoPostingJournal()
+    {
+        InventJournalTable  adjustJournal, consumJournal;
+        InventJournalId     journalId;             
+        int                 q;
+        Notes               errorLog;
+        #DIVModel
+
+        try
+        {
+            
+            
+            for (q=1; q <= conLen(adjustJournalCon); q++)
+            {
+                journalId = conPeek(adjustJournalCon, q);
+
+                select crosscompany adjustJournal
+                    where adjustJournal.JournalId == journalId;
+
+                changecompany(adjustJournal.DataAreaId)
+                {
+                    ttsbegin;
+                    //Post adjustment invent journal
+                    DIVInventConsumptionHelper::postInventJournal(adjustJournal);
+                    ttscommit;
+                }
+            }
+
+            adjustJournalCon = conNull();
+
+            q = 0;
+
+            for (q=1; q <= conLen(consumJournalCon); q++)
+            {
+                journalId = conPeek(consumJournalCon, q);
+                posted    = false;
+
+                select crosscompany consumJournal
+                    where consumJournal.JournalId == journalId;
+
+                changecompany(consumJournal.DataAreaId)
+                {
+                    ttsbegin;
+                    //Post consumption invent journal
+                    DIVInventConsumptionHelper::postInventJournal(consumJournal);
+
+                    DIVConsumptionFromSalesMonitorTable salesMonitorTable = DIVConsumptionFromSalesMonitorTable::findRecId(consumJournal.DIVMonitorRefRecId, true);
+
+                    if (salesMonitorTable)
+                    {
+                        salesMonitorTable.InventJournalId   = consumJournal.JournalId;
+                        salesMonitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Posted;
+                        salesMonitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Completed;
+                        salesMonitorTable.PostingDate       = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+                        salesMonitorTable.JournalPosted     = NoYes::Yes;
+                        salesMonitorTable.ErrorLog          = #blank;
+                        salesMonitorTable.update();
+
+                        posted = true;
+                    }
+                    ttscommit;
+                }
+            }   
+            
+        }
+        catch (Exception::Error)
+        {   
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+
+            if (!errorLog)
+            {
+                errorLog = "@DIV:SalesMonitor_C_034";
+            }
+            this.updateErrorInMonitorTable(journalId, errorLog);
+
+            retry;
+        }
+        
+    }
+
+    /// <summary>
+    /// Update ErrorLog field of the DIVConsumptionFromSalesMonitorTable table
+    /// </summary>
+    /// <param name = "_journalId">InventJournalId</param>
+    /// <param name = "_error">Error</param>
+    public void updateErrorInMonitorTable(InventJournalId  _journalId, Notes  _error) 
+    {
+        InventJournalTable  inventJournalTableLocal;
+        InventJournalId     consumJournalId;
+        #DIVModel
+
+        select firstonly crosscompany inventJournalTableLocal
+            where inventJournalTableLocal.JournalId == _journalId;
+
+        changecompany(inventJournalTableLocal.DataAreaId)
+        {
+            DIVConsumptionFromSalesMonitorTable salesMonitorTable = DIVConsumptionFromSalesMonitorTable::findRecId(inventJournalTableLocal.DIVMonitorRefRecId, true);
+
+            if (salesMonitorTable)
+            {                   
+                //Delete journalId (with error) in the container to later not post it
+                int deleteItem = conFind(adjustJournalCon, _journalId);
+
+                if (deleteItem)
+                {
+                    adjustJournalCon = conDel(adjustJournalCon, deleteItem, #one);
+                }
+                else
+                {
+                    deleteItem = conFind(consumJournalCon, _journalId);
+                    consumJournalCon = conDel(consumJournalCon, deleteItem, #one);
+                    consumJournalId  = _journalId;
+                }
+
+                ttsbegin;
+                salesMonitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                salesMonitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                salesMonitorTable.ErrorLog = _error;
+
+                if (consumJournalId)
+                {
+                    salesMonitorTable.InventJournalId = consumJournalId;
+                }
+                salesMonitorTable.update();
+                ttscommit;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Update ErrorLog field of the DIVConsumptionFromSalesMonitorLine table
+    /// </summary>
+    /// <param name = "_header">InventJournalId</param>
+    /// <param name = "_error">Error</param>
+    public void updateErrorLines(DIVConsumptionFromSalesMonitorTable  _header, Notes  _error)
+    {
+        DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(_header.RecId);
+
+        if (monitorTableUpd)
+        {
+            ttsbegin;
+            monitorTableUpd.selectForUpdate(true);
+            monitorTableUpd.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+            monitorTableUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+            monitorTableUpd.ErrorLog = _error;
+            monitorTableUpd.update();
+
+            DIVConsumptionFromSalesMonitorLine  monitorLine;
+
+            update_recordset monitorLine
+            setting ErrorLog = _error,
+                IntegrationStatus = DIVIntegrationStatusConsumption::Error,
+                ProcessingStatus = DIVProcessingStatusConsumption::Error
+                where monitorLine.RefRecId == monitorTableUpd.RecId;
+            ttscommit;
+        }
+    }
+
+    /// <summary>
+    /// Validation process used in autoProcess method
+    /// </summary>    
+    public void validationSubProcess()    
+    {
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+        DIVConsumptionFromSalesMonitorLine      lines;
+        CompanyInfo                             companyInfo;
+        //Validate header data
+        str                                     errorHeader, errorLine;
+        RefRecId                                monitorTableRecId;
+        #DIVModel
+
+        
+        itemQtyAdjCon = conNull();
+        
+        while select forupdate crosscompany monitorTable index hint MonitorIdx order by LegacyCompany asc
+            join forupdate lines index hint ItemIdx
+            where lines.RefRecId == monitorTable.RecId
+            && lines.InventJournalId == #blank 
+            && (monitorTable.IntegrationStatus == DIVIntegrationStatusConsumption::Received
+            || monitorTable.IntegrationStatus == DIVIntegrationStatusConsumption::Error)
+            && !monitorTable.InventJournalId
+            && !monitorTable.JournalPosted
+        {
+            select firstonly DataArea from companyInfo
+                where companyInfo.DIVLegacyCompany == monitorTable.LegacyCompany;
+
+            changecompany(companyInfo.DataArea)
+            {
+                //Update status
+                if (monitorTableRecId != monitorTable.RecId)
+                {
+                    ttsbegin;
+                    DIVConsumptionFromSalesMonitorTable monitorHeader = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+
+                    monitorHeader.IntegrationStatus = DIVIntegrationStatusConsumption::Execution;
+                    monitorHeader.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                    monitorHeader.update();
+                    ttscommit;
+                    //KCL
+                    //Validate header data
+                    errorHeader = DIVInventConsumptionHelper::validateHeader(monitorTable);
+
+                    if (errorHeader)
+                    {
+                        this.updateErrorLines(monitorTable, errorHeader);
+                        continue;
+                    }
+                    //KCL
+                }
+            
+                ////Validate header data               
+                //errorHeader = DIVInventConsumptionHelper::validateHeader(monitorTable);
+
+                //if (errorHeader)
+                //{
+                //    this.updateErrorLines(monitorTable, errorHeader);
+                //    continue;
+                //}
+
+                //Fill in WMSLocationId
+                WMSLocation         wmLocationTable;
+                InventLocationId    locationId = monitorTable.InventLocationId;
+
+                select firstonly wmLocationTable
+                    where wmLocationTable.inventLocationId == locationId
+                    && wmLocationTable.wMSLocationId == lines.WMSLocationId;
+
+                if (!wmLocationTable)
+                {
+                    lines.WMSLocationId = InventLocation::find(locationId).WMSLocationIdDefaultReceipt;
+                }
+
+                //Validate lines data
+                errorLine = DIVInventConsumptionHelper::validateLines(lines);
+
+                if (!errorLine)
+                {
+                    //Validate available physical qty - This allows the Invent Adjustment Journal creation
+                    //Set InventDim
+                    InventDim   inventDimLocal;
+
+                    inventDimLocal.InventLocationId = monitorTable.InventLocationId;
+                    inventDimLocal.InventSiteId     = InventLocation::find(monitorTable.InventLocationId).InventSiteId;
+                    inventDimLocal.wMSLocationId    = lines.WMSLocationId;
+                    inventDimLocal.inventBatchId    = lines.InventBatchId;
+                    inventDimLocal = InventDim::findOrCreate(inventDimLocal);
+
+                    Qty availableQty = DIVInventConsumptionHelper::getQtyAvailPhysical(lines.ItemId, inventDimLocal);
+
+                    if (availableQty < lines.Qty)
+                    {
+                        errorLine = DIVInventConsumptionHelper::validateLines(lines, DIVIntegrationParameters::find().InventJournalNameId);
+
+                        if (!errorLine)
+                        {
+                            Qty     adjQty = lines.Qty - availableQty;
+                            itemQtyAdjCon  += num2expstr(adjQty) + #hyphen + int642Str(lines.RecId);
+                        }
+                    }
+                }
+                
+
+                if (errorLine)
+                {
+                    ttsbegin;
+                    lines.ErrorLog = errorLine;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                    lines.update();
+
+                    DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+                    
+                    if (monitorTableUpd)
+                    {
+                        monitorTableUpd.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                        monitorTableUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                        monitorTableUpd.ErrorLog = "@DIV:SalesMonitor_C_035";
+                        monitorTableUpd.update();
+                    }
+                    ttscommit;
+                }
+                else
+                {
+                    ttsbegin;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::PostingValidate;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                    lines.ErrorLog          = #blank;
+                    lines.update();
+
+                    DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+                    
+                    if (monitorTableUpd)
+                    {
+                        monitorTableUpd.ErrorLog = #blank;
+                        monitorTableUpd.update();
+                    }
+                    ttscommit;
+                }
+
+                monitorTableRecId = monitorTable.RecId;
+            }
+            
+        }
+        
+    }
+
+    /// <summary>
+    /// Validation Reprocessed records used in autoProcess method
+    /// </summary>
+    public void validationSubReProcess()
+    {
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+        DIVConsumptionFromSalesMonitorLine      lines;
+        CompanyInfo                             companyInfo;
+        //Validate header data
+        str                                     errorLine;
+        RefRecId                                monitorTableRecId;
+        #DIVModel
+                       
+        
+        while select forupdate crosscompany monitorTable index hint MonitorIdx order by LegacyCompany asc
+            join forupdate lines index hint ItemIdx
+            where lines.RefRecId == monitorTable.RecId
+            && lines.InventJournalId == #blank
+            && monitorTable.IntegrationStatus == DIVIntegrationStatusConsumption::Error
+            && monitorTable.ProcessingStatus == DIVProcessingStatusConsumption::Reprocess
+            && monitorTable.InventJournalId
+            && !monitorTable.JournalPosted
+        {
+            select firstonly DataArea from companyInfo
+                where companyInfo.DIVLegacyCompany == monitorTable.LegacyCompany;
+
+            changecompany(companyInfo.DataArea)
+            {  
+                //Validate lines data
+                errorLine = DIVInventConsumptionHelper::validateLines(lines);
+
+                if (!errorLine)
+                {
+                    //Validate available physical qty - This allows the Invent Adjustment Journal creation
+                    //Set InventDim
+                    InventDim   inventDimLocal;
+
+                    inventDimLocal.InventLocationId = monitorTable.InventLocationId;
+                    inventDimLocal.InventSiteId     = InventLocation::find(monitorTable.InventLocationId).InventSiteId;
+                    inventDimLocal.wMSLocationId    = lines.WMSLocationId;
+                    inventDimLocal.inventBatchId    = lines.InventBatchId;
+                    inventDimLocal = InventDim::findOrCreate(inventDimLocal);
+
+                    Qty availableQty = DIVInventConsumptionHelper::getQtyAvailPhysical(lines.ItemId, inventDimLocal);
+
+                    if (availableQty < lines.Qty)
+                    {
+                        errorLine = DIVInventConsumptionHelper::validateLines(lines, DIVIntegrationParameters::find().InventJournalNameId);
+
+                        if (!errorLine)
+                        {
+                            Qty     adjQty = lines.Qty - availableQty;
+                            itemQtyAdjCon  += num2expstr(adjQty) + #hyphen + int642Str(lines.RecId);
+                        }
+                    }
+                }
+            
+                if (errorLine)
+                {
+                    ttsbegin;
+                    lines.ErrorLog = errorLine;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                    lines.update();
+
+                    DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+                    
+                    if (monitorTableUpd)
+                    {
+                        monitorTableUpd.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                        monitorTableUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Error;
+                        monitorTableUpd.ErrorLog = "@DIV:SalesMonitor_C_035";
+                        monitorTableUpd.update();
+                    }
+                    ttscommit;
+                }
+                else
+                {
+                    ttsbegin;
+                    lines.IntegrationStatus = DIVIntegrationStatusConsumption::PostingValidate;
+                    lines.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                    lines.ErrorLog          = #blank;
+                    lines.update();
+
+                    DIVConsumptionFromSalesMonitorTable monitorTableUpd = DIVConsumptionFromSalesMonitorTable::findRecId(monitorTable.RecId, true);
+                    
+                    if (monitorTableUpd)
+                    {
+                        monitorTableUpd.ErrorLog = #blank;
+                        monitorTableUpd.update();
+                    }
+                    ttscommit;
+                }
+
+                monitorTableRecId = monitorTable.RecId;
+            }
+            
+        }
+        
+    }
+
+    /// <summary>
+    /// Create ajustment journal process used in autoProcess method
+    /// </summary>
+    public void ajustmentJournalSubProcess()
+    {
+        //Create Invent Adjustment Journal
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+        DIVConsumptionFromSalesMonitorLine      adjustmentLine;
+        InventJournalTable                      adjustJournalTable;
+
+        int                                     i;
+        Qty                                     itemQty;
+        List                                    valuelist = new List(Types::String);
+        ListIterator                            iterador;
+        container                               packedlist;
+        RefRecId                                headerRecId;
+        boolean                                 createJournalHeader;
+        Notes                                   errorLog;
+        #DIVModel
+
+        try
+        {
+
+            for (i=1; i <= conLen(itemQtyAdjCon); i++)
+            {
+                valuelist = Global::strSplit(conPeek(itemQtyAdjCon, i), #hyphen);
+                iterador  = new ListIterator(valuelist);
+
+                packedlist = conNull();
+
+                while (iterador.more())
+                {
+                    packedlist += iterador.value();
+                    iterador.next();
+                }
+
+                itemQty = conPeek(packedlist, 1);
+
+                select firstonly crosscompany adjustmentLine where adjustmentLine.RecId == conPeek(packedlist, 2);
+
+                if (headerRecId != adjustmentLine.RefRecId)
+                {
+                    headerRecId = adjustmentLine.RefRecId;
+                    createJournalHeader = true;
+                }
+                else
+                {
+                    createJournalHeader = false;
+                }
+
+                if (adjustmentLine)
+                {
+                    changecompany(adjustmentLine.DataAreaId) 
+                    {
+                        select firstonly monitorTable where monitorTable.RecId == adjustmentLine.RefRecId;
+
+                        if (monitorTable)
+                        {
+                            //Create Adjustment journal header
+                            ttsbegin;
+                            if (createJournalHeader)
+                            {
+                                adjustJournalTable = DIVInventConsumptionHelper::createMovementJournalHeader(DIVIntegrationParameters::find().InventJournalNameId, monitorTable);
+                            
+                                if (adjustJournalTable)
+                                {
+                                    adjustJournalTable.selectForUpdate(true);
+                                    adjustJournalTable.DIVMonitorRefRecId = monitorTable.RecId;
+                                    adjustJournalTable.update();
+                                }
+                                //Save adjustment journal to later post
+                                adjustJournalCon += adjustJournalTable.JournalId;
+                            }
+
+                            //Create Adjustment journal lines
+                            DIVInventConsumptionHelper::createMovementJournalLines(adjustJournalTable, adjustmentLine, itemQty, monitorTable.CostCenter);
+
+                            DIVConsumptionFromSalesMonitorLine  adjustmentLineUpd = DIVConsumptionFromSalesMonitorLine::findRecId(adjustmentLine.RecId, true);
+
+                            if (adjustmentLineUpd)
+                            {         
+                                adjustmentLineUpd.InventJournalId   = adjustJournalTable.JournalId;
+                                adjustmentLineUpd.ProcessingStatus  = DIVProcessingStatusConsumption::Execution;
+                                adjustmentLineUpd.IntegrationStatus = DIVIntegrationStatusConsumption::CreationJournal;
+                                adjustmentLineUpd.update();
+                            }
+                            ttscommit;
+                        }
+                    }
+                 
+                }
+            }
+        }
+        catch (Exception::Error)
+        {
+            errorLog = '';
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+
+            this.updateErrorInMonitorTable(adjustJournalTable.JournalId, errorLog);
+
+            retry;
+        }
+        catch(Exception::CLRError)
+        {
+            errorLog = '';
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+            this.updateErrorInMonitorTable(adjustJournalTable.JournalId, errorLog);
+        }
+    }
+
+    /// <summary>
+    /// Create consumption journal process used in autoProcess method
+    /// </summary>
+    public void consumJournalSubProcess()
+    {
+        DIVConsumptionFromSalesMonitorTable     monitorTable;
+        DIVConsumptionFromSalesMonitorLine      lines;
+        CompanyInfo                             companyInfo;
+        InventJournalTable                      journalTable;
+
+        boolean                                 createJournalHeader;
+        RefRecId                                headerRecId;
+        Notes                                   errorLog;
+
+        try
+        {
+            //--------------- Create Movement Journal ---------------
+            while select forupdate crosscompany monitorTable index hint MonitorIdx order by LegacyCompany asc
+            join forupdate lines index hint ItemIdx
+                where monitorTable.ProcessingStatus == DIVProcessingStatusConsumption::Execution
+                && !monitorTable.InventJournalId
+                && !monitorTable.JournalPosted
+                && lines.RefRecId == monitorTable.RecId
+            {
+                select firstonly DataArea from companyInfo
+                    where companyInfo.DIVLegacyCompany == monitorTable.LegacyCompany;
+
+                changecompany(companyInfo.DataArea)
+                {
+                    ttsbegin;
+                    if (headerRecId != monitorTable.RecId)
+                    {
+                        headerRecId = monitorTable.RecId;
+                        createJournalHeader = true;
+
+                        monitorTable.selectForUpdate(true);
+                        monitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::CreationConsumJournal;
+                        monitorTable.update();
+                    }
+                    else
+                    {
+                        createJournalHeader = false;
+                    }
+
+                    if (createJournalHeader)
+                    {
+                        //Create Movement journal header
+                        journalTable = DIVInventConsumptionHelper::createMovementJournalHeader(monitorTable.InventJournalNameId, monitorTable);
+
+                        if (journalTable)
+                        {
+                            journalTable.selectForUpdate(true);
+                            journalTable.DIVMonitorRefRecId = monitorTable.RecId;
+                            journalTable.update();
+
+                            monitorTable.selectForUpdate(true);
+                            monitorTable.InventJournalId = journalTable.JournalId;
+                            monitorTable.update();
+                        }
+                        //Save consumption journal to later post
+                        consumJournalCon += journalTable.JournalId;
+                    }
+                    //Create Movement journal lines
+                    DIVInventConsumptionHelper::createMovementJournalLines(journalTable, lines, 0, monitorTable.CostCenter);
+
+                    ttscommit;
+                }
+            }
+
+        }
+        catch (Exception::Error)
+        {
+            errorLog = '';
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+
+            this.updateErrorInMonitorTable(journalTable.JournalId, errorLog);
+
+            retry;
+        }
+
+    }
+
+    /// <summary>
+    /// Post records with inventJournalId associated
+    /// </summary>
+    public void reProcessedJournalSubProcess()
+    {          
+        DIVConsumptionFromSalesMonitorTable     monitorTable, salesMonitorTable;
+        InventJournalTable                      consumJournal;
+        Notes                                   errorLog;
+        #DIVModel
+
+        try
+        {   
+            while select forupdate crosscompany monitorTable index hint MonitorIdx order by LegacyCompany asc           
+                where monitorTable.IntegrationStatus == DIVIntegrationStatusConsumption::Error
+                && monitorTable.InventJournalId
+                && !monitorTable.JournalPosted
+            {
+                select crosscompany consumJournal
+                    where consumJournal.JournalId == monitorTable.InventJournalId;
+
+                changecompany(consumJournal.DataAreaId)
+                {
+                    ttsbegin;
+                    //Post consumption invent journal
+                    DIVInventConsumptionHelper::postInventJournal(consumJournal);
+
+                    salesMonitorTable = DIVConsumptionFromSalesMonitorTable::findRecId(consumJournal.DIVMonitorRefRecId, true);
+
+                    if (salesMonitorTable)
+                    {
+                        salesMonitorTable.InventJournalId   = consumJournal.JournalId;
+                        salesMonitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Posted;
+                        salesMonitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Completed;
+                        salesMonitorTable.PostingDate       = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+                        salesMonitorTable.JournalPosted     = NoYes::Yes;
+                        salesMonitorTable.ErrorLog          = #blank;
+                        salesMonitorTable.update();
+                    }
+                    posted = true;
+                    ttscommit;
+                }
+            }
+        }     
+        catch (Exception::Error)
+        {
+            errorLog = '';
+            errorLog = strFmt(DIVInventConsumptionHelper::getErrorStr());
+
+            if (!errorLog)
+            {
+                errorLog = "@DIV:SalesMonitor_C_034";
+            }
+            
+            salesMonitorTable = DIVConsumptionFromSalesMonitorTable::findRecId(consumJournal.DIVMonitorRefRecId, true);
+
+            if (salesMonitorTable)
+            {
+                ttsbegin;
+                salesMonitorTable.IntegrationStatus = DIVIntegrationStatusConsumption::Error;
+                salesMonitorTable.ProcessingStatus  = DIVProcessingStatusConsumption::Reprocess;
+                salesMonitorTable.ErrorLog          = errorLog;
+                salesMonitorTable.update();
+                ttscommit;
+            }
+        }
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

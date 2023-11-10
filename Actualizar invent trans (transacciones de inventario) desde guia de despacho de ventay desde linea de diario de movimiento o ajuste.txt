@@ -1,0 +1,60 @@
+public class EI_InventTransHelper
+{
+    static void updateFromSalesPacking(InvoiceId _invoiceId, EI_VoucherConsumptionLine _lines)
+    {
+        inventTrans         inventTrans;
+        InventTransOrigin   inventTransOrigin;
+        InventJournalTrans  InventJournalTrans;
+
+        ttsBegin;
+        while select forUpdate inventTrans
+        index EI_InvoiceIdx
+        where inventTrans.InvoiceId == _invoiceId
+           && inventTrans.ItemId    == _lines.ItemId
+           && inventTrans.StatusIssue == StatusIssue::Sold
+           && inventTrans.InvoiceId != ""
+        {
+            inventTrans.EI_RefTableId   = _lines.TableId;
+            inventTrans.EI_RefRecId     = _lines.RecId;
+            inventTrans.EI_IdArea       = _lines.IdArea;
+            inventTrans.doUpdate();
+        }
+        ttsCommit;
+    }
+
+    static void updateFromInventJournalTrans(InventJournalId _journalId)
+    {
+        inventTrans         inventTrans;
+        InventTransOrigin   inventTransOrigin;
+        InventJournalTrans  InventJournalTrans;
+
+        while select InventJournalTrans
+        where InventJournalTrans.JournalId == _journalId && inventJournalTrans.EI_IdArea
+        {
+            select firstonly inventTransOrigin
+                where inventTransOrigin.InventTransId == inventJournalTrans.InventTransId
+                && inventTransOrigin.ReferenceId == InventJournalTrans.JournalId;
+            if (inventTransOrigin.RecId)
+            {
+                inventTrans = inventTrans::findByInventTransOrigin(inventTransOrigin.RecId,true);
+                if (inventTrans)
+                {
+                    inventTrans.EI_IdArea = inventJournalTrans.EI_IdArea;
+                    if (inventJournalTrans.EI_RefRecId)
+                    {
+                        inventTrans.EI_RefTableId = inventJournalTrans.EI_RefTableId;
+                        inventTrans.EI_RefRecId = inventJournalTrans.EI_RefRecId;
+                    }
+                    else
+                    {
+                        inventTrans.EI_RefTableId = inventJournalTrans.TableId;
+                        inventTrans.EI_RefRecId = inventJournalTrans.RecId;
+                    }
+
+                    inventTrans.doUpdate();
+                }
+            }
+        }
+    }
+
+}

@@ -1,0 +1,42 @@
+
+    public DimensionValue ATPgetDimValueBrief(DimensionDefault _dimensionDefault)
+    {        
+        DefaultDimensionView defaultDimensionView;
+        #define.dimensionName("Portafolio")
+
+        select firstonly DisplayValue from defaultDimensionView
+            where defaultDimensionView.Name == #dimensionName
+               && defaultDimensionView.DefaultDimension == _dimensionDefault;
+
+        return defaultDimensionView.DisplayValue;
+    }
+
+    public DimensionValue ATPgetDimValueSite(DimensionDefault _dimensionDefault)
+    {
+        DefaultDimensionView defaultDimensionView;
+        #define.dimensionName("Sitio")
+
+        select firstonly DisplayValue from defaultDimensionView
+            where defaultDimensionView.Name == #dimensionName
+               && defaultDimensionView.DefaultDimension == _dimensionDefault;
+
+        return defaultDimensionView.DisplayValue;
+    }
+
+
+____________________________________________________________
+
+/// <summary>
+    /// Get dimension value
+    /// </summary>
+    /// <param name = "_defaultDimension">DefaultDimension</param>
+    /// <param name = "_dimName">Dimension name</param>
+    /// <returns>Dimension display value</returns>
+    public static str getDimensionDisplayValue(RecId  _defaultDimension, Name  _dimName)
+    {
+        DimensionAttributeValueSetStorage   dimStorage;
+
+        dimStorage = DimensionAttributeValueSetStorage::find(_defaultDimension);
+        
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(_dimName).RecId);
+    }

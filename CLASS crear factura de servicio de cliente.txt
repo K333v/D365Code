@@ -1,0 +1,405 @@
+/// <summary>
+/// Class DIVSalesMServiceFreeTextInvoice
+/// </summary>
+public class DIVSalesMServiceFreeTextInvoice
+{
+    /// <summary>
+    /// Method createFreeText
+    /// </summary>
+    /// <param name = "_InvoiceInterface">DIVSalesMServiceInvoiceHeaderTable</param>
+    /// <returns>container</returns>
+    public container createFreeText(DIVSalesMServiceInvoiceHeaderTable _InvoiceInterface)
+    {
+        SysInfologEnumerator        infoEnumerator;
+        SysInfologMessageStruct     infoMessageStruct;
+        CustInvoiceTable	custInvoiceTable;
+        CustPostInvoice		custPostInvoice;
+        CustTable           custTable;
+        container                   responseFreeTextInvoice;
+        str                         messageInfoLog,messageResponse,messageCustTable;
+        boolean                     result, resultCustTable;
+
+        LedgerDimensionValueSet             defaultDimension;
+        #Define.DimCentroCosto('CentroCosto')
+        #Define.DimCliente('Cliente')
+        
+        #Characters_CN
+
+        infolog.clear();
+
+        try
+        {
+            custInvoiceTable = CustInvoiceTable::findInvoiceInterface(_InvoiceInterface.EntRutCliente,_InvoiceInterface.DvcNumRefer,_InvoiceInterface.DlcFecDocto);
+            if(custInvoiceTable.RecId > 0)
+            {
+                throw error(strFmt("@GlobalAddressBook:OMOperatingUnitNumberIsNotUnique",tablePName(CustInvoiceTable),
+                                                    'CustInvoiceTable',custInvoiceTable.OrderAccount,custInvoiceTable.InvoiceId));
+            }
+            ttsbegin;
+            custTable = CustTable::find(_InvoiceInterface.EntRutCliente);
+
+            if (custTable.RecId == 0)
+            {
+                DivSalesMonitorBCustomer customer = new DivSalesMonitorBCustomer();
+                [resultCustTable,messageCustTable] = customer.createCustomer(_InvoiceInterface);
+                custTable = CustTable::find(_InvoiceInterface.EntRutCliente);
+            }
+            else
+            {
+                resultCustTable = true;
+            }
+
+            if(resultCustTable == false)
+            {
+                throw error("@DIV:SalesMonitor_A_002");
+            }
+
+            custInvoiceTable.initFromCustTable(custTable);
+            custInvoiceTable.InvoiceId = _InvoiceInterface.DvcNumRefer;
+            custInvoiceTable.ExternalInvoiceId = custInvoiceTable.InvoiceId;
+            custInvoiceTable.modifiedField(fieldNum(CustInvoiceTable, ExternalInvoiceId));
+
+            custInvoiceTable.InvoiceDate = _InvoiceInterface.DlcFecDocto;
+            custInvoiceTable.modifiedField(fieldNum(CustInvoiceTable, InvoiceDate));
+            custInvoiceTable.DocumentDate = _InvoiceInterface.DlcFecDocto;
+            custInvoiceTable.modifiedField(fieldNum(CustInvoiceTable, DocumentDate));
+
+            if (custInvoiceTable.PaymMode)
+            {
+                custInvoiceTable.PaymMode = _InvoiceInterface.DlcFormaPago;
+                custInvoiceTable.modifiedField(fieldNum(CustInvoiceTable, PaymMode));
+            }
+
+            if (custInvoiceTable.Payment)
+            {
+                custInvoiceTable.Payment = _InvoiceInterface.Payment;
+                custInvoiceTable.modifiedField(fieldNum(CustInvoiceTable, Payment));
+            }
+
+            custInvoiceTable.CurrencyCode    = Ledger::accountingCurrency(CompanyInfo::current());//_InvoiceInterface.PMonedaId;
+            if(_InvoiceInterface.CreCodigo)
+            {
+                DimensionAttribute dimAttribute;
+                DimensionAttributeValue dimAttributeValue;
+
+                dimAttribute = DimensionAttribute::findByName(#DimCentroCosto);
+                dimAttributeValue = DimensionAttributeValue::findByDimensionAttributeAndValue(dimAttribute,_InvoiceInterface.CreCodigo,false,true);
+                if(dimAttributeValue)
+                {
+                    Container   conDimension    = [2, #DimCentroCosto,_InvoiceInterface.CreCodigo,#DimCliente,custTable.AccountNum];
+                    defaultDimension = DIVSalesMServiceFreeTextInvoice::getDimensionAttributeValueSetId(conDimension);
+                    custInvoiceTable.DefaultDimension = defaultDimension;
+                    custInvoiceTable.modifiedField(fieldNum(CustInvoiceTable, DefaultDimension));
+                }
+                else
+                {
+                    throw error("@DIV:SALESMONITOR_B_0025",_InvoiceInterface.CreCodigo);
+                }
+            }
+            custInvoiceTable.DIVSalesMonitorIntegration = NoYes::Yes;
+            custInvoiceTable.insert();
+
+            
+            LogisticsAddressCountryRegionISOCode isoCode = SysCountryRegionCode::countryInfo(curExt());
+            
+            this.createParmInvoiceTable(isoCode,custInvoiceTable,_InvoiceInterface); // Inserta registro para localizacion Peru
+            this.createLine(custInvoiceTable,_InvoiceInterface); // Crea las lineas de la factura
+            this.updateServiceInvoiceHeaderTable(_InvoiceInterface,custInvoiceTable.RecId); //Establece relación de factura de servicio con la tabla de interfaces
+            result = true;
+            messageInfoLog = strFmt("@DIV:SALESMONITOR_B_0034", custInvoiceTable.InvoiceId);
+            ttscommit;
+
+            //if (postInvoice)
+            //{
+            custPostInvoice = new CustPostInvoice(custInvoiceTable);
+            custPostInvoice.run();
+            custInvoiceTable.reread();
+            //}
+
+            messageInfoLog += strFmt("@DIV:SALESMONITOR_B_0026", custInvoiceTable.InvoiceId);
+            responseFreeTextInvoice = [result,messageInfoLog];
+        }
+        catch
+        {
+            infoEnumerator = SysInfologEnumerator::newData(infolog.infologData());
+            while (infoEnumerator.moveNext())
+            {
+                infoMessageStruct = SysInfologMessageStruct::construct(infoEnumerator.currentMessage());
+                if(messageInfoLog)
+                {
+                    messageInfoLog += #space;
+                }
+                messageInfoLog += infoMessageStruct.message();
+            }
+
+            result = false;
+            messageResponse = strFmt("@DIV:PAYROLL_0039", messageInfoLog);
+            responseFreeTextInvoice = [result,messageResponse];
+        }
+        return responseFreeTextInvoice;
+    }
+
+    /// <summary>
+    /// Method createLine
+    /// </summary>
+    /// <param name = "_custInvoiceTable">CustInvoiceTable</param>
+    /// <param name = "_InvoiceInterface">DIVSalesMServiceInvoiceHeaderTable</param>
+    public void createLine(CustInvoiceTable	_custInvoiceTable,DIVSalesMServiceInvoiceHeaderTable _InvoiceInterface)
+    {
+        CustInvoiceLine		custInvoiceLine;
+        DIVSalesMServiceInvoiceDetailTable  invoiceDetail,invoiceDetailUpd;
+        InventTable                         inventTable;
+        TaxItemGroup                        taxItemGroup;
+        //TaxAmountCur                        taxAmountCur;
+        InventItemGroupForm                 inventItemGroupForm;
+        int                                 countRow;
+        LedgerDimensionValueSet             defaultDimension;   
+        #Define.DimCentroCosto('CentroCosto')
+        #Define.DimCliente('Cliente')
+
+        RecordInsertList insertInvoiceLine =  new RecordInsertList(tableNum(CustInvoiceLine));
+        while select * from invoiceDetail where invoiceDetail.DvcNumRefer == _InvoiceInterface.DvcNumRefer
+        {
+            custInvoiceLine.clear();
+
+            custInvoiceLine.initValue();
+            custInvoiceLine.initFromCustInvoiceTable(_custInvoiceTable);
+            inventTable = InventTable::find(invoiceDetail.ProductoCod);
+            taxItemGroup = InventTableModule::find(inventTable.ItemId,ModuleInventPurchSales::Sales).TaxItemGroupId;
+           
+
+            select firstonly * from inventItemGroupForm where inventItemGroupForm.ItemGroupId == InventItemGroupItem::findByItemIdLegalEntity(inventTable.ItemId).ItemGroupId
+                && inventItemGroupForm.InventAccountType == InventAccountType::SalesRevenue;
+
+            custInvoiceLine.LedgerDimension = inventItemGroupForm.LedgerDimension;//LedgerDefaultAccountHelper::getDefaultAccountFromMainAccountId(mainOffsetAccountNum);
+            custInvoiceLine.modifiedField(fieldNum(CustInvoiceLine, LedgerDimension));
+            if(invoiceDetail.CreCodigo)
+            {
+                DimensionAttribute dimAttribute;
+                DimensionAttributeValue dimAttributeValue;
+
+                dimAttribute = DimensionAttribute::findByName(#DimCentroCosto);
+                dimAttributeValue = DimensionAttributeValue::findByDimensionAttributeAndValue(dimAttribute,invoiceDetail.CreCodigo,false,true);
+                if(dimAttributeValue)
+                {
+                    Container   conDimension    = [2, #DimCentroCosto,invoiceDetail.CreCodigo,#DimCliente,_custInvoiceTable.InvoiceAccount];
+                    defaultDimension = DIVSalesMServiceFreeTextInvoice::getDimensionAttributeValueSetId(conDimension);
+                    custInvoiceLine.DefaultDimension = defaultDimension;
+                    custInvoiceLine.modifiedField(fieldNum(CustInvoiceLine, DefaultDimension));
+                }
+                else
+                {
+                    throw Error("@DIV:SALESMONITOR_B_0025",invoiceDetail.CreCodigo);
+                }
+            }
+            custInvoiceLine.TaxItemGroup = taxItemGroup;
+            custInvoiceLine.modifiedField(fieldNum(CustInvoiceLine, TaxItemGroup));
+            // The amount is without tax, must calculated the tax value
+            //taxAmountCur = Tax::calcTaxAmount(_custInvoiceTable.TaxGroup, custInvoiceLine.TaxItemGroup, _custInvoiceTable.InvoiceDate, _custInvoiceTable.CurrencyCode,invoiceDetail.DldMtoNeto, TaxModuleType::FreeTxtInvoice);
+
+            //custInvoiceLine.UnitPrice = invoiceDetail.DldMtoNeto + taxAmountCur;
+            custInvoiceLine.UnitPrice = invoiceDetail.DldPrecioUnitarioVenta; // + invoiceDetail.DldMtoIva;
+            custInvoiceLine.modifiedField(fieldNum(CustInvoiceLine, UnitPrice));
+
+            TransactionTextLarge invoiceLineDescription = inventTable.itemName();
+
+            custInvoiceLine.Description = invoiceLineDescription;
+            custInvoiceLine.InvoiceTxt = invoiceLineDescription;
+            custInvoiceLine.ParentRecId = _custInvoiceTable.RecId;
+            custInvoiceLine.LineNum = 1;
+            //if (custInvoiceLine.validateWrite())
+            //{
+            //    custInvoiceLine.insert();
+            //}
+            insertInvoiceLine.add(custInvoiceLine);
+            countRow++;
+
+            update_recordset invoiceDetailUpd setting LedgerDimension = custInvoiceLine.LedgerDimension,
+                TaxGroup = custInvoiceLine.TaxGroup,
+                TaxItemGroup = custInvoiceLine.TaxItemGroup,
+                ItemName    = inventTable.itemName()
+                where invoiceDetailUpd.RecId == invoiceDetail.RecId;
+        }
+
+        if(countRow>0)
+        {
+            insertInvoiceLine.insertDatabase();
+        }
+    }
+
+    /// <summary>
+    /// Method readDatasource
+    /// </summary>
+    /// <param name = "_datasource">FormDataSource</param>
+    public void readDatasource(FormDataSource _datasource)
+    {
+        #Characters_CN
+        str                         response,messageError,messageInfo;
+        boolean                     result;
+        int                         correctRecords,RecordsWithError;
+        DIVSalesMServiceInvoiceHeaderTable  tableHeaderUpd;
+
+        MultiSelectionHelper selection = MultiSelectionHelper::construct();
+        selection.parmDatasource(_datasource);
+        DIVSalesMServiceInvoiceHeaderTable headerTable = selection.getFirst();
+        
+        while (headerTable.RecId !=0)
+        {
+            infolog.clear();
+            //do something with your table buffer.
+            [result,response] = this.createFreeText(headerTable);
+            if(result == false)
+            {
+                if(messageError)
+                {
+                    messageError += #space;
+                }
+
+                messageError += response;
+
+                update_recordset tableHeaderUpd setting Log = response,
+                    StatusIntegration = DIVIntegrationStatus::Error
+                    where tableHeaderUpd.DvcNumRefer == headerTable.DvcNumRefer;
+
+
+                RecordsWithError++;
+            }
+            else
+            {
+                if(messageInfo)
+                {
+                    messageInfo += #space;
+                }
+                messageInfo += response;
+
+                update_recordset tableHeaderUpd setting Log = response,
+                    StatusIntegration = DIVIntegrationStatus::Finished,
+                    Estado = DIVSalesMBStatus::Posted
+                    where tableHeaderUpd.DvcNumRefer == headerTable.DvcNumRefer;
+
+                correctRecords++;
+            }
+            
+            headerTable = selection.getNext();
+        }
+
+        if(RecordsWithError > 0)
+        {
+            Error(messageError);
+        }
+
+        if(correctRecords > 0)
+        {
+            info(messageInfo);
+        }
+    }
+
+    /// <summary>
+    /// Method createParmInvoiceTable location Peru
+    /// </summary>
+    /// <param name = "_countryRegionId">LogisticsAddressCountryRegionId</param>
+    /// <param name = "_custInvoiceTable">CustInvoiceTable</param>
+    /// <param name = "_ServiceInvoiceHeaderTable">DIVSalesMServiceInvoiceHeaderTable</param>
+    public void createParmInvoiceTable(LogisticsAddressCountryRegionId _countryRegionId, CustInvoiceTable _custInvoiceTable, DIVSalesMServiceInvoiceHeaderTable _ServiceInvoiceHeaderTable)
+    {
+        APParmInvoiceTablePE  apParmInvoiceTablePE;
+
+        #ISOCountryRegionCodes
+       
+        //Get country regionId
+        switch(_countryRegionId)
+        {
+            case #isoPE:
+                //Set Peru Data to the APParmInvoiceTablePE
+                //If APParmInvoiceTablePE record doesn't exists create
+                apParmInvoiceTablePE.clear();
+                apParmInvoiceTablePE.initValue();
+                apParmInvoiceTablePE.DocuType              = _ServiceInvoiceHeaderTable.TdoId;
+                apParmInvoiceTablePE.PhysicalPlaceId       = _ServiceInvoiceHeaderTable.EntSucNumero;
+                apParmInvoiceTablePE.RefRecId              = _custInvoiceTable.RecId;
+                apParmInvoiceTablePE.RefTableId            = _custInvoiceTable.TableId;
+                apParmInvoiceTablePE.insert();
+
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Method updateServiceInvoiceHeaderTable
+    /// </summary>
+    /// <param name = "_InvoiceInterface">DIVSalesMServiceInvoiceHeaderTable</param>
+    /// <param name = "_custInvoiceTableRecId">RefRecId</param>
+    public void updateServiceInvoiceHeaderTable(DIVSalesMServiceInvoiceHeaderTable _InvoiceInterface, RefRecId _custInvoiceTableRecId)
+    {
+        DIVSalesMServiceInvoiceHeaderTable      tableHeaderUpd;
+        if(_InvoiceInterface.RecId)
+        {
+            update_recordset tableHeaderUpd setting CustInvoiceTableRecId = _custInvoiceTableRecId
+                    where tableHeaderUpd.RecId == _InvoiceInterface.RecId;
+        }
+        else
+        {
+            update_recordset tableHeaderUpd setting CustInvoiceTableRecId = _custInvoiceTableRecId
+                    where tableHeaderUpd.DvcNumRefer == _InvoiceInterface.DvcNumRefer;
+        }
+    }
+
+    /// <summary>
+    /// Method getDimensionAttributeValueSetId
+    /// </summary>
+    /// <param name = "_dimensionValue">container</param>
+    /// <returns>RecId</returns>
+    public static RecId getDimensionAttributeValueSetId(container _dimensionValue)
+    {
+        SysInfologMessageStruct             infoMessageStruct;
+        SysInfoLogEnumerator                infoLogEnum;
+        RecId                               dimensionId;
+        DimensionAttributeValueSetStorage   storage;
+        DimensionAttribute                  dimensionAttribute;
+        DimensionAttributeValue             dimensionAttributeValue;
+        int                                 attributeCount, attributeIndex;
+        str                                 attributeName, attributeValue;
+        int                                 containerElementIndex;
+
+        try
+        {
+            containerElementIndex = 1;
+            storage = new DimensionAttributeValueSetStorage();
+            // Obtener recuento de atributos
+            attributeCount = conPeek(_dimensionValue, containerElementIndex);
+            containerElementIndex++;
+            // Obtener atributos
+            for (attributeIndex = 1;  attributeIndex <= attributeCount; attributeIndex++)
+            {
+                // Get the name of the attribute
+                attributeName = conPeek(_dimensionValue, containerElementIndex);
+                containerElementIndex++;
+                // Validate the Financial Dimension
+                dimensionAttribute = DimensionAttribute::findByName(attributeName);
+                // Get attribute value
+                attributeValue = conPeek(_dimensionValue, containerElementIndex);
+                containerElementIndex++;
+                //Validate the Financial Dimension
+                //dimensionAttributeValue = DimensionAttributeValue::findByDimensionAttributeAndValue(dimensionAttribute, attributeValue, false, true);
+                dimensionAttributeValue = DimensionAttributeValue::findByDimensionAttributeAndValue(dimensionAttribute, attributeValue);
+                // Add attribute
+                storage.addItem(dimensionAttributeValue);
+            }
+            dimensionId = storage.save();
+        }
+        catch
+        {
+            str messageInfoLog;
+            infoLogEnum = SysInfoLogEnumerator::newData(infolog.infologData());
+            while(infoLogEnum.moveNext())
+            {
+                infoMessageStruct = SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                messageInfoLog = infoMessageStruct.message();
+            }
+            error(messageInfoLog + ' - ' + con2Str(_dimensionValue));
+            
+        }
+        return dimensionId;
+    }
+
+}

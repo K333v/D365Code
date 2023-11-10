@@ -1,0 +1,48 @@
+public class DIVConsumptionFromSalesMonitorLine extends common
+{
+    /// <summary>
+    /// Find DIVConsumptionFromSalesMonitorLine record
+    /// </summary>
+    /// <param name = "_recId">DIVConsumptionFromSalesMonitorLine RecId</param>
+    /// <param name = "_update">for update</param>
+    /// <returns>DIVConsumptionFromSalesMonitorLine record</returns>
+    static DIVConsumptionFromSalesMonitorLine findRecId(RecId       _recId,
+                                                        boolean     _update = false)
+    {
+        DIVConsumptionFromSalesMonitorLine monitorLine;
+
+        if (_recId)
+        {
+            if (_update)
+            {
+                monitorLine.selectForUpdate(_update);
+            }
+
+            select monitorLine
+                where monitorLine.RecId == _recId;
+        }
+
+        return monitorLine;
+    }
+
+    /// <summary>
+    /// Get last line num of the DIVConsumptionFromSalesMonitorLine table
+    /// </summary>
+    /// <param name = "_id">Header recId</param>
+    /// <returns>LineNum</returns>
+    static LineNum lastLineNum(RefRecId _id)
+    {
+        return (select maxof(LineNum) from DIVConsumptionFromSalesMonitorLine
+                    where DIVConsumptionFromSalesMonitorLine.RefRecId == _id).LineNum;
+    }
+
+    /// <summary>
+    /// Fill in fields
+    /// </summary>
+    public void insert()
+    {
+        this.LineNum = DIVConsumptionFromSalesMonitorLine::lastLineNum(this.RefRecId) + 1.0;
+        super();
+    }
+
+}

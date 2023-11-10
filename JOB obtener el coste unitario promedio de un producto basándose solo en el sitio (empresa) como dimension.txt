@@ -1,0 +1,85 @@
+RUTA: Gestión de información de productos/ Productos / Productos emitidos/ Gestionar costes / Gestión de coste / Objetos de coste/ Valor campo coste unitario promedio 
+
+public static InventAverageCostPrice getAvgCostPrice(ItemId  _itemId)
+    {
+        //InventDim                       dimension, inventDim;
+        InventSum                       inventSum;
+        InventTable                     inventTable;
+        InventCostPriceCache            costPriceCache;
+        UnitOfMeasureConverter_Product  converterProduct;
+        UnitOfMeasureRecId              fromUOM, toUOM;
+        InventAverageCostPrice          avgCostPrice;
+
+
+        inventTable = InventTable::find(_itemId);
+
+        select sum(PostedQty), sum(PostedValue), sum(ReservPhysical), sum(AvailOrdered), sum(PhysicalValue), sum(Deducted), sum(Received)
+            from inventSum  group by ItemId
+            where inventSum.ItemId == _itemId;
+
+        //Create an object of invent cost price cache class
+        costPriceCache = InventCostPriceCache::construct();
+
+        fromUOM = UnitOfMeasure::findBySymbol(inventTable.salesUnitId()).RecId;
+        toUOM   = UnitOfMeasure::findBySymbol(inventTable.inventUnitId()).RecId;
+
+        converterProduct = UnitOfMeasureConverter_Product::construct();
+        converterProduct.parmProduct(inventTable.Product);
+        converterProduct.parmFromUnitOfMeasure(fromUOM);
+        converterProduct.parmToUnitOfMeasure(toUOM);
+        converterProduct.parmRoundAbsoluteValue(NoYes::Yes);
+        converterProduct.parmApplyRounding(NoYes::Yes);
+
+        avgCostPrice = costPriceCache.costPricePcs(inventSum) * converterProduct.convertValue(1);
+        //Info(strFmt("%1", costPriceCache.costPricePcs(inventSum) * converterProduct.convertValue(1)));
+        return avgCostPrice;
+    }
+
+____________________________________________________________
+
+InventDim                       dimension, inventDim;
+        InventSum                       inventSum;
+        InventTable                     inventTable;
+        InventCostPriceCache            costPriceCache;
+        UnitOfMeasureConverter_Product  converterProduct;
+        UnitOfMeasureRecId              fromUOM, toUOM;
+        ItemId                          itemId = 'A000018';
+
+        inventTable = InventTable::find(itemId);
+        //Set InventDim
+        //inventDim.InventLocationId = _inventJournalTable.InventLocationId;
+        //inventDim.InventSiteId = InventSite::find(curExt()).SiteId;          
+        //inventDim = InventDim::findOrCreate(inventDim);
+
+        select sum(PostedQty), sum(PostedValue), sum(ReservPhysical), sum(AvailOrdered), sum(PhysicalValue), sum(Deducted), sum(Received)
+            from inventSum  group by ItemId
+            where inventSum.ItemId == itemId;
+            //join inventDim;//&& inventSum.InventDimId == inventDim.inventDimId;
+
+        //if (!inventSum.InventDimId)
+        //{
+        //    dimension = InventDim::findDim(inventDim);
+
+        //    if (dimension.inventDimId)
+        //    {
+        //        inventSum.InventDimId = dimension.inventDimId;
+        //    }
+        //}
+        //Create an object of invent cost price cache class
+        costPriceCache = InventCostPriceCache::construct();
+        
+        //inventTable = inventSum.inventTable();
+
+        fromUOM = UnitOfMeasure::findBySymbol(inventTable.salesUnitId()).RecId;
+        toUOM   = UnitOfMeasure::findBySymbol(inventTable.inventUnitId()).RecId;
+
+        converterProduct = UnitOfMeasureConverter_Product::construct();
+        converterProduct.parmProduct(inventTable.Product);
+        converterProduct.parmFromUnitOfMeasure(fromUOM);
+        converterProduct.parmToUnitOfMeasure(toUOM);
+        converterProduct.parmRoundAbsoluteValue(NoYes::Yes);
+        converterProduct.parmApplyRounding(NoYes::Yes);
+
+        //Info(strFmt("%1", costPriceCache.costPricePcs(inventSum, inventDim) * converterProduct.convertValue(1)));
+
+        Info(strFmt("%1", costPriceCache.costPricePcs(inventSum) * converterProduct.convertValue(1)));

@@ -1,0 +1,368 @@
+/// <summary>
+/// Add new format of the new PurchPurchaseOrder report
+/// 20231025 - DIV_8252_PurchaseOrderReport - KCL
+/// </summary>
+public class DIVPrintMgtDocTypeHandler
+{
+    /// <summary>
+    /// Add new custom report
+    /// </summary>
+    /// <param name = "_docType">PrintMgmtDocumentType</param>
+    /// <param name = "_result">EventHandlerResult</param>
+    [SubscribesTo(classstr(PrintMgmtDocType), delegatestr(PrintMgmtDocType, getDefaultReportFormatDelegate))]
+    public static void getDefaultReportFormatDelegate(PrintMgmtDocumentType _docType, EventHandlerResult _result)
+    {            
+                
+        switch (_docType)
+        {
+            case PrintMgmtDocumentType::PurchaseOrderConfirmationRequest:
+            case PrintMgmtDocumentType::PurchaseOrderRequisition:
+                _result.result(ssrsReportStr(DIVPurchPurchaseOrder, Report));
+                break;
+        }
+
+    }
+
+}
+_______________________________________________________________
+
+/// <summary>
+/// PurchPurchaseOrderController extension
+/// 20231025 - DIV_8252_PurchaseOrderReport - KCL
+/// </summary>
+class DIVPurchPurchaseOrderController extends PurchPurchaseOrderController
+{
+    /// <summary>
+    /// Constructor
+    /// </summary>
+    /// <returns>DIVPurchPurchaseOrderController</returns>
+    public static DIVPurchPurchaseOrderController construct()
+    {
+        return new DIVPurchPurchaseOrderController();
+    }
+
+    /// <summary>
+    /// Main method
+    /// </summary>
+    /// <param name = "_args">Args</param>
+    public static void main(Args _args)
+    {            
+        SrsReportRunController          formLetterController = DIVPurchPurchaseOrderController::construct();
+        DIVPurchPurchaseOrderController controller = formLetterController;
+
+        PrintMgmtSettings               printMgmtSettings;
+        PrintMgmtDocInstance            printMgmtDocInstance;
+        PrintMgmtReportFormat           printMgmtReportFormat;
+        ReportName                      design;
+
+        select firstonly DocumentType, Name, ReferencedRecId from printMgmtDocInstance
+            where printMgmtDocInstance.DocumentType == PrintMgmtDocumentType::PurchaseOrderRequisition
+        join PrintJobSettings from PrintMgmtSettings
+            where printMgmtDocInstance.RecId == printMgmtSettings.ParentId
+        outer join printMgmtReportFormat
+            where printMgmtSettings.ReportFormat == printMgmtReportFormat.RecId;
+
+        design = (printMgmtReportFormat.Name) ? printMgmtReportFormat.Name : ssrsReportStr(PurchPurchaseOrder, Report);
+
+        controller.initArgs(_args, design);            
+
+        if (classIdGet(_args.caller()) == classNum(PurchPurchOrderJournalPrint))
+        {
+            formLetterController.renderingCompleted += eventhandler(purchPurchOrderJournalPrint::renderingCompleted);
+        }
+        formLetterController.startOperation();
+    }
+
+    /// <summary>
+    /// Output report
+    /// </summary>
+    protected void outputReport()
+    {
+        PrintMgmtSettings       printMgmtSettings;
+        PrintMgmtDocInstance    printMgmtDocInstance;
+        PrintMgmtReportFormat   printMgmtReportFormat;
+        ReportName              design;
+
+        select firstonly DocumentType, Name, ReferencedRecId from printMgmtDocInstance
+            where printMgmtDocInstance.DocumentType == PrintMgmtDocumentType::PurchaseOrderRequisition
+        join PrintJobSettings from PrintMgmtSettings
+            where printMgmtDocInstance.RecId == printMgmtSettings.ParentId
+        outer join printMgmtReportFormat
+            where printMgmtSettings.ReportFormat == printMgmtReportFormat.RecId;
+
+        design = (printMgmtReportFormat.Name) ? printMgmtReportFormat.Name : ssrsReportStr(PurchPurchaseOrder, Report);
+        
+        this.parmReportName(design);
+        this.parmReportContract().parmReportName(design);
+        formLetterReport.parmReportRun().settingDetail().parmReportFormatName(design);
+
+        super();
+    }
+
+}
+
+____________________________________________________________________
+
+/// <summary>
+/// PurchPurchaseOrderDP extension
+/// 20231025 - DIV_8252_PurchaseOrderReport - KCL
+/// </summary>
+[ExtensionOf(classStr(PurchPurchaseOrderDP))]
+final class PurchPurchaseOrderDP_DIV_Extension
+{
+    
+    /// <summary>
+    /// Insert the order header.
+    /// </summary>
+    /// <param name = "_purchaseOrderHeader">
+    /// A <c>PurchPurchaseOrderHeader</c> record to insert.
+    /// </param>
+    protected void insertOrderHeader(PurchPurchaseOrderHeader _purchaseOrderHeader)
+    {
+        #DIVModel
+        PurchTable  purchTablelocal = PurchTable::find(_purchaseOrderHeader.PurchId);
+        
+        _purchaseOrderHeader.VendRegNum         = VendTable::find(purchTablelocal.OrderAccount).VATNum;
+        _purchaseOrderHeader.DIVPaymMode        = purchTablelocal.PaymMode;
+        _purchaseOrderHeader.DIVResponsible     = HcmWorker::find(purchTablelocal.WorkerPurchPlacer).name();
+        _purchaseOrderHeader.DIVRequester       = HcmWorker::find(purchTablelocal.Requester).name();
+        _purchaseOrderHeader.DIVIssuingPerson   = DirPersonUser::findParty(HcmWorker::find(purchTablelocal.WorkerPurchPlacer).Person).User;
+        _purchaseOrderHeader.DIVApprover        = this.DIVlastPOApprover(purchTablelocal.PurchId);           
+        
+        container   contactInfo = this.DIVcontactPhone(purchTablelocal.OrderAccount);
+
+        _purchaseOrderHeader.DIVContactName     = conPeek(contactInfo, 1);
+        _purchaseOrderHeader.DIVContactPhone    = conPeek(contactInfo, 2);
+        _purchaseOrderHeader.DIVReferenceNumber = purchTablelocal.DIVObservations;
+
+        container   totals = this.DIVcalcTotalValue(purchTablelocal.PurchId);
+        int         cents  = any2int(decRound(frac(conPeek(totals, 1)), 2) * 100) mod 100;
+
+        _purchaseOrderHeader.Amount = conPeek(totals, 1);
+
+        str amountTxt = #prefixTotalTxt + Global::numeralsToTxt_ES_PE(_purchaseOrderHeader.Amount, GenderMaleFemale::Male, false, _purchaseOrderHeader.CurrencyCode, false, false, true);
+       
+        int lenStr  = strLen(amountTxt);
+        int fromStr = strScan(amountTxt, #with2, 1, lenStr);
+        int solStr  = strScan(amountTxt, #soles, fromStr, lenStr);          
+        str currencyStr;
+
+        Currency    currencyTable = Currency::find(_purchaseOrderHeader.CurrencyCode);
+
+        currencyStr = strUpr(currencyTable.Txt);                   
+
+        if (fromStr != 0)
+        {
+            amountTxt = subStr(amountTxt, 1, fromStr - 1);
+        }
+        else
+        {
+            amountTxt = subStr(amountTxt, 1, solStr - 1);
+        }
+
+        _purchaseOrderHeader.DIVAmountTxt = strUpr(amountTxt + #space + #with + int2Str(cents) + #divHundred + #space + currencyStr);
+        
+        next insertOrderHeader(_purchaseOrderHeader);
+    }
+
+    /// <summary>
+    /// Initializes an order line.
+    /// </summary>
+    /// <param name = "_purchaseOrderHeader">
+    /// A <c>PurchPurchaseOrderHeader</c> record which is the order header.
+    /// </param>
+    /// <param name = "_highlightUpdated">
+    /// A Boolean describing whether an updated order line must be highlighted.
+    /// </param>
+    /// <param name = "_orderLineSelection">
+    /// A <c>PurchPurchaseOrderDPOrderLineQuerySelection</c> object which the order line should be created for.
+    /// </param>
+    /// <returns>
+    /// The initialized <c>PurchPurchaseOrderTmp</c> order line record.
+    /// </returns>
+    protected PurchPurchaseOrderTmp initializeOrderLine(PurchPurchaseOrderHeader                    _purchaseOrderHeader,
+                                                        boolean                                     _highlightUpdated,
+                                                        PurchPurchaseOrderDPOrderLineQuerySelection _orderLineSelection)
+    {
+        #DIVModel
+
+        PurchPurchaseOrderTmp purchPurchaseOrderTmp = next initializeOrderLine(_purchaseOrderHeader, _highlightUpdated, _orderLineSelection);
+
+        purchPurchaseOrderTmp.DIVDimValueCC = this.DIVgetDimDisplayValue(_orderLineSelection.parmPurchLineAllVersions().DefaultDimension, #costCenter);
+
+        return purchPurchaseOrderTmp;
+    }
+
+    /// <summary>
+    /// Get last Approver name PO
+    /// </summary>
+    /// <param name = "_purchId">PurchId</param>
+    /// <returns>Approver name</returns>
+    public Name DIVlastPOApprover(PurchId   _purchId)
+    {
+        WorkflowTrackingStatusTable     workflowTrackingStatus;
+        WorkflowTrackingTable           workflowTrackingTable;
+        WorkflowTrackingCommentTable    workflowTrackingCommentTable;
+        UserInfo                        userInfo;
+        RecId                           purchRecId;
+        Name                            approverName;
+        
+        purchRecId = PurchTable::find(_purchId).RecId;
+
+        select firstonly RecId, User from workflowTrackingTable
+            order by RecId desc
+            join workflowTrackingCommentTable
+                where workflowTrackingCommentTable.WorkflowTrackingTable == workflowTrackingTable.RecId
+            join UserInfo
+                where UserInfo.id == WorkflowTrackingTable.User
+            exists join workflowTrackingStatus
+                where workflowTrackingTable.WorkflowTrackingStatusTable == workflowTrackingStatus.RecId
+                && workflowTrackingStatus.ContextRecId == purchRecId
+                && workflowTrackingStatus.ContextTableId == tableNum(PurchTable)
+                && workflowTrackingTable.TrackingType == WorkflowTrackingType::Approval;
+
+        if (workflowTrackingTable.RecId)
+        {
+            approverName = userInfo.name;
+        }
+
+        return approverName;
+    }
+
+    /// <summary>
+    /// Get contact information related to Phone
+    /// </summary>
+    /// <param name = "_vendAccount">VendAccount</param>
+    /// <returns>container</returns>
+    public container DIVcontactPhone(VendAccount   _vendAccount)
+    {
+        LogisticsElectronicAddress   electronicAddress;
+        VendTable                    vendorTable = VendTable::find(_vendAccount);
+
+        electronicAddress = DirParty::primaryElectronicAddress(vendorTable.Party, LogisticsElectronicAddressMethodType::Phone);
+
+        return [electronicAddress.Description, electronicAddress.Locator];
+    }
+
+    /// <summary>
+    /// Get Cost Center dimension value
+    /// </summary>
+    /// <param name = "_defaultDimension">DefaultDimension</param>
+    /// <param name = "_dimName">Dimension name</param>
+    /// <returns>Dimension display value</returns>
+    public str DIVgetDimDisplayValue(RecId  _defaultDimension, Name  _dimName)
+    {
+        DimensionAttributeValueSetStorage   dimStorage;
+
+        dimStorage = DimensionAttributeValueSetStorage::find(_defaultDimension);
+        
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(_dimName).RecId);
+    }
+
+    /// <summary>
+    /// Get total purch values
+    /// </summary>
+    /// <param name = "_purchid">PurchId</param>
+    /// <returns>container</returns>
+    public container DIVcalcTotalValue(PurchId  _purchid)
+    {
+        //Calculate totals per Purchase Order
+        PurchTotals purchTotals;
+        PurchTable  purchTable  = PurchTable::find(_purchid);
+        AmountCur   totalAmount, totalTax;
+        
+
+        purchTotals = PurchTotals::newPurchTable(purchTable);
+        purchTotals.calc();
+        totalAmount = purchTotals.purchTotalAmount();
+        totalTax    = purchTotals.purchTaxTotal();
+
+        return [totalAmount, totalTax];
+    }
+
+    /// <summary>
+    /// Creates the order document.
+    /// </summary>
+    /// <returns>
+    /// The <c>PurchPurchaseOrderHeader</c> record which is the header for the report data.
+    /// </returns>
+    protected PurchPurchaseOrderHeader createOrder()
+    {
+        PurchPurchaseOrderHeader    purchPurchaseOrderHeader = next createOrder();
+                                                                             
+        this.DIVcreateTaxLines(purchPurchaseOrderHeader);
+
+        return purchPurchaseOrderHeader;
+    }
+
+    /// <summary>
+    /// Creates the order tax lines.
+    /// </summary>
+    /// <param name = "_purchaseOrderHeader">
+    /// A <c>PurchPurchaseOrderHeader</c> record which is the order header.
+    /// </param>
+    public void DIVcreateTaxLines(PurchPurchaseOrderHeader _purchaseOrderHeader)
+    {
+        boolean printTaxAmountMST	= true;
+        TaxSpec taxSpec				= this.DIVinstantiateTaxSpec(_purchaseOrderHeader);
+
+        while (taxSpec.parmTaxSpec())
+        {
+            if (this.mustCreateTaxLine(_purchaseOrderHeader, TaxSpec))
+            {
+                this.createTaxLine(_purchaseOrderHeader, taxSpec, printTaxAmountMST);
+            }
+        }            
+    }
+
+    /// <summary>
+    /// Intantiate TaxSpec class
+    /// </summary>
+    /// <param name = "_purchaseOrderHeader">PurchPurchaseOrderHeader</param>
+    /// <returns>TaxSpec</returns>
+    public TaxSpec DIVinstantiateTaxSpec(PurchPurchaseOrderHeader _purchaseOrderHeader)
+    {
+        TaxSpec taxSpec;
+
+        taxSpec = this.DIVgetTaxJournalSpec();
+
+        return taxSpec;
+    }
+
+    /// <summary>
+    /// Initializes and returns <c>TaxJournalSpec</c> class instance.
+    /// </summary>
+    /// <returns>
+    /// An instance of the <c>TaxJournalSpec</c> class.
+    /// </returns>
+    public TaxJournalSpec DIVgetTaxJournalSpec()
+    {
+        TaxJournalSpec      taxJournalSpec;
+       
+        taxJournalSpec = new TaxJournalSpec(vendPurchOrderJour.TableId, vendPurchOrderJour.RecId);
+        
+        return taxJournalSpec;
+    }
+
+}
+
+______________________________
+
+//Diversur macro
+#define.fixedAsset      ('Activos_Fijos')
+#define.costCenter      ('CentroCosto')
+#define.bookId          ('FINANCIERO')
+#define.TwoPoints       (':')
+#define.AddSeconds      (':00')
+#define.dimCostCenter   ("");
+#define.dimVendAccount  ("");
+#define.blank           ('');
+#define.hyphen          ('-');
+#define.one             (1);
+#define.prefixTotalTxt  ('SON: ');
+#define.with            ('CON ');
+#define.with2           ('con');
+#define.divHundred      ('/100');
+#define.soles           ('soles');
+#define.space           (' ');
+#define.pen             ('PEN');

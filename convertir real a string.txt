@@ -1,0 +1,2 @@
+Qty     adjQty = lines.Qty - availableQty;
+itemQtyAdjCon  += num2expstr(adjQty) + #hyphen + int642Str(lines.RecId);

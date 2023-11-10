@@ -1,0 +1,48 @@
+class UpdateReasonInternalComplaint
+{
+    public static UpdateReasonInternalComplaint construct()
+    {
+        return new UpdateReasonInternalComplaint();
+    }
+
+    public void updateReason(FromDate _fromDate, ToDate _toDate)
+    {
+        APSII_RCVPurchTable     aPSII_RCVPurchTable;
+        BillClaimPolicyView     billClaimPolicyView;
+        Query                   q = new Query();
+        QueryBuildDataSource    qbds;
+        QueryBuildRange         qbr;
+        QueryRun                qR;
+
+        qbds =   q.addDataSource(tablenum(BillClaimPolicyView));
+        qbr  =   qbds.addRange(fieldNum(BillClaimPolicyView,FechaRecepcion));
+        qbr.value(sysquery::range(_fromDate,_toDate));
+
+        qR = new QueryRun(q);
+
+        while(qR.next())
+        {
+            billClaimPolicyView =   qR.get(tableNum(billClaimPolicyView));
+
+            
+            aPSII_RCVPurchTable = APSII_RCVPurchTable::findRecId(billClaimPolicyView.APSII_RCVPurchTableRecId);            
+
+            if(aPSII_RCVPurchTable.ReasonInternalComplaint == ReasonInternalComplaint::None)
+            {
+                ttsbegin;
+                aPSII_RCVPurchTable.selectForUpdate(true);
+                if(VendTable::find(aPSII_RCVPurchTable.RUT).MatchingPolicy == PurchMatchingPolicyWithNotSetOption::NoMatch)
+                {
+                    aPSII_RCVPurchTable.ReasonInternalComplaint =   ReasonInternalComplaint::Politics;
+                }
+                else
+                {
+                    aPSII_RCVPurchTable.ReasonInternalComplaint =   ReasonInternalComplaint::XMLNotAvailable;
+                }
+                aPSII_RCVPurchTable.update();
+                ttscommit;
+            }
+        }
+    }
+
+}

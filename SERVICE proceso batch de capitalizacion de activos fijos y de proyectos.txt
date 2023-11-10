@@ -1,0 +1,658 @@
+/// <summary>
+/// Clase Contract para el proceso de Capitalizacion.
+/// </summary>
+[DataContract,
+SysOperationContractProcessingAttribute(classStr(UFTFixedAssetCapitalizationProcessUIBuilder))]
+// 20220525 – PRY_001 – INN
+class UFTFixedAssetCapitalizationProcessContract
+{
+    FiscalCalendarPeriodRecId    fiscalCalendarPeriodRefRecId;
+    TransDate                   postDate;
+
+
+
+    [DataMember]
+    public FiscalCalendarPeriodRecId parmFiscalCalendarPeriod(FiscalCalendarPeriodRecId _fiscalCalendarPeriodRefRecId = fiscalCalendarPeriodRefRecId)
+    {
+        fiscalCalendarPeriodRefRecId = _fiscalCalendarPeriodRefRecId;
+
+        return fiscalCalendarPeriodRefRecId;
+    }
+
+    [DataMember]
+    public TransDate parmPostDate(TransDate _postDate = postDate)
+    {
+        postDate = _postDate;
+
+        return postDate;
+    }
+
+}
+____________________________________________________________
+
+// 20220525 – PRY_001 – INN
+/// <summary>
+/// Clase UI Builder del proceso de Capitalización.
+/// </summary>
+class UFTFixedAssetCapitalizationProcessUIBuilder extends SysOperationAutomaticUIBuilder
+{
+    private DialogField dlgFiscalCalendarPeriod;
+    private DialogField dlgPostDate;    
+
+    public void postBuild()
+    {
+        super();
+
+        dlgFiscalCalendarPeriod = this.bindInfo().getDialogField(this.dataContractObject(), methodStr(UFTFixedAssetCapitalizationProcessContract, parmFiscalCalendarPeriod));
+        dlgFiscalCalendarPeriod.label("@UFINET_AP:GJPRY001_24");
+        
+        dlgPostDate             = this.bindInfo().getDialogField(this.dataContractObject(), methodStr(UFTFixedAssetCapitalizationProcessContract, parmPostDate));
+        dlgPostDate.label("@UFINET_AP:GJPRY001_25");
+
+        dlgFiscalCalendarPeriod.registerOverrideMethod(methodStr(FormReferenceGroupControl,modified),methodStr(UFTFixedAssetCapitalizationProcessUIBuilder, periodModified),this);
+    }
+
+    private boolean periodModified(FormReferenceGroupControl _control)
+    {
+        FiscalCalendarPeriod   fiscalCalendarPeriod  = FiscalCalendarPeriod::find(_control.value());
+
+        dlgPostDate.value(fiscalCalendarPeriod.EndDate);        
+
+        return _control.modified();
+    }
+
+}
+______________________________________________________________________________________
+
+
+// 20220525 – PRY_001 – INN
+/// <summary>
+/// Clase Controller del proceso de Capitalización.
+/// </summary>
+class UFTFixedAssetCapitalizationProcessController extends SysOperationServiceController
+{
+    protected void new()
+    {
+        super(classStr(UFTFixedAssetCapitalizationProcessService), methodStr(UFTFixedAssetCapitalizationProcessService, process), SysOperationExecutionMode::Synchronous);
+    }
+
+    public static UFTFixedAssetCapitalizationProcessController construct(SysOperationExecutionMode _executionMode = SysOperationExecutionMode::Synchronous)
+    {
+        UFTFixedAssetCapitalizationProcessController controller;
+
+        controller = new UFTFixedAssetCapitalizationProcessController();
+        controller.parmExecutionMode(_executionMode);
+
+        return controller;
+    }
+
+    public ClassDescription defaultCaption()
+    {
+        return "@UFINET_AP:GJPRY001_32";
+    }
+
+    public static void main(Args _args)
+    {
+        UFTFixedAssetCapitalizationProcessController controller;
+        UFTFixedAssetCapitalizationProcessContract   contract;
+        FiscalCalendarPeriod                         fiscalCalendarPeriod  = FiscalCalendarPeriod::findPeriodByCalendarDate(Ledger::fiscalCalendar(), DateTimeUtil::getSystemDate(DateTimeUtil::getUserPreferredTimeZone()));
+
+        controller = UFTFixedAssetCapitalizationProcessController::construct();
+        controller.parmArgs(_args);
+        controller.parmLoadFromSysLastValue(false);
+
+        contract = controller.getDataContractObject('_contract');
+        contract.parmFiscalCalendarPeriod(fiscalCalendarPeriod.RecId);
+        contract.parmPostDate(fiscalCalendarPeriod.EndDate);
+
+        controller.startOperation();
+    }
+
+}
+
+_________________________________________________
+
+
+// 20220525 – PRY_001 – INN
+/// <summary>
+/// Clase que se encarga de la Capitalización de los Proyectos.
+/// </summary>
+class UFTFixedAssetCapitalizationProcessService extends SysOperationServiceBase
+{
+    FiscalCalendarPeriod    fiscalCalendarPeriod;
+    TransDate               postDate;
+    UFTProjAdjustmentTmp    projAdjustmentTmp;
+
+    /// <summary>
+    /// Método principal de ejecución de la clase.
+    /// </summary>
+    /// <param name = "_contract">Clase Contract con los parámetros del proceso.</param>
+    public void process(UFTFixedAssetCapitalizationProcessContract _contract)
+    {
+        RefRecId            fiscalCalendarPeriodRecId = _contract.parmFiscalCalendarPeriod(); 
+        Args                args;
+        ProjTable           subProjTable;  
+        ProjTable           subProjTableVersions;
+        ProjTable           subProjTableMOISSPP;
+        ProjPostTransView   projPostTransView;
+        ProjPostTransView   projPostTransViewAux;
+        boolean             existsTransactions = false;
+       
+        fiscalCalendarPeriod = FiscalCalendarPeriod::find(fiscalCalendarPeriodRecId);
+        postDate             = _contract.parmPostDate();
+
+        ttsbegin;
+
+        // 1.- Obtenemos las versiones que debemos capitalizar
+        // Buscamos Subproyecto con Servicio Entregado = Si
+        // que No estén finalizados y tengan transacciones registradas de Artículo en el periodo indicado
+        // Tipos de Costo: Equipos, Fibra, Obra Civil, Infraestrucutra, Torres.
+        while select ParentId, UFTServiceVersion
+            from     subProjTableVersions
+            group by ParentId, UFTServiceVersion
+            where    subProjTableVersions.UFTServiceDelivered   == NoYes::Yes
+            &&       subProjTableVersions.ParentId
+            &&       subProjTableVersions.Status                == ProjStatus::InProcess
+            &&      (subProjTableVersions.UFTSubProjCostType == UFTSubProjCostType::Equipment
+            ||       subProjTableVersions.UFTSubProjCostType == UFTSubProjCostType::Fiber
+            ||       subProjTableVersions.UFTSubProjCostType == UFTSubProjCostType::CivilWork
+            ||       subProjTableVersions.UFTSubProjCostType == UFTSubProjCostType::Infrastructure
+            ||       subProjTableVersions.UFTSubProjCostType == UFTSubProjCostType::Towers)
+        exists join  projPostTransView
+            where    projPostTransView.ProjId             == subProjTableVersions.ProjId
+            &&       projPostTransView.ProjTransType      == ProjTransType::Item
+            //&&       projPostTransView.TransDate          >= fiscalCalendarPeriod.StartDate
+            //&&       projPostTransView.TransDate          <= fiscalCalendarPeriod.EndDate
+            &&       projPostTransView.TotalCostAmountCur > 0
+        {
+            existsTransactions = true;
+            
+            // Obtenemos los subproyectos Equipos y Fibra de la misma versión que se van a utilizar para realizar el ajuste de transacciones.
+            this.fillProjAdjustmentTmpEquipFiber(subProjTableVersions.ParentId, subProjTableVersions.UFTServiceVersion);
+            
+            // Comprobamos que se haya generado algún resultado para proceder con el proceso de ajuste
+            if (this.validateProjAdjustmentTmp())
+            {
+                // Recorremos los subproyectos MOI y SSPP del subproyecto y versión para realizar el ajuste de transacciones
+                while select subProjTableMOISSPP
+                    where    subProjTableMOISSPP.ParentId            == subProjTableVersions.ParentId
+                    &&       subProjTableMOISSPP.UFTServiceVersion   == subProjTableVersions.UFTServiceVersion
+                    &&       subProjTableMOISSPP.Status              == ProjStatus::InProcess
+                    &&      (subProjTableMOISSPP.UFTSubProjCostType  == UFTSubProjCostType::MOI
+                    ||       subProjTableMOISSPP.UFTSubProjCostType  == UFTSubProjCostType::ProfessionalServices)
+                {
+                    // Validamos si el subproyecto MOI o SSPP es apto para realizar el ajuste de transacciones.
+                    if (subProjTableMOISSPP.UFTSubProjCostType  == UFTSubProjCostType::MOI && this.validateMOI(subProjTableMOISSPP))
+                    {
+                        // Realizamos el proceso de Ajuste de Transacción para el subproyecto.
+                        this.createProjAdjustment(subProjTableMOISSPP);
+                    }
+                    else if (subProjTableMOISSPP.UFTSubProjCostType  == UFTSubProjCostType::ProfessionalServices)
+                    {
+                        // Realizamos el proceso de Ajuste de Transacción para el subproyecto.
+                        this.createProjAdjustment(subProjTableMOISSPP);
+                    }
+                }
+            }
+
+            // Creamos activos fijos
+            // Si no tiene activo fijo asociado, lo generamos y cerramos el subproyecto
+            // SOLO para subproyectos diferentes a MOI y SSPP
+            while select subProjTable
+                where    subProjTable.UFTServiceDelivered   == NoYes::Yes
+                &&       subProjTable.ParentId              == subProjTableVersions.ParentId
+                &&       subProjTable.UFTServiceVersion     == subProjTableVersions.UFTServiceVersion
+                &&       subProjTable.Status                == ProjStatus::InProcess
+                &&       subProjTable.UFTSubProjCostType    != UFTSubProjCostType::MOI
+                &&       subProjTable.UFTSubProjCostType    != UFTSubProjCostType::ProfessionalServices
+                &&       subProjTable.UFTSubProjCostType    != UFTSubProjCostType::None
+                &&       !subProjTable.AssetId
+            exists join  projPostTransViewAux
+                where    projPostTransViewAux.ProjId             == subProjTable.ProjId
+                &&       projPostTransViewAux.ProjTransType      == ProjTransType::Item
+                //&&       projPostTransViewAux.TransDate          >= fiscalCalendarPeriod.StartDate
+                //&&       projPostTransViewAux.TransDate          <= fiscalCalendarPeriod.EndDate
+                &&       projPostTransViewAux.TotalCostAmountCur > 0
+            {
+                args = new Args();
+                args.record(subProjTable);
+
+                // Llamamos al proceso de creación del Activo Fijo, Estimaciones y Cierre del proyecto.
+                UFTProjFixedAssetCreateController::runForCapitalizationProcess(args, postDate);
+            }  
+            
+        }    
+
+        if (!existsTransactions)
+        {
+            warning("@UFINET_AP:GJPRY001_63");
+        }
+    
+        ttscommit;
+
+        info("@UFINET_AP:GJPRY001_52");
+    }
+
+    /// <summary>
+    /// Valida el Subproyecto MOI
+    /// </summary>
+    /// <param name = "_subProjTableMOI">Subproyecto que se debe validar</param>
+    /// <returns>True/False</returns>
+    public boolean validateMOI(ProjTable _subProjTableMOI)
+    {
+        ProjPostTransView           projPostTransView;
+        ProjCostTransSale           projCostTransSale;       
+        LedgerJournalTrans          ledgerJournalTrans;
+        LedgerJournalTrans_Project  ledgerJournalTransProject;
+
+        // Comprobamos que tengan transacciones registradas en el periodo indicado el proyecto MOI
+        select firstonly projPostTransView
+            where        projPostTransView.ProjTransType == ProjTransType::Cost
+            &&           projPostTransView.TransDate     >= fiscalCalendarPeriod.StartDate
+            &&           projPostTransView.TransDate     <= fiscalCalendarPeriod.EndDate
+            &&           projPostTransView.ProjId        == _subProjTableMOI.ProjId;
+        /*
+        join             ledgerJournalTransProject
+            where        ledgerJournalTransProject.TransId == projPostTransView.TransId
+        exists join      ledgerJournalTrans
+            where        ledgerJournalTrans.RecId              == ledgerJournalTransProject.RefRecId
+            &&           ledgerJournalTrans.UFTMoiMonthlyTotal != 0;
+        */
+        if (!projPostTransView)
+        {
+            throw error(strFmt("@UFINET_AP:GJPRY001_44", _subProjTableMOI.ProjId, _subProjTableMOI.UFTSubProjCostType));
+        }
+
+        /* No es necesario realizar esta validación
+        // Comprobar que NO existan transacciones registradas donde el campo "Estado de la factura" tenga "Ajustado".        
+        select firstonly projPostTransView
+            where        projPostTransView.ProjTransType == ProjTransType::Cost
+            &&           projPostTransView.TransDate     >= fiscalCalendarPeriod.StartDate
+            &&           projPostTransView.TransDate     <= fiscalCalendarPeriod.EndDate
+            &&           projPostTransView.ProjId        == _subProjTableMOI.ProjId
+        join             ledgerJournalTransProject
+            where        ledgerJournalTransProject.TransId == projPostTransView.TransId
+        exists join      ledgerJournalTrans
+            where        ledgerJournalTrans.RecId              == ledgerJournalTransProject.RefRecId
+            &&           ledgerJournalTrans.UFTMoiMonthlyTotal != 0
+        exists join      projCostTransSale
+            where        projCostTransSale.TransId     == projPostTransView.TransId
+            &&           projCostTransSale.TransStatus == ProjTransStatus::Adjusted;
+
+        if (projPostTransView)
+        {
+            warning(strFmt("@UFINET_AP:GJPRY001_45", _subProjTableMOI.ProjId, _subProjTableMOI.UFTSubProjCostType));
+            return false;
+        }
+        */
+        return true;
+    }
+
+    /// <summary>
+    /// Rellena la tabla temporal con los Subproyectos Equipos y Fibra
+    /// </summary>
+    /// <param name = "_parentId">Id de Proyecto padre</param>
+    /// <param name = "_serviceVersion">Versión del proyecto</param>
+    public void fillProjAdjustmentTmpEquipFiber(ProjId _parentId, str _serviceVersion)
+    {
+        ProjTable           subProjTable;
+        ProjPostTransView   projPostTransView;
+        AmountCur           totalCost;
+
+        // Borramos datos temporales anteriores
+        delete_from projAdjustmentTmp;
+
+        // Obtenemos los subproyectos Equipos y Fibra de la misma versión que se van a utilizar para realizar el ajuste de transacciones.
+        while select subProjTable
+            where    subProjTable.UFTServiceDelivered   == NoYes::Yes
+            &&       subProjTable.ParentId              == _parentId
+            &&       subProjTable.UFTServiceVersion     == _serviceVersion
+            &&       subProjTable.Status                == ProjStatus::InProcess
+            &&      (subProjTable.UFTSubProjCostType    == UFTSubProjCostType::Equipment
+            ||       subProjTable.UFTSubProjCostType    == UFTSubProjCostType::Fiber)
+        exists join  projPostTransView
+            where    projPostTransView.ProjId             == subProjTable.ProjId
+            &&       projPostTransView.ProjTransType      == ProjTransType::Item
+            //&&       projPostTransView.TransDate          >= fiscalCalendarPeriod.StartDate
+            //&&       projPostTransView.TransDate          <= fiscalCalendarPeriod.EndDate
+            &&       projPostTransView.TotalCostAmountCur > 0
+        {
+            projAdjustmentTmp.clear();
+            projAdjustmentTmp.ProjId             = subProjTable.ProjId;
+            //projAdjustmentTmp.TotalCostAmountCur = subProjTable.getTotalCostAmountCurItems(fiscalCalendarPeriod);
+            projAdjustmentTmp.TotalCostAmountCur = subProjTable.getTotalCostAmountCurItems();
+            projAdjustmentTmp.Percent            = 0;
+            projAdjustmentTmp.insert();
+        }
+
+        // Realizamos la distribución de porcentaje que se utilizará en el proceso de ajuste de transacciones
+        select sum(TotalCostAmountCur)
+            from projAdjustmentTmp;
+
+        totalCost = projAdjustmentTmp.TotalCostAmountCur;
+
+        if (totalCost)
+        {
+            while select forupdate projAdjustmentTmp
+            {
+                ttsbegin;
+                //projAdjustmentTmp.Percent = round((projAdjustmentTmp.TotalCostAmountCur * 100) / totalCost,2);
+                projAdjustmentTmp.Percent = (projAdjustmentTmp.TotalCostAmountCur * 100) / totalCost;
+                projAdjustmentTmp.update();
+                ttscommit;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Se valida que la tabla temporal tenga registros para procesarlos
+    /// </summary>
+    /// <returns>True/False</returns>
+    public boolean validateProjAdjustmentTmp()
+    {
+        select count(RecId) from projAdjustmentTmp;
+
+        return projAdjustmentTmp.RecId != 0;
+    }
+
+    /// <summary>
+    /// Método que genera el Ajuste de Transacciones
+    /// </summary>
+    /// <param name = "_subProject">Id de SubProyecto que se desea ajustar</param>
+    public void createProjAdjustment(ProjTable _subProject)
+    {
+        ProjAdjustmentSelect            projAdjustmentSelect;
+        TmpProjAdjustment               tmpProjAdjustment;
+        TmpProjAdjustmentCost           tmpProjAdjustmentCost;
+        TmpProjAdjustmentSale           tmpProjAdjustmentSale;
+        //TmpProjAdjustmentCreate         tmpProjAdjustmentCreate;
+        //TmpProjAdjustmentCreateCost     tmpProjAdjustmentCreateCost;
+        //TmpProjAdjustmentCreateSale     tmpProjAdjustmentCreateSale;
+
+        //TmpProjAdjustmentSplit          tmpProjAdjustmentSplit;
+
+        
+        ProjPostTransView               projPostTransView;
+        ProjCostTransSale               projCostTransSale;             
+        FromDate                        fromDate;
+
+        // Buscamos la primera transacción MOI No Imputable, para que la fecha de inicio sea esa transacción, 
+        // ya que se deben tener en cuenta todas las trasnacciones MOI no Ajustadas
+        while select     projPostTransView
+            order by     projPostTransView.TransDate asc
+            where        projPostTransView.ProjId        == _subProject.ProjId
+            &&           projPostTransView.ProjTransType == ProjTransType::Cost
+        {
+            if (projPostTransView.projInvoiceStatus(projPostTransView) == ProjInvoiceStatus::Nonchargeable)
+            {
+                fromDate = projPostTransView.TransDate;
+                break;
+            }
+        }        
+
+
+        projAdjustmentSelect  = ProjAdjustmentSelect::construct(_subProject.ProjId,
+                                                                '',
+                                                                '',
+                                                                true,
+                                                                //fiscalCalendarPeriod.StartDate,
+                                                                fromDate,                                                            
+                                                                fiscalCalendarPeriod.EndDate,
+                                                                '');
+        
+        // Seleccionamos los parámetros para la selección de registros
+        projAdjustmentSelect.parmQueryCost(true);
+        projAdjustmentSelect.parmQueryInternal(true);
+        projAdjustmentSelect.parmQueryInvestment(true);
+        //projAdjustmentSelect.parmFromDate(fiscalCalendarPeriod.StartDate);
+        projAdjustmentSelect.parmFromDate(fromDate);
+        projAdjustmentSelect.parmToDate(fiscalCalendarPeriod.EndDate);
+        projAdjustmentSelect.parmAdjustmentDate(postDate);
+        projAdjustmentSelect.parmQueryPosted(true);
+        projAdjustmentSelect.parmQueryChargeable(false);
+        projAdjustmentSelect.parmQueryNonChargeable(true);
+        projAdjustmentSelect.parmQueryTime(false);
+        projAdjustmentSelect.parmQueryItem(false);
+        projAdjustmentSelect.parmQueryRevenue(false);
+        projAdjustmentSelect.parmQuerySubscription(false);
+        projAdjustmentSelect.parmQueryTimeMaterial(false);
+        projAdjustmentSelect.parmQueryFixedPrice(false);
+        projAdjustmentSelect.parmQueryEmpl(false);
+        
+        // Ejecutamos el proceso de obtención de transacciones a ajustar
+        projAdjustmentSelect.runOperation();
+
+        // Obtenemos los resultados
+        tmpProjAdjustment.linkPhysicalTableInstance(projAdjustmentSelect.tmpProjAdjustment());
+        tmpProjAdjustmentCost.linkPhysicalTableInstance(projAdjustmentSelect.tmpProjAdjustmentCost());
+        tmpProjAdjustmentSale.linkPhysicalTableInstance(projAdjustmentSelect.tmpProjAdjustmentSale());
+
+
+        Set                 set = this.retrieveTransactionsForLineSplit(tmpProjAdjustment);
+        setiterator         transIdSetIterator = new setiterator(set);
+        ProjCostTransId     transId;
+        TmpProjAdjustment   tmpAdjustmentBuffer;
+
+        tmpAdjustmentBuffer.linkPhysicalTableInstance(tmpProjAdjustment);
+
+        // Recorremos las transacciones encontradas y por cada una de ellas, realizamos el Ajuste de Transacciones
+        while(transidsetiterator.more())
+        {
+            transid = transidsetiterator.value();
+
+            select    tmpAdjustmentBuffer
+                where tmpAdjustmentBuffer.transid == transid;
+
+            // Ahora debemos calcular el Ajuste
+            this.calcAdjustment(tmpAdjustmentBuffer, tmpProjAdjustmentCost, tmpProjAdjustmentSale, transId);
+            transidsetiterator.next();
+        }
+    }
+
+    /// <summary>
+    /// Calculo del Ajuste de Transacciones
+    /// </summary>
+    /// <param name = "_tmpProjAdjustment">Ajustes creados pendientes de procesar</param>
+    /// <param name = "_tmpProjAdjustmentCost">Ajustes creados pendientes de procesar</param>
+    /// <param name = "_tmpProjAdjustmentSale">Ajustes creados pendientes de procesar</param>
+    /// <param name = "_transId">Id de Transacción que se desea ajustar</param>
+    public void calcAdjustment( TmpProjAdjustment     _tmpProjAdjustment,
+                                TmpProjAdjustmentCost _tmpProjAdjustmentCost,
+                                TmpProjAdjustmentSale _tmpProjAdjustmentSale,
+                                ProjCostTransId       _transId)
+    {
+        TmpProjAdjustmentSplit          tmpProjAdjustmentSplit;
+
+        //TmpProjAdjustmentCost           tmpProjAdjustmentCost;
+        //TmpProjAdjustmentSale           tmpProjAdjustmentSale;
+        TmpProjAdjustmentCreate         tmpProjAdjustmentCreate;
+        TmpProjAdjustmentCreate         tmpProjAdjustmentCreateAux;
+        TmpProjAdjustmentCreateCost     tmpProjAdjustmentCreateCost;
+        TmpProjAdjustmentCreateSale     tmpProjAdjustmentCreateSale;
+
+        ProjAdjustmentSplit             adjustmentSplit;
+        Args                            args;
+
+        Set             set                = this.retrieveTransactionsForLineSplit(_tmpProjAdjustment, _transId);        
+
+        // Añadimos los subproyectos Equipos y Fibra almacenados en la Tmp con la distribución de porcentajes.
+        while select projAdjustmentTmp
+        {
+            tmpProjAdjustmentSplit.clear();
+            tmpProjAdjustmentSplit.initValue();
+            tmpProjAdjustmentSplit.ProjId  = projAdjustmentTmp.ProjId;
+            tmpProjAdjustmentSplit.Percent = projAdjustmentTmp.Percent;
+            tmpProjAdjustmentSplit.insert();
+        }        
+
+        // Creamos el ajuste de las transacciones
+        adjustmentSplit = new ProjAdjustmentSplit(
+                                tmpProjAdjustmentCreate,
+                                tmpProjAdjustmentCreateCost,
+                                tmpProjAdjustmentCreateSale,
+                                _tmpProjAdjustment,
+                                _tmpProjAdjustmentCost,
+                                _tmpProjAdjustmentSale);
+
+        adjustmentSplit.parmProjTransIdSet(set);
+        adjustmentSplit.parmTmpProjAdjustmentSplit(tmpProjAdjustmentSplit);
+
+        setiterator     transIdSetIterator = new setiterator(set);
+
+        adjustmentSplit.runOperation();
+
+        
+        ProjCostTransId transId;
+        // Actualizamos la transacción original como Pendiente de Ajuste.
+        TmpProjAdjustment tmpAdjustmentBuffer;
+        tmpAdjustmentBuffer.linkPhysicalTableInstance(_tmpProjAdjustment);
+        ttsbegin;
+        while(transidsetiterator.more())
+        {
+            transid = transidsetiterator.value();
+            select forupdate tmpAdjustmentBuffer where tmpAdjustmentBuffer.transid == transid;
+            tmpAdjustmentBuffer.pendingadjustment = NoYes::Yes;
+            tmpAdjustmentBuffer.update();
+            transidsetiterator.next();
+        }
+        ttscommit;
+
+        while select tmpProjAdjustmentCreate
+        {
+            tmpProjAdjustmentCreateAux.clear();
+            tmpProjAdjustmentCreateAux.data(tmpProjAdjustmentCreate);
+            tmpProjAdjustmentCreateAux.insert();
+            //Info(strFmt("%1 - %2", tmpProjAdjustmentCreate.ProjId, tmpProjAdjustmentCreate.TransID));
+        }
+
+        // Registramos el ajuste creado
+        args = new Args();
+        args.record(_tmpProjAdjustment);
+        this.postAdjustment(args,
+                            tmpAdjustmentBuffer,
+                            _tmpProjAdjustmentCost,
+                            _tmpProjAdjustmentSale,
+                            //tmpProjAdjustmentCreate,
+                            tmpProjAdjustmentCreateAux,
+                            tmpProjAdjustmentCreateCost,
+                            tmpProjAdjustmentCreateSale);
+        
+        
+    }
+
+    /// <summary>
+    /// Proceso de Registro de los Ajustes de Transacciones generados
+    /// </summary>
+    /// <param name = "_args">Parámetros</param>
+    /// <param name = "_tmpProjAdjustment">Ajustes creados pendientes de procesar</param>
+    /// <param name = "_tmpProjAdjustmentCost">Ajustes creados pendientes de procesar</param>
+    /// <param name = "_tmpProjAdjustmentSale">Ajustes creados pendientes de procesar</param>
+    /// <param name = "_tmpProjAdjustmentCreate">Ajustes creados pendientes de procesar</param>
+    /// <param name = "_tmpProjAdjustmentCreateCost">Ajustes creados pendientes de procesar</param>
+    /// <param name = "_tmpProjAdjustmentCreateSale">Ajustes creados pendientes de procesar</param>
+    public void postAdjustment( Args                        _args,
+                                TmpProjAdjustment           _tmpProjAdjustment,
+                                TmpProjAdjustmentCost       _tmpProjAdjustmentCost,
+                                TmpProjAdjustmentSale       _tmpProjAdjustmentSale,
+                                TmpProjAdjustmentCreate     _tmpProjAdjustmentCreate,
+                                TmpProjAdjustmentCreateCost _tmpProjAdjustmentCreateCost,
+                                TmpProjAdjustmentCreateSale _tmpProjAdjustmentCreateSale)
+    {
+        #OCCRetryCount
+        ProjCostTransSale       projCostTransSale;
+        boolean                 isAlreadyAdjusted = false;
+        boolean                 recordHasChanged  = false;
+        boolean                 isAlreadyReturned = false;
+        boolean                 isAsyncProcessing;
+
+        ProjCostTrans           projCostTrans;
+
+        // Solo transacciones de Gasto
+        select firstonly RecVersion
+            from        projCostTrans
+        join            TransStatus
+            from        projCostTransSale
+            where       projCostTrans.TransId     == _tmpProjAdjustment.TransId
+            &&          projCostTransSale.TransId == projCostTrans.TransId;
+
+        if (projCostTransSale.TransStatus == ProjTransStatus::Adjusted)
+        {
+            isAlreadyAdjusted = true;
+        }
+        else if (projCostTrans.RecVersion != _tmpProjAdjustment.RefRecVersion)
+        {
+            recordHasChanged = true;
+        }
+        
+
+        isAsyncProcessing = false;
+
+        if (isAlreadyAdjusted)
+        {
+            // "Transaction %1 is already Adjusted. It cannot be adjusted again."
+            error(strFmt("@Proj:TransactionAlreadyAdjusted", _tmpProjAdjustmentCreate.TransId));
+        }
+        else if (recordHasChanged)
+        {
+            // "Transaction %1 cannot be adjusted because it has changed since being selected. To adjust it, click Select and try again."
+            error(strFmt("@Proj:TransactionAlreadyChanged", _tmpProjAdjustmentCreate.TransId, "@SYS2245"));
+        }
+        else if (isAlreadyReturned)
+        {
+            // "Item transaction %1 cannot be adjusted because it was returned."
+            error(strFmt("@Proj:TransactionAlreadyReturned", _tmpProjAdjustmentCreate.TransId));
+        }
+        else
+        {
+            // Check to see if there are any adjusted transactions.
+            if(_tmpProjAdjustmentCreate)
+            {
+                // Only one records is being adjusted, do a synchrounous call
+                _args.record(_tmpProjAdjustment);
+                ProjAdjustmentUpdate::newPostAdjustment(
+                        _tmpProjAdjustmentCreate,
+                        _tmpProjAdjustmentCreateCost,
+                        _tmpProjAdjustmentCreateSale,
+                        _tmpProjAdjustment,
+                        _tmpProjAdjustmentCost,
+                        _tmpProjAdjustmentSale,
+                        _args);                
+            }
+            else
+            {
+                // "No adjustments have been registered."
+                info("@SYS82602");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Proceso de Transacciones obtenidas
+    /// </summary>
+    /// <param name = "_tmpProjAdjustment">Parámetros</param>
+    /// <param name = "_transId">Id de Transacción</param>       
+    /// <returns>Set</returns>
+    public Set retrieveTransactionsForLineSplit(TmpProjAdjustment _tmpProjAdjustment, ProjCostTransId  _transId = '')
+    {
+        Set  set = new Set(Types::String);
+
+        if (_transId)
+        {
+            while select _tmpProjAdjustment
+                where    _tmpProjAdjustment.TransId == _transId
+            {
+                set.add(_tmpProjAdjustment.TransId);
+            }
+        }
+        else
+        {
+            while select _tmpProjAdjustment
+            {
+                set.add(_tmpProjAdjustment.TransId);
+            }
+        }
+
+        return set;
+    }
+
+}
