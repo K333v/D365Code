@@ -1,0 +1,2 @@
+- Para instalar localizaciones como ADP, primero se necesita que se instale en ambiente Merge
+- Es necesario tener la rama ProdRelease

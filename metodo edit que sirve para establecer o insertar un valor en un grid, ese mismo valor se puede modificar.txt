@@ -1,0 +1,35 @@
+/// <summary>
+    /// Gets the RefPointId from <c>HRCCompRefPointSetupLine</c> table.
+    /// </summary>
+    /// <param name = "_set">true if value is set; otherwise, false.</param>
+    /// <param name = "_refPointId">Reference point id.</param>
+    /// <returns>
+    /// The RefPointId.
+    /// </returns>
+    public edit HRCCompRefPointId refPointId(boolean _set, HRCCompRefPointId _refPointId)
+    {
+        if(_set)
+        {
+            this.RefPointId = _refPointId;
+        }
+        
+        return this.RefPointId;
+    }
+
+  /// <summary>
+    /// Gets the Description from <c>HRCCompRefPointSetupLine</c> table.
+    /// </summary>
+    /// <param name = "_set">true if value is set; otherwise, false.</param>
+    /// <param name = "_description">Description.</param>
+    /// <returns>
+    /// The Description.
+    /// </returns>
+    public edit HRCCompRefPointDescription description(boolean _set, HRCCompRefPointDescription _description)
+    {
+        if(_set)
+        {
+            this.Description = _description;
+        }
+
+        return this.Description;
+    }

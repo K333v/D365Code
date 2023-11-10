@@ -1,0 +1,1038 @@
+class UFT_CreateItemsContract
+{
+    EcoResProductName                   productName;
+    EcoResProductSearchName             searchName;
+    EcoResTrackingDimensionGroupName    trackingDimensionGroupName;
+    List                                traslateList;
+    List                                releaseCompanyList;
+    str                                 productId;
+    UnitOfMeasureSymbol                 UnitSales,UnitPurch,UnitInvent;
+    OverDeliveryPct                     OverDeliveryPct;
+    EcoResCategoryName                  categoryId;
+    FreeTxt                             descrition;
+    CompanyId                           companyId; // compañia de control para creacion
+    Description                         companyUpdate;
+    
+
+    public Description parmcompanyUpdate(Description _companyUpdate = companyUpdate)
+    {
+        companyUpdate = _companyUpdate;
+        return companyUpdate;
+    }
+
+    public CompanyId parmCompanyId(CompanyId _companyId = companyId)
+    {
+        companyId = _companyId;
+        return companyId;
+    }
+
+    /// </summary>
+    /// <param name="productId"></param>
+    [DataMemberAttribute('descrition')]
+    public FreeTxt parmDescrition(FreeTxt _descrition = descrition)
+    {
+        descrition = _descrition;
+        return descrition;
+    }
+
+        /// </summary>
+    /// <param name="productId"></param>
+    [DataMemberAttribute('productId')]
+    public str parmProductId(str _productId = productId)
+    {
+        productId = _productId;
+        return productId;
+    }
+
+    /// </summary>
+    /// <param name="productName"></param>
+    [DataMemberAttribute('productName')]
+    public str  parmProductName(str _productName = productName)
+    {
+        productName = _productName;
+        return productName;
+
+    }
+
+    /// </summary>
+    /// <param name="searchName"></param>
+    [DataMemberAttribute('searchName')]
+    public EcoResProductSearchName  parmSearchName(EcoResProductSearchName _searchName = searchName)
+    {
+        searchName = _searchName;
+        return searchName;
+
+    }
+
+    /// </summary>
+    /// <param name="trackingDimensionGroupName"></param>
+    [DataMemberAttribute('trackingDimensionGroupName')]
+    public EcoResTrackingDimensionGroupName  parmTrackingDimensionGroupName(EcoResTrackingDimensionGroupName _trackingDimensionGroupName = trackingDimensionGroupName)
+    {
+        trackingDimensionGroupName = _trackingDimensionGroupName;
+        return trackingDimensionGroupName;
+
+    }
+
+    /// </summary>
+    /// <param name="Traslate"></param>
+    [DataMemberAttribute('TraslateList'),
+    AifCollectionType("TraslateList", Types::Class, classStr(UFT_CreateItemsTranslateContract)),
+    AifCollectionType("return", Types::Class, classStr(UFT_CreateItemsTranslateContract))]
+    public List parmTraslate(List _traslateList = traslateList)
+    {
+        traslateList = _traslateList;
+        return traslateList;
+    }
+
+    [DataMemberAttribute('CompanyList'),
+    AifCollectionType("CompanyList", Types::Class, classStr(UFT_ReleaseCompanyContract)),
+    AifCollectionType("return", Types::Class, classStr(UFT_ReleaseCompanyContract))]
+    public List parmReleaseCompanyList(List _releaseCompanyList = releaseCompanyList)
+    {
+        releaseCompanyList = _releaseCompanyList;
+        return releaseCompanyList;
+    }
+
+    /// </summary>
+    /// <param name="UnitSales"></param>
+    [DataMemberAttribute('UnitSales')]
+    public UnitOfMeasureSymbol   parmUnitSales(UnitOfMeasureSymbol _UnitSales = UnitSales)
+    {
+        UnitSales = _UnitSales;
+        
+        return UnitSales;
+    }
+
+    /// </summary>
+    /// <param name="UnitPurch"></param>
+    [DataMemberAttribute('UnitPurch')]
+    public UnitOfMeasureSymbol   parmUnitPurch(UnitOfMeasureSymbol _UnitPurch = UnitPurch)
+    {
+        UnitPurch = _UnitPurch;
+        
+        return UnitPurch;
+    }
+
+    /// </summary>
+    /// <param name="UnitInvent"></param>
+    [DataMemberAttribute('UnitInvent')]
+    public UnitOfMeasureSymbol   parmUnitInvent(UnitOfMeasureSymbol _UnitInvent = UnitInvent)
+    {
+        UnitInvent = _UnitInvent;
+        
+        return UnitInvent;
+    }
+
+    /// </summary>
+    /// <param name="OverDeliveryPct"></param>
+    [DataMemberAttribute('OverDeliveryPct')]
+    public OverDeliveryPct   parmOverDeliveryPct(OverDeliveryPct _OverDeliveryPct = OverDeliveryPct)
+    {
+        OverDeliveryPct = _OverDeliveryPct;
+        
+        return OverDeliveryPct;
+    }
+
+    /// </summary>
+    /// <param name="OverDeliveryPct"></param>
+    [DataMemberAttribute('categoria')]
+    public EcoResCategoryName   parmCategoryId(EcoResCategoryName _categoryId = categoryId)
+    {
+        categoryId = _categoryId;
+        
+        return categoryId;
+    }
+
+}
+
+________________________________________________
+
+class UFT_ReleaseCompanyContract
+{
+    str                     releaseCompanyId;
+
+    /// </summary>
+    /// <param name="companyId"></param>
+    [DataMemberAttribute('ReleaseCompanyId')]
+    public str  parmCompanyId(str _releaseCompanyId = releaseCompanyId)
+    {
+        releaseCompanyId = _releaseCompanyId;
+        return releaseCompanyId;
+    }
+
+}
+___________________________________________________
+
+class UFT_CreateItemsTranslateContract
+{
+    LanguageId                      languageId;
+    Description                     descrition;
+    EcoResProductName               name;
+
+    [DataMemberAttribute('languageId')]
+    public LanguageId parmlanguageId(LanguageId _languageId = languageId)
+    {
+        languageId = _languageId;
+        return languageId;
+    }
+
+    [DataMemberAttribute('descrition')]
+    public Description parmDescrition(Description _descrition = descrition)
+    {
+        descrition = _descrition;
+        return descrition;
+    }
+
+    [DataMemberAttribute('Name')]
+    public EcoResProductName parmName(EcoResProductName  _name = name)
+    {
+        name = _name;
+        return name;
+    }
+
+}
+
+_____________________________________________________
+
+[Newtonsoft.Json.JsonObjectAttribute(IsReference = false)]
+class UFT_ResponseServiceContract
+{
+    ItemId                              itemId;
+    FreeTxt                             descrition;
+    boolean                             status;
+
+    [DataMemberAttribute('Status')]
+    public boolean parmStatus(boolean _status = status)
+    {
+        status = _status;
+        return status;
+    }
+
+    [DataMemberAttribute('itemId')]
+    public itemId parmItemId(itemId _itemId = itemId)
+    {
+        itemId = _itemId;
+        return itemId;
+    }
+
+    [DataMemberAttribute('descrition')]
+    public FreeTxt parmDescrition(FreeTxt _descrition = descrition)
+    {
+        descrition = _descrition;
+        return descrition;
+    }
+
+}
+
+_____________________________________________________________________
+
+class UFT_CreateItemsService
+{
+
+  
+
+    [AifCollectionTypeAttribute('ProductList', Types::Class, classStr(UFT_CreateItemsContract)),
+        AifCollectionTypeAttribute('return', Types::Class, classStr(UFT_ResponseServiceContract))]
+    public List UFT_CreateProductService(List ProductList)
+    {
+        List                                response = new List(Types::Class);
+        UFTCompanyMapping                   companyMapping;
+        ListEnumerator                      keysEnumerator,responseEnumerator;
+        System.Exception                    generalEx;
+        SysInfoLogEnumerator                infoLogEnum;
+        SysInfologMessageStruct             infoMessageStruct;
+        str                                 infoerror;
+        UFT_CreateItemsContract             contract;
+        UFT_ResponseServiceContract         responseContract,getresponse;
+
+        keysEnumerator = ProductList.getEnumerator();
+
+        while(keysEnumerator.moveNext())
+        {
+            contract = keysEnumerator.current();
+
+            try
+            {
+                ttsBegin;
+                response = UFT_EcoResCreateProd::validateItems(contract);
+                responseEnumerator = response.getEnumerator();
+                if(!response.elements())
+                {
+                    if(UFT_EcoResCreateProd::createItems(contract))
+                    {
+                        UFT_EcoResCreateProd::ReleaseItemForCompany(contract.parmProductId(),contract);
+                        responseContract = new UFT_ResponseServiceContract();
+                        responseContract.parmStatus(true);
+                        responseContract.parmItemId(contract.parmProductId());
+                        responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0012",contract.parmProductId(),contract.parmcompanyUpdate()));
+                        response.addEnd(responseContract);
+                        UFT_CreateItemsService::insertLog(UFTIntegrationType::CreateItem,UFTIntegrationStatus::Processed, responseContract.parmDescrition());
+                    }
+                }
+                else
+                {
+                    responseEnumerator = response.getEnumerator();
+                    while(responseEnumerator.moveNext())
+                    {
+                        getresponse = responseEnumerator.current();
+                        UFT_CreateItemsService::insertLog(UFTIntegrationType::CreateItem,UFTIntegrationStatus::Error, getresponse.parmDescrition());
+                    }
+                }
+                ttscommit;
+            }
+            catch (generalEx)
+            {
+                infoLogEnum = SysInfoLogEnumerator::newData(infolog.infologData());
+                while(infoLogEnum.moveNext())
+                {
+                    infoMessageStruct = SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                    infoerror += infoMessageStruct.message() + ' ';
+                    responseContract = new UFT_ResponseServiceContract();
+                    responseContract.parmStatus(false);
+                    responseContract.parmItemId('');
+                    responseContract.parmDescrition(strFmt('%1',infoerror));
+                    response.addEnd(responseContract);
+                    UFT_CreateItemsService::insertLog(UFTIntegrationType::CreateItem,UFTIntegrationStatus::Error, responseContract.parmDescrition());
+                }
+                ttsabort;
+            }
+        }
+        return response;
+    }
+
+    public static void  insertLog(UFTIntegrationType  _integrationType, UFTIntegrationStatus _integrationStatus, str _message)
+    {
+        UFTIntegrationProcessingLog     integrationProcessingLog;
+
+        integrationProcessingLog.IntegrationType = _integrationType;
+        integrationProcessingLog.IntegrationStatus = _integrationStatus;
+        integrationProcessingLog.ProcessDateTime = DateTimeUtil::utcNow();
+        integrationProcessingLog.ExternalApplication = UFTIntegrationExternalApplicationType::Phoenix;
+        integrationProcessingLog.Message = _message;
+        integrationProcessingLog.insert();
+    }
+
+}
+
+_________________________________________________________________________
+
+VALIDA ARTICULOS Y REALIZAR LA EMISIÓN DE PRODUCTOS AUTOMATICAMENTE
+
+
+
+class UFT_EcoResCreateProd
+{
+
+
+    public static List  validateItems(UFT_CreateItemsContract _contract)
+    {
+        List                                    response = new List(Types::Class) ;
+        UFT_ResponseServiceContract             responseContract;
+        EcoResCategoryHierarchyRole             ecoResCategoryHierarchyRole;
+        EcoResProductDimensionGroup             productDimensionGroup;
+        ListEnumerator                          keysCompany;
+        List                                    releaseList = new List(Types::Class) ;
+        UFT_ReleaseCompanyContract              companyContract;
+        CompanyId                               companyProcess;
+        InventParameters                        inventParameters = InventParameters::find();
+        EcoResTrackingDimensionGroup            trackingDimensionGroup; 
+        Description                             companyUpdate;
+        UnitOfMeasure                           UnitOfMeasure;
+
+        select firstonly trackingDimensionGroup
+            where trackingDimensionGroup.Name == _contract.parmTrackingDimensionGroupName();
+
+        if(!trackingDimensionGroup )
+        {
+            responseContract = new UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0011",_contract.parmTrackingDimensionGroupName(),_contract.parmProductName()));
+            response.addEnd(responseContract);
+        }
+
+
+        select firstonly ecoResCategoryHierarchyRole
+            where ecoResCategoryHierarchyRole.NamedCategoryHierarchyRole == EcoResCategoryNamedHierarchyRole::Procurement;
+        if(!ecoResCategoryHierarchyRole)
+        {
+            responseContract = new UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0008",EcoResCategoryNamedHierarchyRole::Procurement,_contract.parmProductName()));
+            response.addEnd(responseContract);
+        }
+
+        if(!_contract.parmDescrition())
+        {
+            responseContract = new UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0024",'Descripcion'));
+            response.addEnd(responseContract);
+        }
+
+        if(!_contract.parmCategoryId())
+        {
+            responseContract = new UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0024",'Categoría de compra'));
+            response.addEnd(responseContract);
+        }
+
+        if(!_contract.parmOverDeliveryPct())
+        {
+            responseContract = new UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0024",'Permitido en exceso'));
+            response.addEnd(responseContract);
+        }
+
+
+        if(!_contract.parmProductName())
+        {
+            responseContract = new UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0024",'Nombre del producto'));
+            response.addEnd(responseContract);
+        }
+        if(!_contract.parmSearchName())
+        {
+            responseContract = new UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0024",'Nombre de búsqueda'));
+            response.addEnd(responseContract);
+        }
+
+        UnitOfMeasure = UnitOfMeasure::findBySymbol(_contract.parmUnitSales());
+        if(!UnitOfMeasure)
+        {
+            responseContract = new  UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0017",_contract.parmUnitSales(),_contract.parmProductName(),'Ventas'));
+            response.addEnd(responseContract);
+
+        }
+
+        UnitOfMeasure = UnitOfMeasure::findBySymbol(_contract.parmUnitPurch());
+        if(!UnitOfMeasure)
+        {
+            responseContract = new  UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0017",_contract.parmUnitPurch(),_contract.parmProductName(),'Compra'));
+            response.addEnd(responseContract);
+
+        }
+               
+               
+
+        UnitOfMeasure = UnitOfMeasure::findBySymbol(_contract.parmUnitInvent());
+        if(!UnitOfMeasure)
+        {
+            responseContract = new  UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0017",_contract.parmUnitInvent(),_contract.parmProductName(),'Inventario'));
+            response.addEnd(responseContract);
+
+        }
+
+        EcoResCategory                 EcoResCategory;
+
+        select * from EcoResCategory
+            where EcoResCategory.Name == _contract.parmCategoryId() &&
+            EcoResCategory.CategoryHierarchy ==  ecoResCategoryHierarchyRole.CategoryHierarchy;
+        if(!EcoResCategory &&  _contract.parmCategoryId())
+        {
+            responseContract = new UFT_ResponseServiceContract();
+            responseContract.parmStatus(false);
+            responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0008",_contract.parmCategoryId(),_contract.parmProductName()));
+            response.addEnd(responseContract);
+        }
+
+
+        releaseList = _contract.parmReleaseCompanyList();
+        keysCompany = releaseList.getEnumerator();
+
+        while(keysCompany.moveNext())
+        {
+            companyContract = keysCompany.current();
+            companyProcess =  UFTCompanyMapping::findByExternalCompany(companyContract.parmCompanyId()).LegalEntityD365;
+            if(!companyProcess)
+            {
+                responseContract = new UFT_ResponseServiceContract();
+                responseContract.parmStatus(false);
+                responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0002", companyContract.parmCompanyId()));
+                response.addEnd(responseContract);
+                continue;
+            }
+            changecompany(companyProcess)
+            {
+                companyUpdate += companyProcess + ' ';
+
+                if(!_contract.parmCompanyId())
+                    _contract.parmCompanyId(companyProcess);
+
+                inventParameters = InventParameters::find();
+                if(!inventParameters.UFT_StorageDimensionGroupName)
+                {
+                    responseContract = new UFT_ResponseServiceContract();
+                    responseContract.parmStatus(false);
+                    responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0010",inventParameters.UFT_StorageDimensionGroupName,_contract.parmProductName()));
+                    response.addEnd(responseContract);
+                }
+                if(!inventParameters.UFT_InventLocationId)
+                {
+                    responseContract = new UFT_ResponseServiceContract();
+                    responseContract.parmStatus(false);
+                    responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0013",'@SYS6437'));
+                    response.addEnd(responseContract);
+                }
+                if(!inventParameters.UFT_ItemGroupId)
+                {
+                    responseContract = new UFT_ResponseServiceContract();
+                    responseContract.parmStatus(false);
+                    responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0013",'@SYS53818'));
+                    response.addEnd(responseContract);
+                }
+
+               
+                if(!_contract.parmOverDeliveryPct())
+                {
+                    responseContract = new UFT_ResponseServiceContract();
+                    responseContract.parmStatus(false);
+                    responseContract.parmDescrition(strFmt("@UFINET_AP:GIP001_0024",'Permitido en exceso'));
+                    response.addEnd(responseContract);
+                }
+
+            }
+            
+
+        }
+        _contract.parmcompanyUpdate(companyUpdate);
+      
+        return response;
+    }
+
+    private static boolean validateWriteOnInventTable(InventTable  _inventtable,UFT_CreateItemsContract _contract )
+    {
+        boolean             ret = true;
+        InventTableModule   inventTableInventModule;
+        InventTableModule   inventTablePurchModule;
+        InventTableModule   inventTableSalesModule;
+        InventModelGroupItem   inventModelGroupItem;
+        #ISOCountryRegionCodes
+
+        infolog.clear();
+        EcoResReleasedProduct ecoResReleasedProduct = EcoResReleasedProduct::construct();
+
+        ecoResReleasedProduct.parmInventTable(_inventtable);
+
+        inventTableInventModule = InventTableModule::find(_inventtable.ItemId, ModuleInventPurchSales::Invent);
+        inventTableInventModule.UnitId = _contract.parmUnitInvent();
+        ecoResReleasedProduct.parmInventTableModuleInvent(inventTableInventModule);
+
+        inventTablePurchModule = InventTableModule::find(_inventtable.ItemId, ModuleInventPurchSales::Purch);
+        inventTablePurchModule.UnitId =  _contract.parmUnitPurch();
+        ecoResReleasedProduct.parmInventTableModulePurch(inventTablePurchModule);
+
+        inventTableSalesModule = InventTableModule::find(_inventtable.ItemId, ModuleInventPurchSales::Sales);
+        inventTableSalesModule.UnitId =  _contract.parmUnitSales();
+        ecoResReleasedProduct.parmInventTableModuleSales(inventTableSalesModule);
+
+        /*inventModelGroupItem = InventModelGroupItem::findByItemIdLegalEntity(_inventtable.ItemId, _inventtable.dataAreaId);
+        inventModelGroupItem.ModelGroupId = inventModelGroupItem.ModelGroupId;
+        ecoResReleasedProduct.parmInventModelGroupItem(inventModelGroupItem);*/
+
+        ecoResReleasedProduct.parmUnitOfMeasureConverter(UnitOfMeasureConverter_Product::construct());
+        ecoResReleasedProduct.parmInventModelTypeFactory(InventModelTypeFactory::construct());
+
+
+        //secoResReleasedProduct.checkAndUpdateNonStockedDependencies();
+        ret = ret && ecoResReleasedProduct.UFT_validateUnitConversionPurch();
+        if(ret)
+            ret = ecoResReleasedProduct.UFT_validateUnitConversionSales();
+
+        return ret;
+
+    }
+
+    public static InventTable ReleaseItem(ItemId      _ItemId, CompanyId _companyId)
+    {
+        EcoResProduct                           ecoResProduct;
+        InventTable                             inventTable;
+        EcoResProductMaster                     ecoResProductMaster;
+        CompanyInfo                             companyInfo = CompanyInfo::find();
+        UFT_InventTableTmp                      inventTableTmp; 
+        inventModelGroupItem                    inventModelGroupItem;
+        inventParameters                        inventParameters;
+        InventItemInventSetup                   inventItemInventSetup;
+        InventItemPurchSetup                    inventItemPurchSetup;
+        InventItemSalesSetup                    inventItemSalesSetup;
+        InventDim                               inventDim;
+        InventTableModule                       inventTableModule;
+        ;
+       
+        select firstOnly ecoResProduct
+            where EcoResProduct.DisplayProductNumber == _ItemId;
+        select ecoResProductMaster
+            where ecoResProductMaster.DisplayProductNumber == _ItemId;
+        
+        EcoResProductReleaseManagerBase::releaseProduct(ecoResProduct.RecId,CompanyInfo::findDataArea(_companyId).RecId);
+
+      
+        
+        while select inventTableTmp 
+            where inventTableTmp.CompanyId == _companyId
+        {
+            changecompany(_companyId)
+            {
+                ttsbegin;
+                inventTable = null; 
+
+                inventParameters = InventParameters::find();
+                inventTable = InventTable::find(_ItemId);
+
+                inventTable.selectForUpdate(true);
+                inventTable.PurchModel = NoYes::Yes;
+                inventTable.CostModel = NoYes::Yes;
+                inventTable.doUpdate();
+
+           
+                InventLocation InventLocation = InventLocation::find(inventParameters.UFT_InventLocationId);
+                inventDim.initValue();
+                inventDim.InventSiteId = InventLocation.InventSiteId;
+                inventDim.inventLocationId = inventParameters.UFT_InventLocationId;
+                inventDim = InventDim::findOrCreate(inventDim);
+
+                
+                   
+                select crosscompany inventItemInventSetup
+                where inventItemInventSetup.ItemId == inventTable.ItemId  &&
+                inventItemInventSetup.DataAreaId == _companyId;
+                    
+                if(inventItemInventSetup)
+                {
+                    inventItemInventSetup.selectForUpdate(true);
+                    inventItemInventSetup.ItemId                = _itemId;
+                    inventItemInventSetup.InventDimIdDefault    = inventDim.inventDimId;
+                    inventItemInventSetup.update();
+                }
+                select crosscompany inventItemPurchSetup
+                where inventItemPurchSetup.ItemId == inventTable.ItemId &&
+                inventItemPurchSetup.DataAreaId == _companyId;
+                    
+                if(inventItemPurchSetup)
+                {
+                    inventItemPurchSetup.selectForUpdate(true);
+                    inventItemPurchSetup.ItemId                = _itemId;
+                    inventItemPurchSetup.InventDimIdDefault    = inventDim.inventDimId;
+                    inventItemPurchSetup.update();
+                }
+                select crosscompany inventItemSalesSetup
+                where inventItemSalesSetup.ItemId == inventTable.ItemId &&
+                inventItemSalesSetup.DataAreaId == _companyId;
+                    
+                if(inventItemSalesSetup)
+                {
+                    inventItemSalesSetup.selectForUpdate(true);
+                    inventItemSalesSetup.ItemId                = _itemId;
+                    inventItemSalesSetup.InventDimIdDefault    = inventDim.inventDimId;
+                    inventItemSalesSetup.update();
+                }
+                
+                update_recordset inventTableModule setting
+                    UnitId =  inventTableTmp.UnitInvent
+                where inventTableModule.ItemId      == inventTable.ItemId
+                && inventTableModule.ModuleType  == ModuleInventPurchSales::Invent;
+
+                update_recordset inventTableModule setting
+                UnitId =  inventTableTmp.UnitPurch,
+                OverDeliveryPct = inventTableTmp.OverDeliveryPct
+                where inventTableModule.ItemId      == inventTable.ItemId
+                && inventTableModule.ModuleType  == ModuleInventPurchSales::Purch;
+
+
+                update_recordset inventTableModule setting
+                UnitId =  inventTableTmp.UnitSales
+                where inventTableModule.ItemId      == inventTable.ItemId
+                && inventTableModule.ModuleType  == ModuleInventPurchSales::Sales;
+
+
+                //Inventory model group
+                if(!inventModelGroupItem::findByItemIdLegalEntity(inventTable.ItemId,inventTable.DataAreaId))
+                {
+                    inventModelGroupItem.clear();
+                    inventModelGroupItem.initValue();
+                    inventModelGroupItem.ItemDataAreaId = inventTable.dataAreaId;
+                    inventModelGroupItem.ItemId = inventTable.ItemId;
+                    inventModelGroupItem.ModelGroupId = inventParameters.UFT_ItemGroupId;
+                    inventModelGroupItem.ModelGroupDataAreaId = curext();
+                    inventModelGroupItem.insert();
+                }
+                ttscommit;
+            }
+
+        }
+        
+        return inventTable;
+
+    }
+
+    public static boolean CreateTraslation(UFT_CreateItemsContract _contract,EcoResProduct  _ecoResProduct )
+    {
+        boolean                                 ret = false;
+        EcoResProductTranslation                ecoResProductTranslation;
+        ListEnumerator                          keysTraslateLine;
+        List                                    traslateLine = new List(Types::Class) ;
+        UFT_CreateItemsTranslateContract        translateContract; 
+
+        select forupdate ecoResProductTranslation
+            where ecoResProductTranslation.Product == _ecoResProduct.RecId ;
+
+        if(ecoResProductTranslation)
+        {
+            ecoResProductTranslation.Description = _contract.parmDescrition();
+            ecoResProductTranslation.update();
+        }
+        
+        traslateLine = _contract.parmTraslate();
+        keysTraslateLine = traslateLine.getEnumerator();
+
+        while(keysTraslateLine.moveNext())
+        {
+
+            translateContract = keysTraslateLine.current();
+
+            select forupdate ecoResProductTranslation
+            where ecoResProductTranslation.Product == _ecoResProduct.RecId &&
+                 ecoResProductTranslation.LanguageId  == translateContract.parmlanguageId();
+
+            if(ecoResProductTranslation)
+            {
+                ecoResProductTranslation.Name = translateContract.parmName();
+                ecoResProductTranslation.Description = translateContract.parmDescrition();
+                ecoResProductTranslation.update();
+            }
+            else
+            {
+                ecoResProductTranslation.clear();
+                ecoResProductTranslation.Product = _ecoResProduct.RecId;
+                ecoResProductTranslation.Description = translateContract.parmDescrition();
+                ecoResProductTranslation.LanguageId = translateContract.parmlanguageId();
+                ecoResProductTranslation.Name = translateContract.parmName();
+                ecoResProductTranslation.insert();
+            }
+            ret = true;
+
+        }
+        
+        return ret;
+    }
+
+    public static boolean createItems(UFT_CreateItemsContract _contract)
+    {
+        boolean                                 ret = false;
+        NumberSequenceReference                 numberSequenceReference = EcoResProductParameters::numRefProductNumber();
+        NumberSequenceTable                     numberSequenceTable = numberSequenceReference.numberSequenceTable();
+        NumberSeq                               numberSeq = NumberSeq::newGetNumFromId(numberSequenceTable.RecId);
+        EcoResProductV2Entity                   ecoResProductEntity;
+        EcoResProductCategory                   ecoResProductCategory;
+        inventModelGroupItem                    inventModelGroupItem;
+        InventParameters                        inventParameters;
+        EcoResCategoryHierarchyRole             ecoResCategoryHierarchyRole;
+        EcoResProduct                           ecoResProduct;
+        InventTableModule                       inventTableModule;
+        #OCCRetryCount
+        
+        try
+        {
+            ttsbegin;
+            changecompany(_contract.parmCompanyId())
+            {
+                inventParameters = inventParameters::find();
+                ecoResProductEntity.clear();
+                ecoResProductEntity.ProductNumber                   = numberSeq.num();
+                if(!ecoResProductEntity.ProductNumber)
+                {
+                    throw Global::error(strFmt("@UFINET_AP:GIP001_0014",_contract.parmProductName()));
+                }
+                ecoResProductEntity.ProductSearchName               = _contract.parmSearchName();
+                ecoResProductEntity.ProductName                     = _contract.parmProductName();
+                ecoResProductEntity.UFT_Integration                 = NoYes::Yes;
+                ecoResProductEntity.ProductType                     = EcoResProductType::Item;
+                ecoResProductEntity.ProductSubType                  = EcoResProductSubtype::Product;
+                ecoResProductEntity.VariantConfigurationTechnology  = EcoResVariantConfigurationTechnologyType::PredefinedVariants;
+                ecoResProductEntity.TrackingDimensionGroupName      = _contract.parmTrackingDimensionGroupName();
+                ecoResProductEntity.StorageDimensionGroupName       = inventParameters.UFT_StorageDimensionGroupName;
+                ecoResProductEntity.insert();
+
+                select firstonly ecoResCategoryHierarchyRole 
+                    where ecoResCategoryHierarchyRole.NamedCategoryHierarchyRole == EcoResCategoryNamedHierarchyRole::Procurement;
+                if(ecoResCategoryHierarchyRole)
+                {
+                    EcoResCategory                 EcoResCategory;
+                    select * from EcoResCategory
+                        where EcoResCategory.Name == _contract.parmCategoryId() &&
+                        EcoResCategory.CategoryHierarchy ==  ecoResCategoryHierarchyRole.CategoryHierarchy;
+
+                    ecoResProductCategory.clear();
+                    ecoResProductCategory.initValue();
+                    ecoResProductCategory.CategoryHierarchy = ecoResCategoryHierarchyRole.CategoryHierarchy;
+                    ecoResProductCategory.Category          = EcoResCategory.Recid;
+                    ecoResProductCategory.Product           = ecoResProductEntity.RecId;
+                    ecoResProductCategory.insert();
+                }
+                select firstOnly ecoResProduct
+                    where EcoResProduct.DisplayProductNumber == ecoResProductEntity.ProductNumber;
+            }
+            //create Traslate
+            UFT_EcoResCreateProd::CreateTraslation(_contract,ecoResProduct);
+            if(ecoResProductEntity)
+            {
+                ret = true;
+                _contract.parmProductId(ecoResProductEntity.ProductNumber);
+
+            }
+           
+            ttscommit;
+        }
+        catch (Exception::Deadlock)
+        {
+
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    ttsabort;
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    ttsabort;
+                    retry;
+                }
+            }
+            else
+            {
+                ttsabort;
+                throw Exception::UpdateConflict;
+            }
+        }
+
+        return ret;
+
+
+    }
+
+    public static inventDim ReleaseItemForCompany(ItemId      _ItemId ,UFT_CreateItemsContract _contract)
+    {
+        EcoResProduct                           ecoResProduct;
+        InventTable                             inventTable;
+        InventTableModule                       inventTableModule;
+        NumberSequenceTable                     numberSequenceTable;
+        ItemId                                  itemId;
+        InventItemSetupSupplyType               inventItemSetupSupplyType;
+        EcoResStorageDimensionGroupProduct      ecoResStorageDimensionGroupProduct;
+        EcoResTrackingDimensionGroupProduct     ecoResTrackingDimensionGroupProduct;
+        EcoResStorageDimensionGroupItem         ecoResStorageDimensionGroupItem;
+        EcoResTrackingDimensionGroupItem        ecoResTrackingDimensionGroupItem;
+        CompanyId                               companyProcess;
+        EcoResProductMaster                     ecoResProductMaster;
+        EcoResConfiguration                     ecoResConfiguration;
+        EcoResProductMasterConfiguration        ecoResProductMasterConfiguration;
+        EcoResProductVariantConfiguration       ecoResProductVariantConfiguration;
+        inventDim                               inventDim;
+        EcoResProductReleaseManagerBase         releaseManager;
+        RefRecId                                ecoResDistinctProductVariantRecId;
+        inventModelGroupItem                    inventModelGroupItem;
+        InventItemGroupItem                     inventItemGroupItem;
+        EcoResProductDimensionAttribute         prodDimensionAttribute;
+        ListEnumerator                          keysCompany;
+        List                                    releaseList = new List(Types::Class) ;
+        UFT_ReleaseCompanyContract              companyContract;
+        InventParameters                        inventParameters = InventParameters::find();
+        InventItemInventSetup                   inventItemInventSetup;
+        InventItemPurchSetup                    inventItemPurchSetup;
+        InventItemSalesSetup                    inventItemSalesSetup;
+
+        releaseList = _contract.parmReleaseCompanyList();
+        keysCompany = releaseList.getEnumerator();
+
+        while(keysCompany.moveNext())
+        {
+            companyContract = keysCompany.current();
+            companyProcess =  UFTCompanyMapping::findByExternalCompany(companyContract.parmCompanyId()).LegalEntityD365;
+            changecompany (companyProcess)
+            {
+                ttsBegin;
+                inventTable = null;
+                inventTableModule = null;
+                inventItemSetupSupplyType = null;
+                ecoResStorageDimensionGroupProduct = null;
+                ecoResTrackingDimensionGroupProduct = null;
+                ecoResStorageDimensionGroupItem = null;
+                ecoResTrackingDimensionGroupItem = null;
+                inventItemInventSetup = null;
+                inventItemPurchSetup = null; 
+                inventItemSalesSetup = null; 
+
+                select firstOnly ecoResProduct
+                where EcoResProduct.DisplayProductNumber == _ItemId;
+                 
+                 select firstOnly ecoResProduct
+                where EcoResProduct.DisplayProductNumber == _ItemId;
+                
+                 EcoResProductReleaseManagerBase::releaseProduct(ecoResProduct.RecId,CompanyInfo::findDataArea(companyProcess).RecId);
+
+                select crosscompany inventTable
+                      where inventTable.ItemId == ecoResProduct.DisplayProductNumber &&
+                    inventTable.DataAreaId == companyProcess ;
+
+                 if(ecoResProduct)
+                 {
+                     inventParameters = InventParameters::find();
+
+                     inventTable.selectForUpdate(true);
+                     inventTable.PurchModel = NoYes::Yes;
+                     inventTable.CostModel = NoYes::Yes;
+                     inventTable.doUpdate();
+
+                     if(!UFT_EcoResCreateProd::validateWriteOnInventTable(inventTable,_contract))
+                    {
+                        SysInfoLogEnumerator                infoLogEnum;
+                        SysInfologMessageStruct             infoMessageStruct;
+
+                        infoLogEnum = SysInfoLogEnumerator::newData(infolog.infologData());
+                        str errorComlpete;
+                        while(infoLogEnum.moveNext())
+                        {
+                            infoMessageStruct = SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                            errorComlpete += infoMessageStruct.message();
+
+                        }
+                        infolog.clear();
+                        throw Global::error(strFmt(" %1 Error con validaciones al crear producto %2",errorComlpete , _contract.parmProductName()));
+                    }
+
+                    InventLocation InventLocation = InventLocation::find(inventParameters.UFT_InventLocationId);
+                    inventDim.initValue();
+                    inventDim.InventSiteId = InventLocation.InventSiteId;
+                    inventDim.inventLocationId = inventParameters.UFT_InventLocationId;
+                    inventDim = InventDim::findOrCreate(inventDim);
+
+                    ttsbegin;
+                   
+                    select crosscompany inventItemInventSetup
+                        where inventItemInventSetup.ItemId == inventTable.ItemId  &&
+                        inventItemInventSetup.DataAreaId == companyProcess;
+                    
+                    if(inventItemInventSetup)
+                    {
+                        inventItemInventSetup.selectForUpdate(true);
+                        inventItemInventSetup.ItemId                = _itemId;
+                        inventItemInventSetup.InventDimIdDefault    = inventDim.inventDimId;
+                        inventItemInventSetup.update();
+                    }
+                    select crosscompany inventItemPurchSetup
+                        where inventItemPurchSetup.ItemId == inventTable.ItemId &&
+                        inventItemPurchSetup.DataAreaId == companyProcess;
+                    
+                    if(inventItemPurchSetup)
+                    {
+                        inventItemPurchSetup.selectForUpdate(true);
+                        inventItemPurchSetup.ItemId                = _itemId;
+                        inventItemPurchSetup.InventDimIdDefault    = inventDim.inventDimId;
+                        inventItemPurchSetup.update();
+                    }
+                    select crosscompany inventItemSalesSetup
+                        where inventItemSalesSetup.ItemId == inventTable.ItemId &&
+                        inventItemSalesSetup.DataAreaId == companyProcess;
+                    
+                    if(inventItemSalesSetup)
+                    {
+                        inventItemSalesSetup.selectForUpdate(true);
+                        inventItemSalesSetup.ItemId                = _itemId;
+                        inventItemSalesSetup.InventDimIdDefault    = inventDim.inventDimId;
+                        inventItemSalesSetup.update();
+                    }
+                    ttscommit;
+
+                     update_recordset inventTableModule setting
+                         UnitId =  _contract.parmUnitInvent()
+                        where inventTableModule.ItemId      == inventTable.ItemId
+                        && inventTableModule.ModuleType  == ModuleInventPurchSales::Invent;
+
+                     update_recordset inventTableModule setting
+                        UnitId =  _contract.parmUnitPurch(),
+                        OverDeliveryPct = _contract.parmOverDeliveryPct()
+                        where inventTableModule.ItemId      == inventTable.ItemId
+                        && inventTableModule.ModuleType  == ModuleInventPurchSales::Purch;
+
+
+                     update_recordset inventTableModule setting
+                        UnitId =  _contract.parmUnitSales()
+                        where inventTableModule.ItemId      == inventTable.ItemId
+                        && inventTableModule.ModuleType  == ModuleInventPurchSales::Sales;
+
+
+                     //Inventory model group
+                     if(!inventModelGroupItem::findByItemIdLegalEntity(inventTable.ItemId,inventTable.DataAreaId))
+                     {
+                         inventModelGroupItem.clear();
+                         inventModelGroupItem.initValue();
+                         inventModelGroupItem.ItemDataAreaId = inventTable.dataAreaId;
+                         inventModelGroupItem.ItemId = inventTable.ItemId;
+                         inventModelGroupItem.ModelGroupId = inventParameters.UFT_ItemGroupId;
+                         inventModelGroupItem.ModelGroupDataAreaId = curext();
+                         inventModelGroupItem.insert();
+                     }
+
+                 }
+                ttscommit;
+
+            }
+        }
+        return inventDim;
+    }
+
+}
+_________________________________________
+
+POSTMAN
+
+{
+  "ProductList": [
+    {
+      "productName": "Articulo prueba 000003",
+      "searchName": " Articulo prueba 000003",
+      "trackingDimensionGroupName": "Sin",
+      "UnitSales": "Uni",
+      "UnitPurch": "Uni",
+      "UnitInvent": "Uni",
+      "categoria": "Cajas de empalme, repartidores F.O. y accesorios de F.O.",
+      "OverDeliveryPct": 4,
+      "descrition": "Articulo prueba 000003 Descripcion sin dimensión de seguimiento",
+      "TraslateList": 
+      [
+        {
+          "languageId": "",
+          "descrition": "",
+          "Name": ""
+        },
+        {
+          "languageId": "",
+          "descrition": "",
+          "Name": ""
+        }
+      ],
+      "CompanyList": 
+      [
+        {
+          "ReleaseCompanyId": "367eafec-24f4-e911-a813-000d3ab719d7"
+        }
+      ]
+    }
+  ]
+}

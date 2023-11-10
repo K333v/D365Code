@@ -1,0 +1,93 @@
+/// <summary>
+/// 20221203 - AP_ESI_002_AutoCreationProjectRecruitment_EXT - KCL
+/// Validate combination when clicked Closed status 
+/// </summary>
+[ExtensionOf(formControlStr(CaseDetail, CaseUpdateStatus_Closed))]
+final class APPSPMCaseDetailClosed_Extension
+{
+    /// <summary>
+    /// Clicked method
+    /// </summary>
+    public void clicked()
+    {
+        CaseDetailBase  caseDetailTable = element.CaseDetailBase;
+        boolean         process;
+        #ISOCountryRegionCodes
+        
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoCL]) && caseDetailTable)
+        {
+            //Validates if the funcionality is available.
+            if (APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP004HR))
+            {
+                //Validate sequence number
+                if (!APPSPMPublicSectorParameters::find().ProjRecruitNumberSeqId)
+                {
+                    setPrefix("@Appspm_b:ProjRecruitment");
+                    throw error("@Appspm_b:SeqNum");
+                }
+
+                //Validate combination
+                APPSPMHiringManagerTable    hiringManagerTable;
+                APPSPMEntryCardTable        entryCardTable = APPSPMEntryCardTable::findCaseRecId(caseDetailTable.RecId);
+                OMOperatingUnit             operatingUnit  = OMOperatingUnit::find(caseDetailTable.Department, OMOperatingUnitType::OMDepartment);
+                boolean                     valid = false;
+
+                if (entryCardTable.RefPointIdApproved)
+                {
+                    // MatrixDependency Validation
+                    if (!operatingUnit)
+                    {
+                        while select FromGrade, ToGrade from hiringManagerTable index hint LineNumIdx
+                            where hiringManagerTable.MatrixDependency == caseDetailTable.APPSPMDimensionValue
+                            && hiringManagerTable.LegalQuality == entryCardTable.LegalQualityApproved
+                            && hiringManagerTable.DependencyType == APPSPMDependencyType::MatrixDependency
+                            && hiringManagerTable.ValidType == APPSPMValidType::Degree
+                            && str2int(hiringManagerTable.FromGrade) <= str2int(entryCardTable.RefPointIdApproved)
+                            && hiringManagerTable.FromGrade
+                        {
+                            if (str2int(hiringManagerTable.ToGrade) >= str2int(entryCardTable.RefPointIdApproved))
+                            {
+                                valid = true;
+                                break;
+                            }
+                        }
+                        
+                    }
+                    else //Dependency Validation
+                    {
+                        while select FromGrade, ToGrade from hiringManagerTable index hint LineNumIdx
+                            where hiringManagerTable.LegalQuality == entryCardTable.LegalQualityApproved
+                            && hiringManagerTable.DependencyType == APPSPMDependencyType::Dependency
+                            && hiringManagerTable.ValidType == APPSPMValidType::Degree
+                            && str2int(hiringManagerTable.FromGrade) <= str2int(entryCardTable.RefPointIdApproved)
+                            && hiringManagerTable.FromGrade
+                        {
+                            if (str2int(hiringManagerTable.ToGrade) >= str2int(entryCardTable.RefPointIdApproved))
+                            {
+                                valid = true;
+                                break;
+                            }
+                        }
+                    }
+
+                }
+
+                if (!valid)
+                   throw error("@Appspm_b:ValidCombination");
+
+                process = true;
+            }
+        }
+
+        next clicked();
+
+        FormControl     formButtonControl = any2Object(this) as FormControl;
+        FormDataSource  caseDetailBase_ds = formButtonControl.formRun().dataSource(tableStr(CaseDetailBase));
+        
+        caseDetailBase_ds.reread();
+        caseDetailBase_ds.research(true);
+        caseDetailBase_ds.refresh();        
+
+    }
+
+}

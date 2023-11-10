@@ -1,0 +1,68 @@
+/// <summary>
+/// DMIPCR-001 Clase handler para metodos del formulario "CaseDetail"
+/// </summary>
+class CaseDetail_APPS_PM_EXT_EventHandler
+{ 
+/// <summary>
+    /// Enables/disables field Name based on NN
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataFieldEventHandler(formDataFieldStr(CaseDetail, CaseDetailBase, NN), FormDataFieldEventType::Modified)]
+    public static void NN_OnModified(FormDataObject sender, FormDataFieldEventArgs e)
+    {
+        FormRun             formRun        = sender.datasource().formRun();
+        CaseDetailBase      caseDetailBase = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        //KCL        
+        FormReferenceGroupControl     dirName = formRun.design().controlName("DirPartyTable_Name");
+        //KCL
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if(caseDetailBase.NN == NoYes::Yes)
+            {
+                dirName.mandatory(false);
+                dirName.enabled(false);
+            }
+            else
+            {
+                dirName.mandatory(true);
+                dirName.enabled(true);
+            }
+        }
+    }
+
+}
+
+_____________________________
+
+ /// <summary>
+    /// Enables/disables field Name based on NN
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataFieldEventHandler(formDataFieldStr(CaseDetail, CaseDetailBase, NN), FormDataFieldEventType::Modified)]
+    public static void NN_OnModified(FormDataObject sender, FormDataFieldEventArgs e)
+    {
+        FormRun formRun         = sender.datasource().formRun();
+        CaseDetailBase          caseDetailBase          = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        //19949 <start>
+        //KCL
+        FormReferenceGroupControl       dirName                       = formRun.design().controlName(formControlStr(CaseDetail, DirPartyTable_Name));
+        //KCL
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if(caseDetailBase.NN == NoYes::Yes)
+            {
+                dirName.allowEdit(false);
+                dirName.mandatory(false);
+            }
+            else
+            {
+                dirName.allowEdit(true);
+                dirName.mandatory(true);
+            }
+        }
+        //19949 <end>
+    }

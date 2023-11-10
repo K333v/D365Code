@@ -1,0 +1,81 @@
+/// <summary>
+/// <c>LeaveAccrualPeriod</c> class represents a leave and absence accrual period.
+/// </summary>
+public class APPSPMLeaveAccrualPeriod
+{
+    private LeaveDate startDate;
+    private LeaveDate endDate;
+
+    protected void new()
+    {
+    }
+
+    /// <summary>
+    /// Gets the start date of the accrual period.
+    /// </summary>
+    /// <returns>
+    /// Start date of the accrual period.
+    /// </returns>
+    public LeaveDate getStartDate()
+    {
+        return startDate;
+    }
+
+    /// <summary>
+    /// Gets the end date of the accrual period.
+    /// </summary>
+    /// <returns>
+    /// End date of the accrual period.
+    /// </returns>
+    public LeaveDate getEndDate()
+    {
+        return endDate;
+    }
+
+    /// <summary>
+    /// Returns the number of days in the accrual period.
+    /// </summary>
+    /// <returns>
+    /// The number of days in the accrual period.
+    /// </returns>
+    public int getNumberOfDays()
+    {
+        return endDate - startDate + 1;
+    }
+
+    public str toString()
+    {
+        return this.startDate && this.endDate
+            ? strFmt("@Leave:DateRangeFormat", this.startDate, this.endDate)
+            : '';
+    }
+
+    /// <summary>
+    /// Creates a <c>LeaveAccrualPeriod</c> instance with the specified start and end dates.
+    /// </summary>
+    /// <param name = "_startDate">
+    /// Start date of the accrual period.
+    /// </param>
+    /// <param name = "_endDate">
+    /// End date of the accrual period.
+    /// </param>
+    /// <returns>
+    /// An instance of <c>LeaveAccrualPeriod</c>.
+    /// </returns>
+    public static APPSPMLeaveAccrualPeriod newPeriod(LeaveDate _startDate, LeaveDate _endDate)
+    {
+        if (_endDate < _startDate)
+        {
+            Debug::printDebug('_endDate must not be earlier than _startDate.');
+            Debug::assert(false);
+            throw error(Error::wrongUseOfFunction(funcName()));
+        }
+
+        APPSPMLeaveAccrualPeriod period = new APPSPMLeaveAccrualPeriod();
+        period.startDate = _startDate;
+        period.endDate = _endDate;
+
+        return period;
+    }
+
+}

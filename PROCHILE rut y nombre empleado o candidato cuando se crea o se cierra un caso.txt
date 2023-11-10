@@ -1,0 +1,152 @@
+DEsde el proyecto de contratación, irme al caso y si es honorario me tiene que habilitar botones generar convenio y historial
+Tipo de dotación: Honorarios
+
+[ExtensionOf(formcontrolstr(CaseDetail,CaseUpdateStatus_Closed))]
+final class CaseDetailClosedButton_APPS_PM_EXT_Extension
+{
+    /// <summary>
+    /// DMIPCR-001 Proceso de actualización al momento de cerrar un caso 
+    /// </summary>
+    void clicked()
+    {
+        FormRun formRun = this.formRun() ;
+        FormDataSource CaseDetailBaseDB = formRun.dataSource(formDataSourceStr(CaseDetail, CaseDetailBase));
+        FormDataSource mobilityDependenceTableDS = formRun.dataSource(FormDataSourcestr(CaseDetail,APPSPMMobilityDependenceTable));
+        CaseDetailBase CaseDetailBase = CaseDetailBaseDB.cursor();
+        APPSPMMobilityDependenceTable mobilityDependenceTable = APPSPMMobilityDependenceTable::find(caseDetailBase.CaseId);
+        RecId oldVersion = mobilityDependenceTable.RecVersion;
+        //20230602 - DMIPCR001_Bug19805 - KCL - Start
+        CaseDetail  caseDetail = CaseDetail::find(caseDetailBase.CaseId);  
+        //KCL
+        if (!mobilityDependenceTable.TypeMovement)
+        {
+            ttsbegin;
+            delete_from mobilityDependenceTable
+                where mobilityDependenceTable.CaseId == caseDetailBase.CaseId;
+            ttscommit;
+        }
+        //KCL
+        //20230602 - DMIPCR001_Bug19805 - KCL - End
+
+        next clicked();
+
+        Args args = new Args();
+        args.caller(element);
+        
+        if (APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP006HR) && caseDetail.Resolution == CaseResolutionType::Accept && mobilityDependenceTable) //20230602 - DMIPCR001_Bug19805 - KCL
+        {
+            APPSPMMaintainPayrollCredits APPSPMMaintainPayrollCredits = APPSPMMaintainPayrollCredits::contruct();
+            APPSPMMaintainPayrollCredits.parmCaseDetailBase(CaseDetailBase);
+            APPSPMMaintainPayrollCredits.parmVersion(oldVersion);
+            APPSPMMaintainPayrollCredits.run();
+        }
+    }
+
+}
+
+
+
+
+display HcmPersonnelNumberId showRecruitingId()
+    {
+        HRMApplication  hrmApplication;
+        //20230609 - WI19951_Bug3211 - KCL - Start
+        HRMRecruitingTable  recruitingTable;
+        HcmApplicant        applicant;
+        HcmWorker           worker;
+
+        worker = HcmWorker::findByPerson(CaseDetailBase::findRec(this.CaseRecId).Party);
+        
+        if (worker)
+        {
+            return worker.PersonnelNumber;
+        }
+
+        select firstonly recruitingTable
+            where recruitingTable.hrmRecruitingId == this.RecruitingId
+            && recruitingTable.APPSPMPositionId == this.PositionId;
+        
+        if (!recruitingTable)
+            return "";
+
+        select hrmApplication
+            join applicant
+            where hrmApplication.hrmRecruitingId == recruitingTable.hrmRecruitingId
+            && applicant.RecId == hrmApplication.Applicant;
+            //&& applicant.applicantType() == HcmApplicantType::Employee;
+            //&& hrmApplication.status == HRMApplicationStatus::Employed;
+        if (applicant.applicantType() == HcmApplicantType::Employee)
+        {
+            return HcmWorker::findByPerson(applicant.Person).PersonnelNumber;
+        }
+        //if (hrmApplication)
+        //{
+        //    //19951 - <start>
+        //    return HcmWorker::findByPerson(applicant.Person).PersonnelNumber;//HcmWorker::findByPerson(HcmApplicant::find(hrmApplication.Applicant).Person).PersonnelNumber;
+        //    //19951 - <end>
+        //}
+        else
+        {
+            //select hrmApplication
+            //    join applicant
+            //    where hrmApplication.hrmRecruitingId == this.RecruitingId
+            //    && applicant.RecId == hrmApplication.Applicant
+            //    && applicant.applicantType() != HcmApplicantType::Employee;
+                //&& hrmApplication.status != HRMApplicationStatus::Employed;
+
+            return applicant.ApplicantId;//HcmApplicant::find(hrmApplication.Applicant).ApplicantId;
+        }
+        //20230609 - WI19951_Bug3211 - KCL - End
+    }
+
+    display Name showName()
+    {
+        HRMApplication  hrmApplication;
+        //20230609 - WI19951_Bug3211 - KCL - Start
+        HRMRecruitingTable  recruitingTable;
+        HcmApplicant        applicant;
+        HcmWorker           worker;
+
+        worker = HcmWorker::findByPerson(CaseDetailBase::findRec(this.CaseRecId).Party);
+        
+        if (worker)
+        {
+            return worker.name();
+        }
+
+        select firstonly recruitingTable
+            where recruitingTable.hrmRecruitingId == this.RecruitingId
+            && recruitingTable.APPSPMPositionId == this.PositionId;
+
+        if (!recruitingTable)
+            return "";
+
+        select hrmApplication
+            join applicant
+            where hrmApplication.hrmRecruitingId == this.RecruitingId
+            && applicant.RecId == hrmApplication.Applicant;//
+            //&& applicant.applicantType() == HcmApplicantType::Employee;
+            //&& hrmApplication.status == HRMApplicationStatus::Employed;         
+        if (applicant.applicantType() == HcmApplicantType::Employee)
+        {
+            return HcmWorker::findByPerson(applicant.Person).name();
+        }
+        //if (hrmApplication)
+        //{
+        //    //19951 - <start>
+        //    return HcmWorker::findByPerson(applicant.Person).name();//HcmWorker::findByPerson(HcmApplicant::find(hrmApplication.Applicant).Person).name();
+        //    //19951 - <end>
+        //}
+        else
+        {
+            //select hrmApplication
+            //    join applicant
+            //    where hrmApplication.hrmRecruitingId == this.RecruitingId
+            //    && applicant.RecId == hrmApplication.Applicant
+            //    && applicant.applicantType() != HcmApplicantType::Employee;
+                //&& hrmApplication.status != HRMApplicationStatus::Employed;
+
+            return applicant.name();//HcmApplicant::find(hrmApplication.Applicant).name();
+        }
+        //20230609 - WI19951_Bug3211 - KCL - End
+    }

@@ -1,0 +1,13 @@
+[DataSource]
+    class CaseCategoryHierarchyDetail
+    {
+        /// <summary>
+        /// Filter by PreFeasability activated
+        /// </summary>
+        public void init()
+        {
+            super();
+            this.query().dataSourceTable(tableNum(CaseCategoryHierarchyDetail)).addRange(fieldNum(CaseCategoryHierarchyDetail, PreFeasability)).value(queryValue(1));// debe ser así, con el 1 y sin agregar qbr porque sino no funciona
+        }
+
+    }

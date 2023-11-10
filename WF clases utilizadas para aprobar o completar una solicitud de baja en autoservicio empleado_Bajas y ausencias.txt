@@ -1,0 +1,5 @@
+
+LeaveRequestEventHandler.completed() Línea 33
+LeaveRequestProcessor.proceess()
+LeaveRequest.requestStateTransition()
+leaveRequestLifeCycle.TransitionTo()

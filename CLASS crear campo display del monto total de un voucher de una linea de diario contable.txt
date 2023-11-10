@@ -1,0 +1,26 @@
+[ExtensionOf(formStr(LedgerJournalSplitPosting))]
+final class UFTLedgerJournalSplitPostingForm_Extension
+{
+    
+    public AmountCur                           totalNetAmountCurExt;
+    public AmountCur                           totalTaxAmountCurExt;
+
+
+     //calculate totalnet + totalTax amounts for display on forms
+    display AmountCur totalNetTaxAmount()
+    {
+
+        return totalNetAmountCurExt + totalTaxAmountCurExt;
+    }
+
+    void calcTotals()
+    {
+
+        next calcTotals();
+
+        //calculate totalnet + totalTax amounts for display on forms
+        totalNetAmountCurExt  = ledgerJournalSplitPosting.totalNetAmountCur();
+        totalTaxAmountCurExt  = ledgerJournalSplitPosting.totalTaxAmountCur();
+    }
+
+}

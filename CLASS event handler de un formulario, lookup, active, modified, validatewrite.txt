@@ -1,0 +1,1238 @@
+/// <summary>
+/// DMIPCR-001 
+/// </summary>
+class CaseDetail_APPS_PM_EXT_EventHandler
+{    
+
+    /// <summary>
+    /// Enables Contractype Field based on Position Id
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, RecruitmentAndSelectionGroup_PositionId), FormControlEventType::Modified)]
+    public static void RecruitmentAndSelectionGroup_PositionId_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        HcmPosition hcmposition;
+        HcmPositionDetail   posDetail;
+        FormRun formRun               = sender.formRun();
+        FormStringControl             positionId      = sender.formRun().design().controlName(formControlStr(CaseDetail, RecruitmentAndSelectionGroup_PositionId));
+        FormStringControl             contractType    = sender.formRun().design().controlName(formControlStr(CaseDetail, PositionInformationGroup_ContractType));
+        APPSPMEntryCardTable          entryCardTable  = formRun.dataSource(formdatasourcestr(CaseDetail, APPSPMEntryCardTable)).cursor();
+
+        if(positionId.valueStr())
+        {
+            select hcmposition
+                where hcmposition.PositionId == positionId.valueStr()
+                join posDetail
+                where posDetail.Position == hcmposition.RecId;
+
+            entryCardTable.ContractType = HcmPositionType::find(posDetail.PositionType).TypeId;
+
+            if(entryCardTable.ContractType)
+            {
+                contractType.allowEdit(false);
+            }
+            else
+            {
+                contractType.allowEdit(true);
+            }
+        }
+        else
+        {
+            contractType.allowEdit(true);
+        }
+    }
+
+    /// <summary>
+    /// Post event handler for <c>CaseDetail</c> <c>APPSPMEntryCardTable</c> Initialized event.
+    /// </summary>
+    /// <param name=“_sender”></param>
+    /// <param name=“_e”></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, APPSPMEntryCardTable), FormDataSourceEventType::Initialized)]
+    public static void CaseDetail_OnInitialized(FormDataSource _sender, FormDataSourceEventArgs _e)
+    {
+        FormRun formRun                              = _sender.formRun();
+        var overrides                                = CaseDetail_APPS_PM_ExtensionOverrides::construct();
+        DimensionHierarchyId    dimensionHierarchyId = DimensionHierarchy::findByTypeAndName(DimensionHierarchyType::AccountStructure, BudgetParameters::find().DimensionHierarchyId).RecId;
+        SegmentedEntryControl   approvedDimension    = formRun.design().controlName(formControlStr(CaseDetail, LedgerDimensionApproved));
+        SegmentedEntryControl   solicitedDimension   = formRun.design().controlName(formControlStr(CaseDetail, LedgerDimensionRequested));
+        CaseDetailBase          caseDetailBase       = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        FormTabPageControl      entryCardTabPage     = formRun.design().controlName(formControlStr(CaseDetail, EntryCardTabPage));
+        //19949 <start>
+        FormReferenceGroupControl             dirName              = formRun.design().controlName(formControlStr(CaseDetail, DirPartyTable_Name));
+        //19949 <end>
+        CaseCategoryHierarchyDetail categoryDetail;
+ 
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            _sender.object(fieldNum(APPSPMEntryCardTable, RefPointIdApproved)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, refPointId_lookup), overrides);
+
+            _sender.object(fieldNum(APPSPMEntryCardTable, RefPointIdRequested)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, refPointId_lookup), overrides);
+
+            _sender.object(fieldNum(APPSPMEntryCardTable, PositionId)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, positionLookup), overrides);
+
+            if(dimensionHierarchyId)
+            {
+                solicitedDimension.setAccountStructure(dimensionHierarchyId);
+                approvedDimension.setAccountStructure(dimensionHierarchyId);
+            }
+
+            categoryDetail = CaseCategoryHierarchyDetail::find(caseDetailBase.CategoryRecId);
+
+            if(categoryDetail.PreFeasability)
+            {
+                entryCardTabPage.visible(true);
+            }
+            else
+            {
+                entryCardTabPage.visible(false);
+            }
+
+            //19949 <start>
+            if(caseDetailBase.NN == NoYes::Yes)
+            {
+                dirName.allowEdit(false);
+                dirName.mandatory(false);
+            }
+            else
+            {
+                dirName.allowEdit(true);
+                dirName.mandatory(true);
+            }
+            //19949 <end>
+        }
+        
+    }
+
+    /// <summary>
+    /// Enables/disables field Name based on NN
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataFieldEventHandler(formDataFieldStr(CaseDetail, CaseDetailBase, NN), FormDataFieldEventType::Modified)]
+    public static void NN_OnModified(FormDataObject sender, FormDataFieldEventArgs e)
+    {
+        FormRun formRun         = sender.datasource().formRun();
+        CaseDetailBase          caseDetailBase          = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        //19949 <start>
+        FormReferenceGroupControl       dirName                       = formRun.design().controlName(formControlStr(CaseDetail, DirPartyTable_Name));
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if(caseDetailBase.NN == NoYes::Yes)
+            {
+                dirName.allowEdit(false);
+                dirName.mandatory(false);
+            }
+            else
+            {
+                dirName.allowEdit(true);
+                dirName.mandatory(true);
+            }
+        }
+        //19949 <end>
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataFieldEventHandler(formDataFieldStr(CaseDetail, CaseDetailBase, CategoryRecId), FormDataFieldEventType::Modified)]
+    public static void CategoryRecId_OnModified(FormDataObject sender, FormDataFieldEventArgs e)
+    {
+        FormRun formRun         = sender.datasource().formRun();
+        CaseDetailBase          caseDetailBase          = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        FormTabPageControl      entryCardTabPage        = formRun.design().controlName(formControlStr(CaseDetail, EntryCardTabPage));
+        FormGroupControl        SRGroup                 = formRun.design().controlName(formControlStr(CaseDetail, SRGroup));
+        CaseCategoryHierarchyDetail categoryDetail;
+
+        categoryDetail = CaseCategoryHierarchyDetail::find(caseDetailBase.CategoryRecId);
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if(categoryDetail.PreFeasability)
+            {
+                entryCardTabPage.visible(true);
+            }
+            else
+            {
+                entryCardTabPage.visible(false);
+            }
+        }
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP001HR))
+        {
+            if(categoryDetail.APPSPMIsSubstitutionReplacement)
+            {
+                SRGroup.visible(true);
+            }
+            else
+            {
+                SRGroup.visible(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Post event handler for <c>CaseDetail</c> <c>APPSPMEntryCardTable</c> Initialized event.
+    /// </summary>
+    /// <param name=“_sender”></param>
+    /// <param name=“_e”></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, APPSPMEntryCardTable), FormDataSourceEventType::Activated)]
+    public static void CaseDetail_Activated(FormDataSource _sender, FormDataSourceEventArgs _e)
+    {
+        FormRun formRun         = _sender.formRun();
+        CaseDetailBase          caseDetailBase          = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        FormTabPageControl      entryCardTabPage        = formRun.design().controlName(formControlStr(CaseDetail, EntryCardTabPage));
+        FormGroupControl        SRGroup                 = formRun.design().controlName(formControlStr(CaseDetail, SRGroup));
+        FormStringControl             positionId        = formRun.design().controlName(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionId));
+        FormStringControl             positionSR        = formRun.design().controlName(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionSR));
+        CaseCategoryHierarchyDetail categoryDetail;
+        CaseAssociation             caseAssociation     = formRun.dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+
+        categoryDetail = CaseCategoryHierarchyDetail::find(caseDetailBase.CategoryRecId);
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if(categoryDetail.PreFeasability)
+            {
+                entryCardTabPage.visible(true);
+                //formRun.setEntryCard(); -Remove BUG18046
+            }
+            else
+            {
+                entryCardTabPage.visible(false);
+            }
+            
+        }
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP001HR))
+        {
+            if(categoryDetail.APPSPMIsSubstitutionReplacement)
+            {
+                SRGroup.visible(true);
+            }
+            else
+            {
+                SRGroup.visible(false);
+            }
+            
+            if(caseAssociation.APPSPMPositionId)
+            {
+                positionSR.enabled(true);
+            }
+            else
+            {
+                positionSR.enabled(false);
+            }
+        }
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionId), FormControlEventType::Lookup)]
+    public static void CaseAssociation_APPSPMPositionId_OnLookup(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun             formRun         = sender.formRun();
+        CaseAssociation     caseAssociation = formRun.dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+        SysTableLookup      sysTableLookup  = SysTableLookup::newParameters(tableNum(HcmPosition), sender);
+        Query               query           = new Query();
+        QueryBuildDataSource                qbds1, qbds2, qbds3, qbds4, qbds5, qbds6;
+
+        qbds1 = query.addDataSource(tableNum(HcmPosition));
+        qbds1.addGroupByField(fieldNum(HcmPosition, PositionId));
+        qbds2 = qbds1.addDataSource(tableNum(HcmPositionWorkerAssignment));//.addRange(fieldNum(HcmPositionWorkerAssignment, Worker)).value(queryValue(caseAssociation.RefRecId));
+        qbds2.relations(true);
+        qbds2.addRange(fieldNum(HcmPositionWorkerAssignment, Worker)).value(queryValue(caseAssociation.RefRecId));
+        qbds3 = qbds1.addDataSource(tableNum(HcmPositionDetail));
+        qbds3.relations(true);
+        qbds4 = qbds3.addDataSource(tableNum(APPSPMLegalQualityTable));
+        qbds4.relations(false);
+        qbds4.addLink(fieldNum(HcmPositionDetail, LegalQualityId),fieldNum(APPSPMLegalQualityTable, LegalQuality));
+        qbds5 = qbds4.addDataSource(tableNum(APPSPMEndowmentLegalQuality));
+        qbds5.relations(false);
+        qbds5.addLink(fieldNum(APPSPMLegalQualityTable, LegalQuality),fieldNum(APPSPMEndowmentLegalQuality, LegalQualityId));
+        qbds6 = qbds5.addDataSource(tableNum(APPSPMEndowmentTable));
+        qbds6.relations(false);
+        qbds6.addLink(fieldNum(APPSPMEndowmentTable, EndowmentId),fieldNum(APPSPMEndowmentLegalQuality, EndowmentId));
+        qbds6.addRange(fieldNum(APPSPMEndowmentTable, EndowmentType)).value(queryValue(APPSPMEndowmentType::Contract));
+        qbds6.addRange(fieldNum(APPSPMEndowmentTable, EndowmentType)).value(queryValue(APPSPMEndowmentType::Plant));
+        // Add the lookup columns
+        sysTableLookup.addLookupfield(fieldNum(HcmPosition, PositionId));
+
+        // Run the lookup
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+
+        //cancel the call to super() to prevent the system from trying to show
+        //the lookup form twice and cause an error.
+        FormControlCancelableSuperEventArgs cancelableSuperEventArgs = e as FormControlCancelableSuperEventArgs;
+        cancelableSuperEventArgs.CancelSuperCall();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionSR), FormControlEventType::Lookup)]
+    public static void CaseAssociation_APPSPMPositionSR_OnLookup(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun                     formRun         = sender.formRun();
+        CaseAssociation             caseAssociation = formRun.dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+        APPSPMEndowmentTable        endowmentTable;
+        APPSPMEndowmentLegalQuality endowmentLegalQuality;
+        SysTableLookup              sysTableLookup  = SysTableLookup::newParameters(tableNum(HcmPosition), sender);
+        Query                       query           = new Query();
+        QueryBuildDataSource        qbds1, qbds3, qbds4, qbds5, qbds6;
+
+
+        endowmentLegalQuality = APPSPMEndowmentLegalQuality::findLegalQuality(caseAssociation.APPSPMLegalQualityId);
+        
+        endowmentTable        = APPSPMEndowmentTable::find(endowmentLegalQuality.EndowmentId);
+
+        qbds1 = query.addDataSource(tableNum(HcmPosition));
+        qbds1.addGroupByField(fieldNum(HcmPosition, PositionId));
+        qbds3 = qbds1.addDataSource(tableNum(HcmPositionDetail));
+        qbds3.relations(true);
+        qbds4 = qbds3.addDataSource(tableNum(APPSPMLegalQualityTable));
+        qbds4.relations(false);
+        qbds4.addLink(fieldNum(HcmPositionDetail, LegalQualityId),fieldNum(APPSPMLegalQualityTable, LegalQuality));
+        qbds5 = qbds4.addDataSource(tableNum(APPSPMEndowmentLegalQuality));
+        qbds5.relations(false);
+        qbds5.addLink(fieldNum(APPSPMLegalQualityTable, LegalQuality),fieldNum(APPSPMEndowmentLegalQuality, LegalQualityId));
+        qbds6 = qbds5.addDataSource(tableNum(APPSPMEndowmentTable));
+        qbds6.relations(false);
+        qbds6.addLink(fieldNum(APPSPMEndowmentTable, EndowmentId),fieldNum(APPSPMEndowmentLegalQuality, EndowmentId));
+
+        if(endowmentTable.EndowmentType == APPSPMEndowmentType::Plant)
+        {
+            qbds6.addRange(fieldNum(APPSPMEndowmentTable, EndowmentType)).value(queryValue(APPSPMEndowmentType::Substitution));
+        }
+
+        if(endowmentTable.EndowmentType == APPSPMEndowmentType::Contract)
+        {
+            qbds6.addRange(fieldNum(APPSPMEndowmentTable, EndowmentType)).value(queryValue(APPSPMEndowmentType::Replacement));
+        }
+        // Add the lookup columns
+        sysTableLookup.addLookupfield(fieldNum(HcmPosition, PositionId));
+        
+        // Run the lookup
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+
+        //cancel the call to super() to prevent the system from trying to show
+        //the lookup form twice and cause an error.
+        FormControlCancelableSuperEventArgs cancelableSuperEventArgs = e as FormControlCancelableSuperEventArgs;
+        cancelableSuperEventArgs.CancelSuperCall();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionId), FormControlEventType::Modified)]
+    public static void CaseAssociation_APPSPMPositionId_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormStringControl             positionId    = sender.formRun().design().controlName(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionId));
+        FormStringControl             positionSR    = sender.formRun().design().controlName(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionSR));
+        CaseAssociation          caseAssociation    = sender.formRun().dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+
+        if(positionId.valueStr())
+        {
+            positionSR.enabled(true);
+        }
+        else
+        {
+            positionSR.enabled(false);
+        }
+        
+        caseAssociation.APPSPMPositionSR = "";
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, AssociationGrid_M_linkedId), FormControlEventType::Modified)]
+    public static void AssociationGrid_M_linkedId_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        CaseAssociation          caseAssociation    = sender.formRun().dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+
+        caseAssociation.APPSPMPositionId     = "";
+        caseAssociation.APPSPMLegalQualityId = "";
+        caseAssociation.APPSPMEstateId       = "";
+        caseAssociation.APPSPMLevelId        = "";
+        caseAssociation.APPSPMFundNumber     = "";
+        caseAssociation.APPSPMFundName       = "";
+        caseAssociation.APPSPMPositionSR     = "";
+
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_PositionToCease), FormControlEventType::Lookup)]
+    public static void APPSPMWorkerCease_PositionToCease_OnLookup(FormControl sender, FormControlEventArgs e)
+    {
+        FormControlCancelableSuperEventArgs event = e as FormControlCancelableSuperEventArgs;
+        event.CancelSuperCall();
+
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+
+        HcmWorker               hcmWorker;
+        SysTableLookup          sysTableLookup = SysTableLookup::newParameters(tableNum(HcmPosition), sender);
+        Query                   query = new Query();
+        QueryBuildDataSource    qbds, qbdsWorker;
+        CaseDetail              caseDetail = sender.formRun().dataSource().cursor();
+
+        hcmWorker = hcmWorker::findByPerson(caseDetail.Party);
+        if (hcmWorker)
+        {
+            qbds = query.addDataSource(tableNum(HcmPosition));
+            qbdsWorker = qbds.addDataSource(tableNum(HcmPositionWorkerAssignment));
+            qbdsWorker.joinMode(JoinMode::ExistsJoin);
+            qbdsWorker.relations(true);
+            qbdsWorker.addRange(fieldNum(HcmPositionWorkerAssignment, Worker)).value(queryValue(hcmWorker.RecId));
+
+            sysTableLookup.addLookupfield(fieldNum(HcmPosition, PositionId), true);
+            sysTableLookup.addLookupMethod(tableMethodStr(HcmPosition, description));
+
+            sysTableLookup.parmQuery(query);
+            sysTableLookup.performFormLookup();
+        }
+
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, APPSPMWorkerCease), FormDataSourceEventType::Activated)]
+    public static void APPSPMWorkerCease_OnActivated(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormStringControl LeaveTypeId = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_LeaveTypeID));
+        FormDateControl  VoluntaryLayOffDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_VoluntaryLayoffDate));
+        FormDateControl  VoluntaryLayOffRealDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_VoluntaryLayoffEffectiveDate));
+        FormDateControl  LetterSendDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_LetterSendDate));
+        FormDateControl  NotificationDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_NotificationDate));
+        FormDataSource APPSPMWorkerCease_DS = sender;
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+        HcmLeaveType    hcmLeaveType;       
+        
+        select firstonly hcmLeaveType
+            where hcmLeaveType.LeaveTypeID == workerCease.LeaveTypeID;
+
+        if(hcmLeaveType.APPSPM_CessationsClassification == APPSPMCessationsClassification::VoluntaryWaiver)
+        {
+            VoluntaryLayOffDate.allowEdit(true);
+            VoluntaryLayOffDate.mandatory(true);
+            //workerCease.VoluntaryLayoffDate = workerCease.LastDayWorkedDate;
+            VoluntaryLayOffRealDate.allowEdit(true);
+            //     VoluntaryLayOffRealDate.mandatory(true);
+            LetterSendDate.allowEdit(false);
+            //      NotificationDate.mandatory(true);
+            LetterSendDate.mandatory(false);
+            workerCease.LetterSendDate = dateNull();
+            workerCease.NotificationDate = dateNull();
+        }
+        else if(hcmLeaveType.APPSPM_CessationsClassification == APPSPMCessationsClassification::EarlyTermination)
+        {
+            LetterSendDate.allowEdit(true);
+            LetterSendDate.mandatory(true);
+            //      NotificationDate.mandatory(true);
+            workerCease.VoluntaryLayoffDate = dateNull();
+            VoluntaryLayOffDate.allowEdit(false);
+            VoluntaryLayOffDate.mandatory(false);
+            workerCease.VoluntaryLayoffEffectiveDate = dateNull();
+            VoluntaryLayOffRealDate.allowEdit(false);
+            VoluntaryLayOffRealDate.mandatory(false);
+        }
+        else
+        {
+            LetterSendDate.allowEdit(false);
+            LetterSendDate.mandatory(false);
+            workerCease.VoluntaryLayoffDate = dateNull();
+            workerCease.LetterSendDate = dateNull();
+            workerCease.NotificationDate = dateNull();
+            workerCease.VoluntaryLayoffEffectiveDate = dateNull();
+            VoluntaryLayOffDate.allowEdit(false);
+            VoluntaryLayOffDate.mandatory(false);
+            VoluntaryLayOffRealDate.allowEdit(false);
+        }
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_LeaveTypeID), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_LeaveTypeID_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormStringControl LeaveTypeId = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_LeaveTypeID));
+        FormDateControl  VoluntaryLayOffDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_VoluntaryLayoffDate));
+        FormDateControl  VoluntaryLayOffRealDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_VoluntaryLayoffEffectiveDate));
+        FormDateControl  LetterSendDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_LetterSendDate));
+        FormDateControl  NotificationDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_NotificationDate));
+        FormDataSource APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+        HcmLeaveType    hcmLeaveType;
+
+        select firstonly hcmLeaveType
+            where hcmLeaveType.LeaveTypeID == workerCease.LeaveTypeID;
+
+        if(hcmLeaveType.APPSPM_CessationsClassification == APPSPMCessationsClassification::VoluntaryWaiver)
+        {
+            VoluntaryLayOffDate.allowEdit(true);
+            VoluntaryLayOffDate.mandatory(true);
+            workerCease.VoluntaryLayoffDate = workerCease.LastDayWorkedDate;
+            VoluntaryLayOffRealDate.allowEdit(true);
+            //     VoluntaryLayOffRealDate.mandatory(true);
+            LetterSendDate.allowEdit(false);
+            //      NotificationDate.mandatory(true);
+            LetterSendDate.mandatory(false);
+            workerCease.LetterSendDate = dateNull();
+            workerCease.NotificationDate = dateNull();
+        }
+        else if(hcmLeaveType.APPSPM_CessationsClassification == APPSPMCessationsClassification::EarlyTermination)
+        {
+            LetterSendDate.allowEdit(true);
+            workerCease.LetterSendDate = today();
+            //      NotificationDate.mandatory(true);
+            LetterSendDate.mandatory(true);
+            //      NotificationDate.mandatory(true);
+            workerCease.VoluntaryLayoffDate = dateNull();
+            VoluntaryLayOffDate.allowEdit(false);
+            VoluntaryLayOffDate.mandatory(false);
+            workerCease.VoluntaryLayoffEffectiveDate = dateNull();
+            VoluntaryLayOffRealDate.allowEdit(false);
+            VoluntaryLayOffRealDate.mandatory(false);
+        }
+        else
+        {
+            LetterSendDate.allowEdit(false);
+            LetterSendDate.mandatory(false);
+            workerCease.VoluntaryLayoffDate = dateNull();
+            workerCease.LetterSendDate = dateNull();
+            workerCease.NotificationDate = dateNull();
+            workerCease.VoluntaryLayoffEffectiveDate = dateNull();
+            VoluntaryLayOffDate.allowEdit(false);
+            VoluntaryLayOffDate.mandatory(false);
+            VoluntaryLayOffRealDate.allowEdit(false);
+         
+        }
+        APPSPMWorkerCease_DS.refresh();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_LastDayWorkedDate), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_LastDayWorkedDate_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormStringControl LeaveTypeId = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_LeaveTypeID));
+        FormDateControl  VoluntaryLayOffDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_VoluntaryLayoffDate));
+        FormDateControl  VoluntaryLayOffRealDate = sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMWorkerCease_VoluntaryLayoffEffectiveDate));
+        FormDataSource APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+        HcmLeaveType    hcmLeaveType;
+
+        if(workerCease.LeaveTypeID)
+        {
+            select firstonly hcmLeaveType
+            where hcmLeaveType.LeaveTypeID == workerCease.LeaveTypeID;
+            if(hcmLeaveType.APPSPM_CessationsClassification == APPSPMCessationsClassification::VoluntaryWaiver)
+            {
+                workerCease.VoluntaryLayoffDate = workerCease.LastDayWorkedDate;
+            }
+        }
+        APPSPMWorkerCease_DS.refresh();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_VoluntaryLayoffEffectiveDate), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_VoluntaryLayoffEffectiveDate_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormDataSource APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+
+        if(workerCease.VoluntaryLayoffEffectiveDate != dateNull())
+        {
+            if(workerCease.VoluntaryLayoffEffectiveDate < workerCease.LastDayWorkedDate)
+            {
+                Global::warning(strFmt("@APPSPM_D:APPSPM_DF0029"));
+                workerCease.VoluntaryLayoffEffectiveDate = dateNull();
+            }
+        }
+        APPSPMWorkerCease_DS.refresh();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_CeaseDate), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_CeaseDate_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormDataSource APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+
+        if(workerCease.CeaseDate != dateNull())
+        {
+            if(workerCease.CeaseDate < today())
+            {
+                Global::warning(strFmt("@APPSPM_D:APPSPM_DF0030"));
+                workerCease.CeaseDate = dateNull();
+            }
+        }
+        APPSPMWorkerCease_DS.refresh();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_LastSummaryReviewDate), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_LastSummaryReviewDate_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormDataSource APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+
+        if(workerCease.LastSummaryReviewDate != dateNull())
+        {
+            if(workerCease.LastSummaryReviewDate > workerCease.CeaseDate)
+            {
+                Global::warning(strFmt("@APPSPM_D:APPSPM_DF0031"));
+                workerCease.LastSummaryReviewDate = dateNull();
+            }
+        }
+        APPSPMWorkerCease_DS.refresh();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_LastPaymentDayONRDate), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_LastPaymentDayONRDate_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormDataSource APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+
+        if(workerCease.LastPaymentDayONRDate != dateNull())
+        {
+            if(workerCease.LastPaymentDayONRDate > workerCease.CeaseDate)
+            {
+                Global::warning(strFmt("@APPSPM_D:APPSPM_DF0032"));
+                workerCease.LastPaymentDayONRDate = dateNull();
+            }
+        }
+        APPSPMWorkerCease_DS.refresh();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_VoluntaryLayoffDate), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_VoluntaryLayoffDate_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormDataSource APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+
+        if(workerCease.VoluntaryLayoffDate != dateNull())
+        {
+            if(workerCease.VoluntaryLayoffDate < workerCease.LastDayWorkedDate)
+            {
+                Global::warning(strFmt("@APPSPM_D:APPSPM_DF0033"));
+                workerCease.VoluntaryLayoffDate = dateNull();
+            }
+        }
+        APPSPMWorkerCease_DS.refresh();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_LetterSendDate), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_LetterSendDate_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormDataSource APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease  workerCease = APPSPMWorkerCease_DS.cursor();
+        CaseDetailBase                      caseDetailBase = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,CaseDetailBase)).cursor();
+        HcmPositionWorkerAssignment         hcmPositionWorker;
+        HcmPositionDetail                   hcmPositionDetail;
+        HcmPosition                         hcmPosition;
+        APPSPMEndowmentTable            endowmentTable;
+
+        if(workerCease.LetterSendDate != dateNull())
+        {
+            if(workerCease.LetterSendDate < today())
+            {
+                Global::warning(strFmt("@APPSPM_D:APPSPM_DF0034"));
+                workerCease.LetterSendDate = dateNull();
+            }
+            else
+            {
+                if(workerCease.PositionToCease)
+                {
+                    select firstonly hcmPosition
+                        where hcmPosition.PositionId == workerCease.PositionToCease
+                    join hcmPositionDetail
+                        where hcmPositionDetail.Position == hcmPosition.RecId
+                    join endowmentTable
+                        where endowmentTable.EndowmentId == hcmPositionDetail.LegalQualityId;
+                    if(endowmentTable.EndowmentType == APPSPMEndowmentType::Fee || endowmentTable.EndowmentType == APPSPMEndowmentType::Contract)
+                        workerCease.NotificationDate = workerCease.LetterSendDate;
+                }
+                else
+                {
+                    while select hcmPositionWorker
+                        where hcmPositionWorker.Worker == caseDetailBase.Party
+                    join hcmPosition
+                        where hcmposition.RecId == hcmPositionWorker.Position
+                    join hcmPositionDetail
+                        where hcmPositionDetail.Position == hcmPosition.RecId
+                    join endowmentTable
+                        where endowmentTable.EndowmentId == hcmPositionDetail.LegalQualityId
+                    {
+                        if(endowmentTable.EndowmentType == APPSPMEndowmentType::Fee || endowmentTable.EndowmentType == APPSPMEndowmentType::Contract)
+                        workerCease.NotificationDate = workerCease.LetterSendDate;
+                    }
+                }
+            }
+        }
+        APPSPMWorkerCease_DS.refresh();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMWorkerCease_PositionToCease), FormControlEventType::Modified)]
+    public static void APPSPMWorkerCease_PositionToCease_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormDataSource                      APPSPMWorkerCease_DS = sender.dataSourceObject();
+        APPSPMWorkerCease                   workerCease = APPSPMWorkerCease_DS.cursor();
+
+        CaseDetailBase                      caseDetailBase = sender.formRun().dataSource().cursor();
+        HcmWorker                           hcmWorker = HcmWorker::findByPerson(caseDetailBase.Party);
+        HcmPosition                         hcmPosition;
+        HcmPositionWorkerAssignment         hcmpositionworker;
+        int c = 0;
+
+        select count(RecId) from hcmpositionworker
+            where hcmpositionworker.Worker == hcmWorker.RecId;
+        if(hcmpositionworker.RecId > 1)
+        {
+            if(workerCease.PositionToCease)
+            {
+                if(Box::yesNo(strFmt("@APPSPM_D:APPSPM_DF0035",workerCease.PositionToCease), DialogButton::No) == DialogButton::No)
+                {
+                    workerCease.PositionToCease = "";
+                }
+            }          
+        }       
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseCatHierarchyDetail_CaseCategory), FormControlEventType::Modified)]
+    public static void CaseCatHierarchyDetail_CaseCategory_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun formRun;
+        FormControl formControl;
+        formRun = sender.formRun();
+        FormDataSource workerCease_DS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMWorkerCease));
+        FormDataSource CaseDetailBase_DS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,CaseDetailBase));
+        CaseDetailBase  caseDetailBase = CaseDetailBase_DS.cursor();
+
+        CaseCategoryHierarchyDetail     CaseCategoryHierarchyDetail;
+       
+        select firstonly CaseCategoryHierarchyDetail
+            where CaseCategoryHierarchyDetail.RecId == caseDetailBase.CategoryRecId
+            &&    CaseCategoryHierarchyDetail.APPSPMProcessType == APPSPMProcessType::Cease;
+
+        if(CaseCategoryHierarchyDetail)
+        {
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPM_DFWorkerCeaseTab)).enabled(true);
+        }
+        else
+        {
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPM_DFWorkerCeaseTab)).enabled(false);
+        }
+        CaseDetailBase_DS.refresh();
+        workerCease_DS.refresh();
+    }
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormEventHandler(formStr(CaseDetail), FormEventType::Activated)]
+    public static void CaseDetail_OnActivated(xFormRun sender, FormEventArgs e)
+    {
+        FormDataSource CaseDetailBaseDS = sender.dataSource(formDataSourceStr(CaseDetail,CaseDetailBase));
+        FormDataSource APPSPMMobilityDependenceTableDS = sender.dataSource(formDataSourceStr(CaseDetail,APPSPMMobilityDependenceTable));
+        FormDataSource APPSPMPaymentDS = sender.dataSource(formDataSourceStr(CaseDetail,APPSPMPayment));
+
+        CaseDetailBaseDS.refresh();
+        APPSPMMobilityDependenceTableDS.refresh();
+        APPSPMPaymentDS.refresh();
+    }
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+ /*   [FormControlEventHandler(formControlStr(CaseDetail, btnNewCase), FormControlEventType::Clicked)]
+    public static void btnNewCase_OnClicked(FormControl sender, FormControlEventArgs e)
+    {
+        //Case new
+        sender.formRun().design().controlName(formControlStr(CaseDetail,APPDMIMobilityDependence)).enabled(false);
+        sender.formRun().design().controlName(formControlStr(CaseDetail,APPDMIMobilityDependenceTab)).enabled(false);
+        sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTab)).enabled(false);
+    }
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, btnNewDependentCase), FormControlEventType::Clicked)]
+    public static void btnNewDependentCase_OnClicked(FormControl sender, FormControlEventArgs e)
+    {
+        //Case new dependent
+        sender.formRun().design().controlName(formControlStr(CaseDetail,APPDMIMobilityDependence)).enabled(true);
+        sender.formRun().design().controlName(formControlStr(CaseDetail,APPDMIMobilityDependenceTab)).enabled(true);
+        sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTab)).enabled(true);
+    }*/
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, APPSPMMobilityDependenceTable), FormDataSourceEventType::Activated)]
+    public static void APPSPM_MobilityDependenceTable_OnActivated(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormRun formRun = sender.formRun();
+        FormDataSource formDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail, CaseDetailBase  ));
+        FormDataSource mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMMobilityDependenceTable));
+        CaseDetailBase caseDetailBase = formDS.cursor();
+        APPSPMMobilityDependenceTable mobilityDependenceTable = mobilityDependenceTableDS.cursor();//Add by jpr
+        FormControl radioControl = sender.formRun().design().controlName(formControlStr(CaseDetail,FormRadioButtonControl1));
+        DimAttributeOMDepartment dimAttributeOMDepartment;
+        APPSPMResolutionTable resolTable;
+        APPSPMWorkerRelationTable workerRelTable;
+        OMOperatingUnit OMOperatingUnit;
+        APPSPMPayment APPSPMPayment;
+
+        //DMIPCR-001 <start> by JParroquiano
+        if(mobilityDependenceTable.Volunteer == NoYes::Yes)
+        {
+           // sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTabPage)).enabled(false);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(false);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(true);
+        }
+        else
+        {
+           // sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTabPage)).enabled(true);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(false);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(false);
+            select firstonly APPSPMPayment
+                where APPSPMPayment.CaseId == caseDetailBase.CaseId;
+            if(APPSPMPayment)
+            {
+                sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(true);
+            }
+        }
+        //DMIPCR-001 <end> by JParroquiano
+
+        //DMIPCR-003 <start> by JParroquiano
+        if(mobilityDependenceTable.TypeMobility == APPSPMTypeMobility::Destination)
+        {
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(true);
+        }
+        else
+        {
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(false);
+        }
+        //DMIPCR-003 <end> by JParroquiano
+
+        formDS.refresh();
+        //formDS.research();
+        mobilityDependenceTableDS.refresh();
+    }
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, FormRadioButtonControl1), FormControlEventType::Modified)]
+    public static void FormRadioButtonControl1_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormDataSource caseDetailBaseDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,CaseDetailBase));
+        FormDataSource mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMMobilityDependenceTable));
+        APPSPMMobilityDependenceTable APPSPMMobilityDependenceTable = mobilityDependenceTableDS.cursor();
+        ttsbegin;
+        if( sender.valueStr()  == enum2Value( APPSPMTypeMobility::Destination ))
+        {
+            APPSPMMobilityDependenceTable.selectForUpdate(true);
+            APPSPMMobilityDependenceTable.TypeMobility = APPSPMTypeMobility::Destination;
+            APPSPMMobilityDependenceTable.update();
+        }
+        else if(sender.valueStr()  == enum2Value( APPSPMTypeMobility::InternalOrder))
+        {
+            APPSPMMobilityDependenceTable.selectForUpdate(true);
+            APPSPMMobilityDependenceTable.TypeMobility = APPSPMTypeMobility::InternalOrder;
+            APPSPMMobilityDependenceTable.update();
+        }
+        ttscommit;
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, FormRadioButtonControl2), FormControlEventType::Modified)]
+    public static void FormRadioButtonControl2_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormDataSource caseDetailBaseDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,CaseDetailBase));
+        FormDataSource mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMMobilityDependenceTable));
+        APPSPMMobilityDependenceTable APPSPMMobilityDependenceTable = mobilityDependenceTableDS.cursor();
+        ttsbegin;
+        if( sender.valueStr()  == enum2Value( APPSPMSelectDependency::AppointmentCompatiblePosition ))
+        {
+            APPSPMMobilityDependenceTable.selectForUpdate(true);
+            APPSPMMobilityDependenceTable.SelectDependency = APPSPMSelectDependency::AppointmentCompatiblePosition;
+            APPSPMMobilityDependenceTable.update();
+        }
+        else if(sender.valueStr()  == enum2Value( APPSPMSelectDependency::Dependency))
+        {
+            APPSPMMobilityDependenceTable.selectForUpdate(true);
+            APPSPMMobilityDependenceTable.SelectDependency = APPSPMSelectDependency::Dependency;
+            APPSPMMobilityDependenceTable.update();
+        }
+        ttscommit;
+    }
+
+    /// <summary>
+    /// DMIPCR-003
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, FormRadioButtonControl3), FormControlEventType::Modified)]
+    public static void FormRadioButtonControl3_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormDataSource formDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail, CaseDetailBase  ));
+        caseDetailBase caseDetailBase = formDS.cursor();
+        FormDataSource mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMMobilityDependenceTable));
+        APPSPMMobilityDependenceTable mobilityDependenceTable = mobilityDependenceTableDS.cursor();//Add by jpr
+        APPSPMPayment APPSPMPayment;
+        
+        ttsbegin;
+        if(sender.valueStr()  == enum2Value( NoYes::Yes ))//mobilityDependenceTable.Volunteer == NoYes::Yes)
+        {
+           // sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTabPage)).enabled(false);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(false);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(true);
+            mobilityDependenceTable.selectForUpdate(true);
+            mobilityDependenceTable.Volunteer = NoYes::Yes;
+            mobilityDependenceTable.update();
+        }
+        else if(sender.valueStr()  == enum2Value( NoYes::No))
+        {
+           // sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTabPage)).enabled(true);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(false);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(false);
+            mobilityDependenceTable.selectForUpdate(true);
+            mobilityDependenceTable.Volunteer = NoYes::No;
+            mobilityDependenceTable.update();
+
+            select firstonly APPSPMPayment
+                where APPSPMPayment.CaseId == caseDetailBase.CaseId;
+            if(APPSPMPayment)
+            {
+                sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(true);
+            }
+        }
+        ttscommit;
+        formDS.refresh();
+    }
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, APPSPMMobilityDependenceTable), FormDataSourceEventType::ValidatingWrite)]
+    public static void APPSPMMobilityDependenceTable_OnValidatingWrite(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormDataSource caseDetailBaseDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,CaseDetailBase));
+        caseDetailBase caseDetailBase = caseDetailBaseDS.cursor();
+        FormDataSource mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMMobilityDependenceTable));
+        APPSPMMobilityDependenceTable   mobilityDependenceTable = mobilityDependenceTableDS.cursor();
+        APPSPMResolutionTable           resolTable;
+        HcmPositionDetail               HcmPositionDetail = APPSPMMaintainPayrollCredits::getHcmPositionDetail(caseDetailBase);
+
+        if(mobilityDependenceTable)
+        {
+            mobilityDependenceTable.selectForUpdate(true);
+            
+            select firstonly resolTable // Resolution in state to reject(rechasado)
+                where resolTable.ResolutionDocumentType ==  mobilityDependenceTable.Resolution;
+            ttsbegin;
+            if(resolTable && resolTable.ResolDocumentStatus == APPSPMResolDocumentStatus::Rejected)
+            {
+                mobilityDependenceTable.Resolution = "";
+                mobilityDependenceTable.NFolioInt =  0;
+                mobilityDependenceTable.DateResolution = dateNull();
+            }
+            else if(resolTable)
+            {
+                mobilityDependenceTable.Resolution = resolTable.ResolutionDocumentType ;
+                mobilityDependenceTable.NFolioInt =  resolTable.NFolio;
+                mobilityDependenceTable.DateResolution = resolTable.FolioDate;
+            }
+            if(!mobilityDependenceTable.ActualDependenceInt64)
+            {
+                mobilityDependenceTable.ActualDependenceInt64 = HcmPositionDetail.Department ;
+            }
+            mobilityDependenceTable.Update();
+            ttscommit;
+        }
+
+        //caseDetailBaseDS.research(true);
+        //caseDetailBaseDS.reread();
+        caseDetailBaseDS.refresh();
+        mobilityDependenceTableDS.refresh();
+    }
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMGenerateResolution), FormControlEventType::Clicked)]
+    public static void APPSPMGenerateResolution_OnClicked(FormControl sender, FormControlEventArgs e)
+    {
+        FormDataSource  CaseDetailBaseDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,CaseDetailBase));
+        CaseDetailBaseDS.refresh();
+    }
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, CaseDetailBase), FormDataSourceEventType::Activated)]
+    public static void CaseDetailBase_OnActivated(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormDataSource                  formDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,CaseDetailBase));
+        FormDataSource                  mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMMobilityDependenceTable));
+        FormDataSource                  workerCease_DS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMWorkerCease));
+        CaseDetailBase                  caseDetailBase = formDS.cursor();
+        HcmPositionDetail               HcmPositionDetail = APPSPMMaintainPayrollCredits::getHcmPositionDetail(caseDetailBase);
+        APPSPMMobilityDependenceTable   mobilityDependenceTable = mobilityDependenceTableDS.cursor();
+        CaseCategoryHierarchyDetail     CaseCategoryHierarchyDetail;
+        OMOperatingUnit                 OMOperatingUnit;
+        APPSPMWorkerRelationTable       workerRelTable;
+        APPSPMResolutionTable           resolTable;
+        APPSPMPayment                   APPSPMPayment;
+                
+
+        select firstonly CaseCategoryHierarchyDetail
+            where CaseCategoryHierarchyDetail.RecId == caseDetailBase.CategoryRecId
+            &&    CaseCategoryHierarchyDetail.APPSPMProcessType == APPSPMProcessType::Cease;
+        if(CaseCategoryHierarchyDetail)
+        {
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPM_DFWorkerCeaseTab)).enabled(true);
+        }
+        else
+        {
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPM_DFWorkerCeaseTab)).enabled(false);
+        }
+        
+
+        //------<DMIPCR001 add JParroquiano - begin>------     
+      
+        ttsbegin;
+        if(mobilityDependenceTable)
+        {
+            mobilityDependenceTable.selectForUpdate(true);
+            
+            select firstonly resolTable // Resolution in state to reject(rechasado)
+                where resolTable.ResolutionDocumentType ==  mobilityDependenceTable.Resolution;
+
+            if(resolTable && resolTable.ResolDocumentStatus == APPSPMResolDocumentStatus::Rejected)
+            {
+                mobilityDependenceTable.Resolution = "";
+                mobilityDependenceTable.NFolioInt =  0;
+                mobilityDependenceTable.DateResolution = dateNull();
+            }
+            else if(resolTable)
+            {
+                mobilityDependenceTable.Resolution = resolTable.ResolutionDocumentType ;
+                mobilityDependenceTable.NFolioInt =  resolTable.NFolio;
+                mobilityDependenceTable.DateResolution = resolTable.FolioDate;
+            }
+            if(!mobilityDependenceTable.ActualDependenceInt64)
+            {
+                mobilityDependenceTable.ActualDependenceInt64 = HcmPositionDetail.Department ;
+            }
+            mobilityDependenceTable.Update();
+        }
+        else
+        {
+            /*mobilityDependenceTable.Resolution = resolTable.ResolutionDocumentType ;
+            mobilityDependenceTable.NFolioInt =  resolTable.NFolio;
+            mobilityDependenceTable.DateResolution = resolTable.FolioDate;*/
+            mobilityDependenceTable.ActualDependenceInt64 = HcmPositionDetail.Department ;
+            mobilityDependenceTable.CaseId = caseDetailBase.CaseId;
+            mobilityDependenceTable.insert();
+        }
+        ttscommit;
+        
+
+        if(mobilityDependenceTable.Volunteer == NoYes::Yes)
+        {
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(true);
+           // sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTabPage)).enabled(false);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(false);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(true);
+        }
+        else
+        {
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(false);
+            //sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTabPage)).enabled(true);
+            sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(false);
+
+            select firstonly APPSPMPayment
+                where APPSPMPayment.CaseId == caseDetailBase.CaseId;
+            if(APPSPMPayment)
+            {
+                sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(true);
+            }
+        }
+        formDS.refresh();
+        mobilityDependenceTableDS.refresh();
+        workerCease_DS.refresh();
+        //------<DMIPCR001 add JParroquiano - end>------
+
+    }
+
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMPayment_Amount), FormControlEventType::Modified)]
+    public static void APPSPMPayment_Amount_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormDataSource CaseDetailDS = sender.formRun().dataSource(formDataSourceStr(CaseDetail,CaseDetailBase));
+        CaseDetailBase CaseDetailBase =   CaseDetailDS.cursor();
+        FormDataSource APPSPMPaymentDS = sender.formRun().dataSource(formDataSourceStr(CaseDetail,APPSPMPayment));
+        APPSPMPayment APPSPMPaymen = APPSPMPaymentDS.cursor();
+
+        sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(true);
+        //APPSPMPaymen.CaseId = CaseDetailBase.CaseId;
+        //APPSPMPaymen.insert();
+
+        APPSPMPaymentDS.refresh();
+        CaseDetailDS.refresh();
+    }
+
+    //---------------------------------------------------------NewDependence-begin------------------------------------------------------
+    /// <summary>
+    /// DMIPCR-001
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, APPSPMMobilityDependenceTable_NewDependence), FormControlEventType::Lookup)]
+    public static void APPSPM_MobilityDependenceTable_NewDependence_OnLookup(FormControl sender, FormControlEventArgs e)
+    {
+        Query                          query = new Query();
+        QueryBuildDataSource           qbds;
+        QueryBuildDataSource           qbdsJoin;
+
+        // Inicialización del lookup
+        SysTableLookup                  sysTableLookup = SysTableLookup::newParameters(tableNum(OMOperatingUnit), sender);
+
+        // Add fields
+        sysTableLookup.addLookupfield( fieldNum(OMOperatingUnit, Name));
+ 
+        // Despliega info de la tabla APPRY_VendRulingConfig
+        qbds= query.addDataSource( tableNum(OMOperatingUnit));
+
+        // Run lookup
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+
+    }
+
+    //---------------------------------------------------------NewDependence-end------------------------------------------------------
+
+}

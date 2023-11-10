@@ -1,0 +1,236 @@
+[Form]
+public class APPSPMServiceRelation extends FormRun
+{
+
+    APPSPMPublicSectorParameters    publicSectorParameters;
+
+    APPSPMEndowmentTable            endowmentTable;
+
+    APPSPMEndowmentLegalQuality     endowmentLegalQuality;
+
+
+    /// <summary>
+    /// DCNT-003 Relation service
+    /// </summary>
+    private void allowEditFields()
+    {
+
+        if(publicSectorParameters.InstitutionId == APPSPMServiceRelationTable.InstitutionId)
+        {
+            APPSPMServiceRelationTable_Trienio.allowEdit(false);
+            APPSPMServiceRelationTable_Bienio.allowEdit(false);
+            APPSPMServiceRelationTable_BieniosTrieniosNumber.allowEdit(false);
+            APPSPMServiceRelationTable_ComplianceDateBienioTrienio.allowEdit(false);
+            APPSPMServiceRelationTable_AccrualDateBienioTrienio.allowEdit(false);
+            APPSPMServiceRelationTable_LastNumResolution.allowEdit(false);
+            APPSPMServiceRelationTable_LastDateRecognition.allowEdit(false);
+        
+        }
+        else
+        {
+            APPSPMServiceRelationTable_Trienio.allowEdit(!APPSPMServiceRelationTable.Bienio);
+            APPSPMServiceRelationTable_Bienio.allowEdit(!APPSPMServiceRelationTable.Trienio);
+
+            APPSPMServiceRelationTable_BieniosTrieniosNumber.allowEdit(true);
+            APPSPMServiceRelationTable_ComplianceDateBienioTrienio.allowEdit(true);
+            APPSPMServiceRelationTable_AccrualDateBienioTrienio.allowEdit(true);
+            APPSPMServiceRelationTable_LastNumResolution.allowEdit(true);
+            APPSPMServiceRelationTable_LastDateRecognition.allowEdit(true);
+
+            APPSPMServiceRelationTable_BieniosTrieniosNumber.mandatory(APPSPMServiceRelationTable.Bienio || APPSPMServiceRelationTable.Trienio);
+            APPSPMServiceRelationTable_ComplianceDateBienioTrienio.mandatory(APPSPMServiceRelationTable.Bienio || APPSPMServiceRelationTable.Trienio);
+            APPSPMServiceRelationTable_AccrualDateBienioTrienio.mandatory(APPSPMServiceRelationTable.Bienio || APPSPMServiceRelationTable.Trienio);
+            APPSPMServiceRelationTable_LastNumResolution.mandatory(APPSPMServiceRelationTable.Bienio || APPSPMServiceRelationTable.Trienio);
+            APPSPMServiceRelationTable_LastDateRecognition.mandatory(APPSPMServiceRelationTable.Bienio || APPSPMServiceRelationTable.Trienio);
+        }
+
+        if(APPSPMServiceRelationTable.AutomaticProcess)
+        {
+            APPSPMServiceRelationTable_FromDate.allowEdit(false);
+            APPSPMServiceRelationTable_ToDate.allowEdit(false);
+        }
+        else
+        {
+            APPSPMServiceRelationTable_FromDate.allowEdit(true);
+            APPSPMServiceRelationTable_ToDate.allowEdit(true);
+        }
+
+    }
+
+    /// <summary>
+    /// DCNT-003 Relation service
+    /// </summary>
+    public void init()
+    {
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP005HR))
+        {
+            super();
+
+            publicSectorParameters = APPSPMPublicSectorParameters::find();
+
+            select firstonly LegalQualityId from endowmentLegalQuality
+                index EndowmentLegalIdx
+                exists join endowmentTable
+                where endowmentTable.EndowmentId == endowmentLegalQuality.EndowmentId
+                && endowmentTable.EndowmentType == APPSPMEndowmentType::Fee;
+        }
+        else
+        {
+            Box::warning("@APPSPM:FunctionUnavailable");
+
+            this.close();
+        }
+
+        
+    }
+
+    [DataSource]
+    class APPSPMServiceRelationTable
+    {
+        /// <summary>
+        /// DCNT-003 Relation service
+        /// </summary>
+        public void initValue()
+        {
+            super();
+            
+            APPSPMServiceRelationTable.ToDate = maxDate();            
+
+        }
+
+        /// <summary>
+        /// DCNT-003 Relation service
+        /// </summary>
+        /// <returns></returns>
+        public int active()
+        {
+            int ret;
+        
+            ret = super();
+
+            element.allowEditFields();          
+        
+            return ret;
+        }
+
+        /// <summary>
+        /// DCNT-003 Relation service
+        /// </summary>
+        /// <returns></returns>
+        public boolean validateWrite()
+        {
+            boolean                         ret;
+            APPSPMServiceRelationTable      serviceRelationTable;
+        
+            ret = super();
+
+            if(ret)
+            {
+                select firstonly RecId from serviceRelationTable
+                    index PersonQualityIdx
+                    where serviceRelationTable.Person == APPSPMServiceRelationTable.Person
+                    && serviceRelationTable.LegalQuality == APPSPMServiceRelationTable.LegalQuality
+                    && serviceRelationTable.RecId != APPSPMServiceRelationTable.RecId;         
+
+                if(serviceRelationTable.Recid && APPSPMServiceRelationTable.LegalQuality == endowmentLegalQuality.LegalQualityId)
+                {
+                    warning(strFmt("@APPSPM_A:DCNT003_0038", APPSPMServiceRelationTable.LegalQuality ));
+                }
+                else if(serviceRelationTable.Recid)
+                {
+                    ret = checkFailed(strFmt("@APPSPM_A:DCNT003_0039", APPSPMServiceRelationTable.LegalQuality ));
+                }
+            }
+        
+            return ret;
+        }
+
+        [DataField]
+        class Bienio 
+        {
+            /// <summary>
+            /// DCNT-003 Relation service
+            /// </summary>
+            public void modified()
+            {
+                super();
+
+                element.allowEditFields();
+
+                APPSPMServiceRelationTable_ds.refresh();
+            }
+
+        }
+
+        [DataField]
+        class BieniosTrieniosNumber 
+        {
+            /// <summary>
+            /// DCNT-003 Relation service
+            /// </summary>
+            /// <returns></returns>
+            public boolean validate()
+            {
+                boolean ret;
+        
+                ret = super();
+
+                if(ret)
+                {
+                    if(strLen(int2Str(APPSPMServiceRelationTable.HoursQty)) > 2)
+                    {
+                        ret = checkFailed("@APPSPM_A:DCNT003_0027");
+                    }
+                }
+        
+                return ret;
+            }
+
+        }
+
+        [DataField]
+        class HoursQty 
+        {
+            /// <summary>
+            /// DCNT-003 Relation service
+            /// </summary>
+            /// <returns></returns>
+            public boolean validate()
+            {
+                boolean ret;
+        
+                ret = super();
+
+                if(ret)
+                {
+                    if(strLen(int2Str(APPSPMServiceRelationTable.HoursQty)) > 2)
+                    {
+                        ret = checkFailed("@APPSPM_A:DCNT003_0027");
+                    }
+                }
+        
+                return ret;
+            }
+
+        }
+
+        [DataField]
+        class Trienio 
+        {
+            /// <summary>
+            /// DCNT-003 Relation service
+            /// </summary>
+            public void modified()
+            {
+                super();
+
+                element.allowEditFields();
+
+                APPSPMServiceRelationTable_ds.refresh();
+            }
+
+        }
+
+    }
+
+}

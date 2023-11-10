@@ -1,0 +1,405 @@
+/// <summary>
+/// Calc Accrual projections
+/// </summary>
+class UFTCalcAccrualProjections
+{
+    private UFTAccountingSetupsRecId accountingSetups;
+
+    /// <summary>
+    /// Construct for <c>UFTCalcAccrualProjections</c> class
+    /// </summary>
+    /// <returns> An instance of <c>UFTCalcAccrualProjections</c> class </returns>
+    public static UFTCalcAccrualProjections construct()
+    {
+        return new UFTCalcAccrualProjections();
+    }
+
+    /// <summary>
+    /// Get <c>UFTCalcAccrualProjections</c> class name
+    /// </summary>
+    /// <returns> The class name </returns>
+    public static Name description()
+    {
+        return "@UFINET_AP:RCAR_020";
+    }
+
+    /// <summary>
+    /// Create <c>UFTClacAccrualProjections</c> class instance
+    /// </summary>
+    /// <param name = "_args"> Args used to create class </param>
+    public static void main(Args _args)
+    {
+        UFTCalcAccrualProjections   calcProjections = UFTCalcAccrualProjections::construct();
+        FormRun                     callerFormRun;
+        FormReferenceGroupControl   cumulativeIdControl;
+        UFTAccountingSetupsRecId    accountingSetupRecId;
+
+        if (_args.caller())
+        {
+            callerFormRun        = _args.caller();
+            cumulativeIdControl  = callerFormRun.control(callerFormRun.controlId('CumulativeId'));
+            accountingSetupRecId = cumulativeIdControl.value();
+            calcProjections.parmAccountingSetupsRecId(accountingSetupRecId);
+        }
+
+        calcProjections.run();
+    }
+
+    /// <summary>
+    /// Execute the process
+    /// </summary>
+    public void run()
+    {
+        #OCCRetryCount
+
+        try
+        {
+            ttsbegin;
+
+            this.deleteAccrualProjectionsTable();
+            this.fillAccrualProjectionsTable();
+            this.deleteAccrualProjectionsTotalsTable();
+            this.fillAccrualProjectionsTotalsTable();
+
+            ttscommit;
+        }
+        catch (Exception::Deadlock)
+        {
+            if (xSession::currentRetryCount() >= #RetryNum)
+            {
+                throw Exception::Deadlock;
+            }
+            else
+            {
+                retry;
+            }
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+        catch (Exception::Error)
+        {
+            throw Exception::Error;
+        }
+    }
+
+    /// <summary>
+    /// Delete <c>UFTAccrualProjections</c> table
+    /// </summary>
+    public void deleteAccrualProjectionsTable()
+    {
+        UFTAccrualProjections   accrualProjectionsToDelete;
+        boolean                 toDelete;
+
+        while select forupdate accrualProjectionsToDelete
+                where   accrualProjectionsToDelete.CumulativeId == this.parmAccountingSetupsRecId()
+        {
+            if (UFTAveragePeriodRate::exist(accrualProjectionsToDelete.CumulativeId,
+                                            accrualProjectionsToDelete.FiscalCalendar,
+                                            accrualProjectionsToDelete.FiscalCalendarYear,
+                                            accrualProjectionsToDelete.FiscalCalendarPeriod))
+            {
+                if (UFTAveragePeriodRate::isCostsPosted(accrualProjectionsToDelete.CumulativeId,
+                                                        accrualProjectionsToDelete.FiscalCalendar,
+                                                        accrualProjectionsToDelete.FiscalCalendarYear,
+                                                        accrualProjectionsToDelete.FiscalCalendarPeriod))
+                {
+                    toDelete = false;
+                }
+                else
+                {
+                    toDelete = true;
+                }
+            }
+            else
+            {
+                toDelete = true;
+            }
+
+            if (toDelete)
+            {
+                accrualProjectionsToDelete.doDelete();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Delete <c>UFTAccrualProjectionsTotals</c> table
+    /// </summary>
+    public void deleteAccrualProjectionsTotalsTable()
+    {
+        UFTAccrualProjectionsTotals accrualProjectionsTotalsToDelete;
+
+        delete_from accrualProjectionsTotalsToDelete
+            where   accrualProjectionsTotalsToDelete.CumulativeId == this.parmAccountingSetupsRecId();
+    }
+
+    /// <summary>
+    /// Fill <c>UFTAccrualProjections</c> table
+    /// </summary>
+    public void fillAccrualProjectionsTable()
+    {
+        RecordInsertList        accrualProjectionsList = new RecordInsertList(tableNum(UFTAccrualProjections));
+        UFTAveragePeriodRate    averagePeriodRate;
+        UFTAccrualProjections   accrualProjections;
+        UFTRealValues           periodAmount, sumAmount;
+        date                    nextDate;
+        int                     monthOfYear, startYear, lastYear, curYear;
+
+        void insertAccrualProjections(UFTAveragePeriodRate  _averagePeriodRate)
+        {
+            accrualProjections.FiscalCalendar           = _averagePeriodRate.FiscalCalendar;
+            accrualProjections.FiscalCalendarYear       = _averagePeriodRate.FiscalCalendarYear;
+            accrualProjections.FiscalCalendarPeriod     = _averagePeriodRate.FiscalCalendarPeriod;
+            accrualProjections.CumulativeId             = _averagePeriodRate.CumulativeId;
+            accrualProjections.CumulativeIdName         = _averagePeriodRate.CumulativeIdName;
+            accrualProjections.FiscalCalendarId         = _averagePeriodRate.FiscalCalendarId;
+            accrualProjections.FiscalCalendarPeriodName = _averagePeriodRate.FiscalCalendarPeriodName;
+            accrualProjections.CommissionAmount         = _averagePeriodRate.CommissionAmount;
+            accrualProjections.StartDate                = _averagePeriodRate.StartDate;
+            accrualProjections.EndDate                  = _averagePeriodRate.EndDate;
+            accrualProjections.PeriodsToAccrue          = _averagePeriodRate.PeriodsToAccrue;
+            accrualProjections.PeriodAmount             = decRound(_averagePeriodRate.CommissionAccruePeriod, 2);
+            accrualProjections.UFTAveragePeriodRate     = _averagePeriodRate.RecId;
+            //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - Start
+            accrualProjections.ExerciseName             = _averagePeriodRate.FiscalCalendarYearName;
+            accrualProjections.Manual                   = _averagePeriodRate.Manual;
+            //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - End
+        }
+
+        void setPeriodAmount(UFTRealValues  _periodAmount,
+                             int            _monthOfYear)
+        {
+            switch(_monthOfYear)
+            {
+                case 1:
+                    accrualProjections.January = _periodAmount;
+                    break;
+
+                case 2:
+                    accrualProjections.February = _periodAmount;
+                    break;
+
+                case 3:
+                    accrualProjections.March = _periodAmount;
+                    break;
+
+                case 4:
+                    accrualProjections.April = _periodAmount;
+                    break;
+
+                case 5:
+                    accrualProjections.May = _periodAmount;
+                    break;
+
+                case 6:
+                    accrualProjections.June = _periodAmount;
+                    break;
+
+                case 7:
+                    accrualProjections.July = _periodAmount;
+                    break;
+
+                case 8:
+                    accrualProjections.August = _periodAmount;
+                    break;
+
+                case 9:
+                    accrualProjections.September = _periodAmount;
+                    break;
+
+                case 10:
+                    accrualProjections.October = _periodAmount;
+                    break;
+
+                case 11:
+                    accrualProjections.November = _periodAmount;
+                    break;
+
+                case 12:
+                    accrualProjections.December = _periodAmount;
+                    break;
+            }
+        }
+
+        while select averagePeriodRate
+            index hint CumulativeIdFiscalCalendarYearPeriodIdx
+            order by FiscalCalendarYear, FiscalCalendarPeriod
+            where   averagePeriodRate.CumulativeId == this.parmAccountingSetupsRecId()
+                &&  !averagePeriodRate.CostsPosted
+        {
+            startYear    = year(averagePeriodRate.StartDate);
+            lastYear     = year(averagePeriodRate.EndDate);
+            nextDate     = averagePeriodRate.StartDate;
+            sumAmount    = 0;
+            periodAmount = 0;
+
+            accrualProjections.clear();
+            insertAccrualProjections(averagePeriodRate);
+            accrualProjections.FiscalCalendarYearName = averagePeriodRate.FiscalCalendarYearName;
+            accrualProjections.CommissionAccruePeriod = decRound(averagePeriodRate.CommissionAccruePeriod, 2);
+
+            if (lastYear == startYear)
+            {
+                do
+                {
+                    monthOfYear = mthOfYr(nextDate);
+
+                    if (averagePeriodRate.CommissionAmount - sumAmount > decRound(averagePeriodRate.CommissionAccruePeriod, 2))
+                    {
+                        periodAmount = decRound(averagePeriodRate.CommissionAccruePeriod, 2);
+                    }
+                    else
+                    {
+                        periodAmount = averagePeriodRate.CommissionAmount - sumAmount;
+                    }
+
+                    setPeriodAmount(periodAmount, monthOfYear);
+
+                    sumAmount += periodAmount;
+                    nextDate   = nextMth(nextDate);
+                }
+                while (nextDate <= averagePeriodRate.EndDate);
+
+                if (accrualProjections.validateWrite())
+                {
+                    //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - Start
+                    accrualProjections.insert();
+                    //accrualProjectionsList.add(accrualProjections);
+                    //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - End
+                }
+            }
+            else
+            {
+                for (int cntPeriods = 0; cntPeriods <= averagePeriodRate.PeriodsToAccrue; cntPeriods++)
+                {
+                    
+                    monthOfYear = mthOfYr(nextDate);
+
+                    if (averagePeriodRate.CommissionAmount - sumAmount > decRound(averagePeriodRate.CommissionAccruePeriod, 2))
+                    {
+                        periodAmount = decRound(averagePeriodRate.CommissionAccruePeriod, 2);
+                    }
+                    else
+                    {
+                        periodAmount = averagePeriodRate.CommissionAmount - sumAmount;
+                    }
+
+                    setPeriodAmount(periodAmount, monthOfYear);
+
+                    sumAmount += periodAmount;
+                    curYear    = year(nextDate);
+                    nextDate   = nextMth(nextDate);
+
+                    if (curYear != year(nextDate))
+                    {
+                        if (accrualProjections.validateWrite())
+                        {
+                            //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - Start                            
+                            accrualProjections.insert();
+                            //accrualProjectionsList.add(accrualProjections);
+                            //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - End
+                        }
+
+                        accrualProjections.clear();
+                        insertAccrualProjections(averagePeriodRate);
+                        accrualProjections.FiscalCalendarYearName = any2Str(year(nextDate));
+                    }
+                    else
+                    {
+                        if (cntPeriods == averagePeriodRate.PeriodsToAccrue)
+                        {
+                            if (accrualProjections.validateWrite())
+                            {
+                                //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - Start
+                                accrualProjections.insert();
+                                //accrualProjectionsList.add(accrualProjections);
+                                //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - End
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - Start
+        //accrualProjectionsList.insertDatabase();
+        //20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - End
+        Info("@UFINET_AP:RCAR_026");
+    }
+
+    /// <summary>
+    /// Fill <c>UFTAccrualProjectionsTotals</c> table
+    /// </summary>
+    public void fillAccrualProjectionsTotalsTable()
+    {
+        RecordInsertList            accrualProjectionsTotalsList = new RecordInsertList(tableNum(UFTAccrualProjectionsTotals));
+        UFTAccrualProjections       accrualProjections, accrualProjectionsSum;
+        UFTAccrualProjectionsTotals accrualProjectionsTotals;
+
+        while select CumulativeId, CumulativeIdName, FiscalCalendarYearName from accrualProjections
+            group by CumulativeId, CumulativeIdName, FiscalCalendarYearName
+            where   accrualProjections.CumulativeId == this.parmAccountingSetupsRecId()
+        {
+            select sum(January), sum(February), sum(March), sum(April), sum(May), sum(June), sum(July), sum(August), sum(September), sum(October), sum(November), sum(December) from accrualProjectionsSum
+                order by FiscalCalendarYearName
+                where   accrualProjectionsSum.CumulativeId           == accrualProjections.CumulativeId
+                    &&  accrualProjectionsSum.CumulativeIdName       == accrualProjections.CumulativeIdName
+                    &&  accrualProjectionsSum.FiscalCalendarYearName == accrualProjections.FiscalCalendarYearName;
+
+            accrualProjectionsTotals.clear();
+            accrualProjectionsTotals.January                = accrualProjectionsSum.January;
+            accrualProjectionsTotals.February               = accrualProjectionsSum.February;
+            accrualProjectionsTotals.March                  = accrualProjectionsSum.March;
+            accrualProjectionsTotals.April                  = accrualProjectionsSum.April;
+            accrualProjectionsTotals.May                    = accrualProjectionsSum.May;
+            accrualProjectionsTotals.June                   = accrualProjectionsSum.June;
+            accrualProjectionsTotals.July                   = accrualProjectionsSum.July;
+            accrualProjectionsTotals.August                 = accrualProjectionsSum.August;
+            accrualProjectionsTotals.September              = accrualProjectionsSum.September;
+            accrualProjectionsTotals.October                = accrualProjectionsSum.October;
+            accrualProjectionsTotals.November               = accrualProjectionsSum.November;
+            accrualProjectionsTotals.December               = accrualProjectionsSum.December;
+            accrualProjectionsTotals.CumulativeId           = accrualProjections.CumulativeId;
+            accrualProjectionsTotals.CumulativeIdName       = accrualProjections.CumulativeIdName;
+            accrualProjectionsTotals.FiscalCalendarYearName = accrualProjections.FiscalCalendarYearName;
+
+            if (accrualProjectionsTotals.validateWrite())
+            {
+                accrualProjectionsTotalsList.add(accrualProjectionsTotals);
+            }
+        }
+
+        accrualProjectionsTotalsList.insertDatabase();
+    }
+
+    /// <summary>
+    /// <c>UFTAccountingSetupsRecId</c> parameter
+    /// </summary>
+    /// <param name = "_accountingSetups"> RecId to get or set from record </param>
+    /// <returns> <c>UFTAccountingSetupsRecId</c> value </returns>
+    public UFTAccountingSetupsRecId parmAccountingSetupsRecId(UFTAccountingSetupsRecId _accountingSetups = accountingSetups)
+    {
+        if (!prmisdefault(_accountingSetups))
+        {
+            accountingSetups = _accountingSetups;
+        }
+
+        return accountingSetups;
+    }
+
+}

@@ -1,0 +1,326 @@
+ summary
+ 20230214- BSL_WI6832_SubcontractsBalancesFIX - KCL
+ Processes the business logic.
+ summary
+class BSLSubcontractsBalanceFIX extends RunBase
+{
+    Dialog                      dialogRunBase;
+
+    APSub_SubContractIdBase     subContractId;
+    DialogField                 dflSubContractId;
+    APSub_description           subContractDes;
+    DialogField                 dflSubContractDesc;
+    APSub_SCPaymStId            sCPaymStId;
+    DialogField                 dflSCPaymStId;
+    APSub_LineNum               lineNum;
+    DialogField                 dflLineNum;
+
+    #define.CurrentVersion(1)
+    #localMacro.CurrentList
+        subContractId,
+        subContractDes,
+        sCPaymStId,
+        lineNum
+    #endMacro
+
+
+    
+     summary
+     Constructs an instance of cBSLSubcontractsBalanceFIXc class.
+     summary
+     returns
+     Instance of cBSLSubcontractsBalanceFIXc class.
+     returns
+    public static BSLSubcontractsBalanceFIX construct()
+    {
+        return new BSLSubcontractsBalanceFIX();
+    }
+
+     summary
+     Process description
+     summary
+     returnsDescriptionreturns
+    static ClassDescription description()
+    {
+        return @BSLLabelBSLWI6832_01;
+    }
+
+     summary
+     Create an instance of the object and then call the necessary member methods
+     summary
+     param name = _argsArgsparam
+    public static void main(Args _args)
+    {
+        BSLSubcontractsBalanceFIX   subcontractsBalanceFIX  = BSLSubcontractsBalanceFIXconstruct();
+       
+        if (subcontractsBalanceFIX.prompt())
+        { 
+            subcontractsBalanceFIX.run();
+        }
+    }
+
+     summary
+     Returns an object that contains the methods that are described by the cRunBaseDialogablec
+     interface.
+     summary
+     returns
+     An object that contains the methods that are described by the cRunBaseDialogablec interface.
+     returns
+     remarks
+     A dialog box can be either built by using the cDialogc class or by using a class that is
+     created in the Application Object Tree (AOT).
+     remarks
+    Object dialog()
+    {
+        FormBuildStringControl   SubContractIdCtrl;
+
+        dialogRunBase = super();
+
+        dflSubContractId = dialogRunBase.addFieldValue(extendedTypeStr(APSub_SubContractIdBase), subContractId);
+        dflSubContractId.registerOverrideMethod(methodStr(FormStringControl, lookup), 
+                                                methodStr(BSLSubcontractsBalanceFIX, lookupSubContractIdBase),
+                                                this);
+        SubContractIdCtrl = dflSubContractId.fieldControl();
+        SubContractIdCtrl.mandatory(true);        
+        dflSubContractId.registerOverrideMethod(methodStr(FormStringControl , modified), 
+                                                methodStr(BSLSubcontractsBalanceFIX, subContractIdModified), 
+                                                this);        
+
+        dflSubContractDesc = dialogRunBase.addFieldValue(extendedTypeStr(APSub_description), subContractDes);
+        dflSubContractDesc.allowEdit(false);
+
+        dflSCPaymStId = dialogRunBase.addFieldValue(extendedTypeStr(APSub_SCPaymStId), sCPaymStId);
+        dflSCPaymStId.registerOverrideMethod(methodStr(FormStringControl, lookup),
+                                             methodStr(BSLSubcontractsBalanceFIX, lookupSCPaymStId),
+                                             this);
+
+        dflLineNum = dialogRunBase.addFieldValue(extendedTypeStr(APSub_LineNum), lineNum);
+        dflLineNum.registerOverrideMethod(methodStr(FormIntControl, lookup),
+                                          methodStr(BSLSubcontractsBalanceFIX, lookupLineNum),
+                                          this);
+  
+        return dialogRunBase;
+    }
+
+     summary
+     Stores the value entered by users into local variables.
+     summary
+     returns
+     True if the values were stored successfully; otherwise false.
+     returns
+    boolean getFromDialog()
+    {
+        subContractId  = dflSubContractId.value();
+        subContractDes = dflSubContractDesc.value();
+        sCPaymStId     = dflSCPaymStId.value();
+        lineNum        = dflLineNum.value();
+
+        return super();
+    }
+
+    public void new()
+    {
+        super();
+    }
+
+    public container pack()
+    {
+        return [#CurrentVersion,#CurrentList];
+    }
+
+    boolean unpack(container packedClass)
+    {
+        Integer         version = conPeek(packedClass,1);
+
+        switch (version)
+        {
+            case #CurrentVersion
+                [version, #CurrentList] = packedClass;
+                break;
+
+            default
+
+                return false;
+        }
+
+        return true;
+    }
+
+     summary
+     Contains the code that does the actual job of the class.
+     summary
+    public void run()
+    {       
+        try
+        {   
+            ttsbegin;
+                        
+            APSub_SCPaymStatement       paymStatement, paymStatementUpd;
+            APSub_SCPaymStatementLines  paymStatementLines, paymStatementLinesOK;
+            APSub_SCPaymStId            sCPaymStIdOK;
+
+            select firstonly paymStatement
+                where paymStatement.APSub_SubContractId == subContractId
+                && paymStatement.APSub_SCPaymStId == sCPaymStId;
+
+            select firstonly paymStatementLines
+                where paymStatementLines.APSub_SCPaymStatementRefRecId == paymStatement.RecId
+                && paymStatementLines.APSub_LineNum == lineNum;
+
+            if (!paymStatementLines)
+            {
+                throw error(@BSLLabelBSLWI6832_02);
+            }
+            else
+            {
+                sCPaymStIdOK = int2Str(str2Int(sCPaymStId)-1);
+
+                select firstonly paymStatement
+                    where paymStatement.APSub_SubContractId == subContractId
+                    && paymStatement.APSub_SCPaymStId == sCPaymStIdOK;
+
+                if (!paymStatement)
+                {
+                    sCPaymStIdOK = '0' + sCPaymStIdOK;
+
+                    select firstonly paymStatement
+                        where paymStatement.APSub_SubContractId == subContractId
+                        && paymStatement.APSub_SCPaymStId == sCPaymStIdOK;
+                }
+
+                select firstonly paymStatementLinesOK
+                    where paymStatementLinesOK.APSub_SCPaymStatementRefRecId == paymStatement.RecId
+                    && paymStatementLinesOK.APSub_LineNum == lineNum;
+
+                if (paymStatementLinesOK)
+                {
+                    paymStatementLines.selectForUpdate(true);
+                    
+                    if (!paymStatementLines.APSub_AccumAdvPercent)
+                        paymStatementLines.APSub_AccumAdvPercent = paymStatementLinesOK.APSub_AccumAdvPercent;
+
+                    if (!paymStatementLines.APSub_PreviousAdvPercent)
+                        paymStatementLines.APSub_PreviousAdvPercent = paymStatementLinesOK.APSub_PreviousAdvPercent;
+
+                    if (!paymStatementLines.APSub_AccumAdvAmount)
+                        paymStatementLines.APSub_AccumAdvAmount = paymStatementLinesOK.APSub_AccumAdvAmount;
+
+                    if (!paymStatementLines.APSub_PreviousAdvAmount)
+                        paymStatementLines.APSub_PreviousAdvAmount = paymStatementLinesOK.APSub_PreviousAdvAmount;
+                    
+                    //new fields to update
+                    if (!paymStatementLines.APSub_AccumAdvQty)
+                        paymStatementLines.APSub_AccumAdvQty = paymStatementLinesOK.APSub_AccumAdvQty;
+
+                    if (!paymStatementLines.APSub_PreviousAdvQty)
+                        paymStatementLines.APSub_PreviousAdvQty = paymStatementLinesOK.APSub_PreviousAdvQty;
+
+                    paymStatementLines.update();
+
+                    //update totals
+                    select firstonly paymStatementUpd
+                        where paymStatementUpd.APSub_SubContractId == subContractId
+                        && paymStatementUpd.APSub_SCPaymStId == sCPaymStId;
+
+                    if (paymStatementUpd)
+                    {
+                        APSub_SCPaymStatementLines  paymStatementLinesSum;
+
+                        select sum(APSub_AccumAdvAmount), sum(APSub_PreviousAdvAmount) from paymStatementLinesSum
+                            where paymStatementLinesSum.APSub_SCPaymStatementRefRecId == paymStatementUpd.RecId;
+
+                        paymStatementUpd.selectForUpdate(true);
+                        paymStatementUpd.APSub_AccumAdvAmount    = paymStatementLinesSum.APSub_AccumAdvAmount;
+                        paymStatementUpd.APSub_PreviousAdvAmount = paymStatementLinesSum.APSub_PreviousAdvAmount;
+                        paymStatementUpd.update();
+                    }
+
+                    info(strFmt(@BSLLabelBSLWI6832_03, subContractId, sCPaymStId, lineNum));
+                }
+            }
+            info(@BSLLabelBSLDevIV00003);
+            ttscommit;
+        }
+        catch (ExceptionError)
+        {
+            ttsabort;
+        }
+
+    }
+
+     summary
+     Implements a custom lookup for APSub_SubContractIdBase
+     summary
+     param name=_control
+     A cFormStringControlc that will be used for the lookup.
+     param
+    internal void lookupSubContractIdBase(FormStringControl _control)
+    {
+        SysTableLookup  sysTableLookup = SysTableLookupnewParameters(tableNum(APSub_SCPaymStatement), _control);
+        sysTableLookup.addLookupfield(fieldNum(APSub_SCPaymStatement, APSub_SubContractId), true);
+
+        Query query = new Query();
+        QueryBuildDataSource qbds = query.addDataSource(tableNum(APSub_SCPaymStatement));
+        qbds.addGroupByField(fieldnum(APSub_SCPaymStatement, APSub_SubContractId));
+       
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+     summary
+     Implements a custom lookup for APSub_SCPaymStId
+     summary
+     param name=_control
+     A cFormStringControlc that will be used for the lookup.
+     param
+    internal void lookupSCPaymStId(FormStringControl _control)
+    {
+        SysTableLookup  sysTableLookup = SysTableLookupnewParameters(tableNum(APSub_SCPaymStatement), _control);
+        sysTableLookup.addLookupfield(fieldNum(APSub_SCPaymStatement, APSub_SCPaymStId), true);
+
+        Query query = new Query();
+        QueryBuildDataSource qbds = query.addDataSource(tableNum(APSub_SCPaymStatement));
+        qbds.addRange(fieldNum(APSub_SCPaymStatement, APSub_SubContractId)).value(queryValue(dflSubContractId.value()));
+        
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+     summary
+     Implements a custom lookup for APSub_LineNum
+     summary
+     param name=_control
+     A cFormIntControlc that will be used for the lookup.
+     param
+    internal void lookupLineNum(FormIntControl _control)
+    {
+        APSub_SCPaymStatement   paymStatement;
+
+        select RecId from paymStatement
+            where paymStatement.APSub_SubContractId == dflSubContractId.value()
+            && paymStatement.APSub_SCPaymStId == dflSCPaymStId.value();
+
+        SysTableLookup  sysTableLookup = SysTableLookupnewParameters(tableNum(APSub_SCPaymStatementLines), _control);
+        sysTableLookup.addLookupfield(fieldNum(APSub_SCPaymStatementLines, APSub_LineNum), true);
+
+        Query query = new Query();
+        QueryBuildDataSource qbds = query.addDataSource(tableNum(APSub_SCPaymStatementLines));
+        qbds.addRange(fieldNum(APSub_SCPaymStatementLines, APSub_SCPaymStatementRefRecId)).value(queryValue(paymStatement.RecId));
+        
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+    public boolean subContractIdModified(FormStringControl _control)
+    {
+        boolean ret = _control.modified();
+
+        if (ret)
+        {
+            dflSubContractDesc.value(APSub_Subcontractsfind(dflSubContractId.value()).APSub_Description);
+        }
+
+        return ret;
+    }
+
+}

@@ -1,0 +1,430 @@
+JSON:
+
+{
+    "contract": {
+        "Empresa": "3164f5ee-de98-ec11-b400-000d3ab01099",
+        "Encabezado": {
+            "NumTransferencia": "OT-000100",
+        }
+    }
+}
+___________________________________________
+
+final class UFTCancelFiscalNoteSenderIntegration
+{
+    UFTCompanyMapping                           companyMapping;
+
+
+    
+
+
+    [AifCollectionTypeAttribute('_request', Types::Class, classStr(UFTCancelNoteTransferOrdeContract)),
+     AifCollectionTypeAttribute('return', Types::Class, classStr(UFTTransferOrderResponseServiceContract))]
+    public List CancelFiscalNoteProcess(UFTCancelNoteTransferOrdeContract  contract)
+    {
+        List                                        response = new List(Types::Class) ;
+        CompanyInfo                                 companyInfo;
+        ListEnumerator                              keysEnumerator,responseEnumerator;
+        System.Exception                            generalEx;
+        SysInfoLogEnumerator                        infoLogEnum;
+        SysInfologMessageStruct                     infoMessageStruct;
+        str                                         infoerror;
+        UFTTransferOrderResponseServiceContract     responseContract;
+        List                                        custTableList;
+        str                                         responseStr;
+        int                                         counterLine = 0;
+        boolean                                     ret;
+        InventTransferTable                         transferTable;
+        UFTCompanyMapping                           companyMap;
+        
+
+        ListEnumerator                              keysEnumLine;
+
+
+        if(contract)
+        {
+               
+            companyMap = UFTCompanyMapping::findByExternalCompany(contract.parmIdSociedadFO());
+            companyInfo = companyInfo::findDataArea(companyMap.LegalEntityD365);
+
+            if(companyInfo)
+            {
+                changecompany(companyInfo.DataArea)
+                {
+
+                    try
+                    {
+                       
+                        transferTable = UFTProcessCancelFiscalNoteIntegration::processTransferOrderCreate(contract);
+
+
+                        if(transferTable.RecId)
+                        {
+                            responseContract = new UFTTransferOrderResponseServiceContract();
+                            responseContract.parmIdMessage(1);
+                            responseContract.parmMessage(strFmt("@UFINET_AP_BR:UFT8091IGN014", transferTable.UFTDocumentPhoenix, transferTable.TransferId));
+                            responseContract.parmStatusMessage(strFmt("true"));
+                            responseContract.parmTransferOrder(transferTable.TransferId);
+                            response.addEnd(responseContract);
+
+                            UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Processed,UFTIntegrationType::CancelFiscalNote,strFmt("@UFINET_AP_BR:UFT8091IGN014", transferTable.UFTDocumentPhoenix, transferTable.TransferId));
+                        }
+
+                    }
+                    catch (generalEx)
+                    {
+                        infoLogEnum = SysInfoLogEnumerator::newData(infolog.infologData());
+                        while(infoLogEnum.moveNext())
+                        {
+                            counterLine++;
+
+                            infoMessageStruct = SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                            infoerror += infoMessageStruct.message() + ' ';
+                        }
+                            responseContract = new UFTTransferOrderResponseServiceContract();
+                            responseContract.parmIdMessage(counterLine);
+                            responseContract.parmStatusMessage("false");
+                            responseContract.parmMessage(strFmt('@UFINET_AP_BR:UFT8091IGN013',contract.parmHeader().parmTransferId(),infoerror));
+                            responseContract.parmTransferOrder(transferTable.TransferId);
+                            response.addEnd(responseContract);
+
+                                
+
+                        UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::CancelFiscalNote,strFmt('@UFINET_AP_BR:UFT8091IGN013',contract.parmHeader().parmTransferId(),infoerror));
+
+                        
+                        ttsabort;
+                    }
+                }
+
+            }
+            
+            else
+            {
+                responseContract = new UFTTransferOrderResponseServiceContract();
+                responseContract.parmIdMessage(counterLine+1);
+                responseContract.parmStatusMessage("false");
+                responseContract.parmMessage(strFmt("@UFINET_AP_BR:UFT8091IGN004",contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId()));
+                response.addEnd(responseContract);
+
+
+                UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::CancelFiscalNote,strFmt(strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId())));
+            }
+            
+        }
+
+
+        return response;
+    }
+
+    public boolean validateCompany(UFTCancelNoteTransferOrdeContract contract)
+    {
+        boolean ret;
+
+        companyMapping = UFTCompanyMapping::findByExternalCompany(contract.parmIdSociedadFO());
+
+        if(companyMapping.RecId)
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId()));
+        }
+          
+        return ret;
+    }
+
+}
+
+____________________________________________________________
+
+
+final class UFTProcessCancelFiscalNoteIntegration
+{
+    UFTCompanyMapping                           companyMapping;
+    InventTransferTable                         inventTransferOrder;
+    UFTCancelNoteTransferOrdeContract           parmContract;
+    UFTReceiveTransferOrderHeaderContract       headerContract;
+    InventTransferTable                         inventTransferTable;
+    InventTransferParmTable                     inventTransferParmTable;
+    InventTransferUpdShip                       inventTransferUpdShip;
+    FiscalDocumentSourceText_BR                 fiscalDocumentSourceText;
+    InventTransferJour                          trasnferJour;
+    InventTransferParmTable                     invTransParmTable;
+    FiscalDocument_BR                           fiscalDocument_BR;
+    InventTransferCancelReturn_BR               inventTransferCancelReturn;
+    RecId                                       inventTransferRecId;
+    ReasonTableRefRecId                         reasonTableRef;
+    #define.ReasonCode('999')
+    
+
+
+    /// <summary>
+    /// Process TransferOrder
+    /// </summary>
+    /// <param name = ""></param>
+    public static InventTransferTable processTransferOrderCreate(UFTCancelNoteTransferOrdeContract contract)
+    {
+        InventTransferTable                             transferOrder;
+        UFTProcessCancelFiscalNoteIntegration           integration = new UFTProcessCancelFiscalNoteIntegration();
+
+        if(integration.initFromArgs(contract))
+        {
+            transferOrder = integration.run();
+        }
+
+        return transferOrder;
+    }
+
+    /// <summary>
+    /// Init from  args
+    /// </summary>
+    public boolean initFromArgs(UFTCancelNoteTransferOrdeContract contract)
+    {
+        boolean                 ret = false;
+        parmContract            = contract;
+        headerContract          = contract.parmHeader();
+
+        inventTransferTable =  InventTransferTable::find(headerContract.parmTransferId());
+
+
+        if(inventTransferTable.RecId)
+        {
+            ret = true;
+        }
+
+
+        return ret;
+
+    }
+
+    /// <summary>
+    ///  canCancelFiscalDocument
+    /// </summary>
+    /// <param name = ""></param>
+    public boolean checkReasonToCancel()
+    {
+        if (!reasonTableRef)
+        {
+            return checkFailed(strFmt("@SYS26332"));
+        }
+        else if (strLen(ReasonTableRef::find(reasonTableRef).ReasonComment) < 15)
+        {
+            return checkFailed("@SYS4002144");
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    ///  canCancelFiscalDocument
+    /// </summary>
+    /// <param name = ""></param>
+    public boolean canCancelFiscalDocument(FiscalDocument_BR _fiscalDocument)
+    {
+        FiscalDocument_BR receiveFiscalDocument;
+        FiscalReferenceParm_BR returnedFiscalReferenceParm;
+        boolean canCancelFiscalDocument = true;
+
+        canCancelFiscalDocument = this.checkReasonToCancel();
+
+        if (trasnferJour.UpdateType == InventTransferUpdateType::Receive)
+        {
+            select RecId from returnedFiscalReferenceParm
+                    where returnedFiscalReferenceParm.RefRecID == _fiscalDocument.RecId
+                        && returnedFiscalReferenceParm.RefTableId == _fiscalDocument.TableId;
+
+            if (returnedFiscalReferenceParm.RecId)
+            {
+                canCancelFiscalDocument = checkFailed("@GLS222855");
+            }
+        }
+        else
+        {
+            select RecId from receiveFiscalDocument
+                where receiveFiscalDocument.FiscalDocumentNumber        == _fiscalDocument.FiscalDocumentNumber
+                    && receiveFiscalDocument.FiscalDocumentSeries       == _fiscalDocument.FiscalDocumentSeries
+                    && receiveFiscalDocument.FiscalDocumentDate         == _fiscalDocument.FiscalDocumentDate
+                    && receiveFiscalDocument.ThirdPartyCNPJCPF          == _fiscalDocument.FiscalEstablishmentCNPJCPF
+                    && receiveFiscalDocument.FiscalDocumentAccountType  == CustVendType_BR::FiscalEstablishment
+                    && receiveFiscalDocument.FiscalDocumentIssuer       == FiscalDocumentIssuer_BR::ThirdParty
+                    && receiveFiscalDocument.Status                     == FiscalDocumentStatus_BR::Approved;
+
+            if (receiveFiscalDocument.RecId)
+            {
+                canCancelFiscalDocument = checkFailed("@GLS222856");
+            }
+        }
+
+        return canCancelFiscalDocument;
+    }
+
+    /// <summary>
+    ///  checkThirdPartyReceivedOrderRejected
+    /// </summary>
+    /// <param name = ""></param>
+    public boolean checkThirdPartyReceivedOrderRejected(FiscalDocument_BR _fiscalDocument)
+    {
+        boolean ret;
+        InventTransferTable inventTransferTableLocal = inventTransferOrder;
+        const container RejectedStatuses = [FiscalDocumentStatus_BR::Rejected, FiscalDocumentStatus_BR::RejectedNoFix];
+
+        if (_fiscalDocument.FiscalDocumentIssuer == FiscalDocumentIssuer_BR::OwnEstablishment
+            && _fiscalDocument.Direction == FiscalDocDirection_BR::Outgoing
+            && conFind(RejectedStatuses, _fiscalDocument.Status)
+            && inventTransferTableLocal.TransferStatus == InventTransferStatus::Received
+            && inventTransferTableLocal.inventTransferTableFiscalInfo_BR().InventTransferOrderType == InventTransferOrderType_BR::ThirdPartyTransfer)
+        {
+            inventTransferCancelReturn = InventTransferCancelReturn_BR::FiscalEstablishmentReturn;
+            ret = true;
+        }
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Cancel Fiscal Note
+    /// </summary>
+    /// <param name = ""></param>
+    public void cancelFiscalNote()
+    {
+        ReasonTable             reasonTable = ReasonTable::find(#ReasonCode);
+        ReasonTableRef          reasonTableRefCreate;
+        inventTransferCancelReturn = InventTransferCancelReturn_BR::Cancel;
+
+        if(reasonTable.RecId)
+        {
+            reasonTableRefCreate.Reason = #ReasonCode;
+            reasonTableRefCreate.ReasonComment = reasonTable.Description;
+            if (reasonTableRefCreate.validateNotEmpty())
+            {
+                ttsbegin;
+                reasonTableRefCreate.write();
+                ttscommit;
+            }
+
+            reasonTableRef = reasonTableRefCreate.RecId;
+        }
+
+
+        select firstonly fiscalDocument_BR
+            join trasnferJour
+            where fiscalDocument_BR.RefTableId == trasnferJour.TableId  &&
+                    fiscalDocument_BR.RefRecId  == trasnferJour.RecId &&
+                    (fiscalDocument_BR.Status != FiscalDocumentStatus_BR::Cancelled ||
+                     fiscalDocument_BR.Status != FiscalDocumentStatus_BR::Discarded) &&
+            trasnferJour.TransferId == inventTransferTable.TransferId;
+                   
+        if(fiscalDocument_BR.RecId)
+        {
+            InventTransferOrderCopying_BR    inventTransferOrderCopying;
+            boolean existsThirdPartyReceivedOrderRejected = this.checkThirdPartyReceivedOrderRejected(fiscalDocument_BR);
+
+            if (inventTransferCancelReturn == InventTransferCancelReturn_BR::Cancel)
+            {
+                if (!this.canCancelFiscalDocument(fiscalDocument_BR))
+                {
+                    throw Exception::Error;
+                }
+                //20230712 - UFT_8091_CCIGIN_002_INT_FILIAL - KCL - Start
+                if (fiscalDocument_BR.Status == FiscalDocumentStatus_BR::Approved || fiscalDocument_BR.Status == FiscalDocumentStatus_BR::Created)
+                {
+                    EFDocUserInterfaceUtil_BR::constructFromFiscalDocument(fiscalDocument_BR);
+                    inventTransferOrderCopying = InventTransferOrderCopying_BR::newCancelInventTransferJour(trasnferJour, reasonTableRef);
+                    inventTransferRecId = inventTransferOrderCopying.run();
+                } 
+               
+                if (fiscalDocument_BR.Status == FiscalDocumentStatus_BR::Created)
+                {
+                    FiscalDocument_BR   fiscalDocument = FiscalDocument_BR::find(fiscalDocument_BR.RecId, true);
+
+                    fiscalDocument.Status = FiscalDocumentStatus_BR::Discarded;
+                    fiscalDocument.update();
+                }
+                //20230712 - UFT_8091_CCIGIN_002_INT_FILIAL - KCL - End
+            }
+        }
+
+        else
+
+            throw error(strFmt(""));
+        
+        
+    }
+
+    public InventTransferTable  run()
+    {
+
+        try
+        {
+
+            if(inventTransferTable.RecId)
+            {
+                ttsbegin;
+                this.cancelFiscalNote();
+                ttscommit;
+            }
+
+            else
+                throw error(strFmt(""));
+        }
+
+        catch(Exception::Error)
+        {
+            ttsabort;
+            throw error(strFmt(""));
+        }
+
+        return    inventTransferTable;
+
+    }
+
+}
+
+____________________________________
+
+[DataContractAttribute]
+class UFTCancelNoteTransferOrderHeaderContract
+{
+    str                 trasnferOrder;
+
+    /// [UFTReceiveTransferOrderHeaderContract]
+    /// </summary>
+    /// <param name="TransferId"></param>
+    [DataMemberAttribute('NumTransferencia')]
+    public Str parmTransferId(Str _trasnferOrder   = trasnferOrder)
+    {
+        trasnferOrder = _trasnferOrder;
+        return trasnferOrder;
+    }
+
+}
+
+__________________________________________
+
+[DataContractAttribute]
+class UFTCancelNoteTransferOrdeContract
+{
+    UFTAccountIdCRM                                 accountCRM;
+    str                                             companyId;
+    UFTReceiveTransferOrderHeaderContract           transferOrderHeaderList;
+
+   
+    /// </summary>
+    /// <param name="companyId"></param>
+    [DataMemberAttribute('Empresa')]
+    public str parmIdSociedadFO(str _accountCRM = accountCRM)
+    {
+        accountCRM = _accountCRM;
+        return accountCRM;
+    }
+
+    [DataMemberAttribute('Encabezado'),
+    AifCollectionType("transferOrderheaderList", Types::Class, classStr(UFTReceiveTransferOrderHeaderContract)),
+    AifCollectionType("return", Types::Class, classStr(UFTReceiveTransferOrderHeaderContract))]
+    public UFTReceiveTransferOrderHeaderContract parmHeader(UFTReceiveTransferOrderHeaderContract _transferOrderHeaderList = transferOrderHeaderList)
+    {
+        transferOrderHeaderList = _transferOrderHeaderList;
+        return transferOrderHeaderList;
+    }
+
+}
+
+_____________________________________________

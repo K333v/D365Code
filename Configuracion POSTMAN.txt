@@ -1,0 +1,20 @@
+Datos a necesitar por parte del cliente de su Azure: client_id, client_secret y Tenant Id
+
+GET TOKEN (tipo post)
+https://login.microsoftonline.com/(tenant ID)/oauth2/v2.0/token
+
+Luego en el body pones los parámetros: client_id, client_secret, grant_type, scope
+94374357-39c7-4f6c-98a0-f1dcb9c17ee9, tqy7Q-mG2RT1nUcpC82glldJ._vMMtcnX8Q4j, client_credentials, https://devcore-d-10c0678b5d7a2a22cfdevaos.axcloud.dynamics.com/.default
+
+Después en el mismo get Token pero en la pestaña Tests se pone lo sgte:
+var jsonData = JSON.parse(responseBody);
+postman.setEnvironmentVariable("access_token", jsonData.access_token);
+
+LUEGO creamos un request que llamará a nuestro servicio (tipo post)
+y agregammos los siguientes parametros en el header: Authorization = Bearer {{access_token}} , Content-Type = application/json
+
+POST: https://devcore-d-10c0678b5d7a2a22cfdevaos.axcloud.dynamics.com/api/services/UFTVendorIntegrationGroupService/UFTVendorIntegrationService/createVendor
+
+NOTA: fijarse en la URL del ambiente en el que estoy parado en el postman y los datos otorgados por el cliente. Además se debe configurar el Cliente ID en el Dynamics 365 
+en el form Aplicaciones de Azure Active Directory
+

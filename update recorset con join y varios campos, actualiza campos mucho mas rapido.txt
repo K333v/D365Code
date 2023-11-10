@@ -1,0 +1,12 @@
+ VendInvoiceInfoLine_W vendInvoiceInfoLine_Wupd;
+                        
+                        vendInvoiceInfoLine = null;
+                        // Update CFOP vendor invoice lines from POs.
+                        update_recordset vendInvoiceInfoLine_Wupd
+                        setting CFOPTable_BR = purchLineLocal.CFOPTable_BR,
+                            TaxServiceCode_BR = purchLineLocal.TaxServiceCode_BR
+                        join vendInvoiceInfoLine
+                            where vendInvoiceInfoLine_Wupd.VendInvoiceInfoLine == vendInvoiceInfoLine.RecId
+                        join purchLineLocal
+                            where purchLineLocal.RecId == vendInvoiceInfoLine.PurchLineRecId
+                            && purchLineLocal.PurchId == purchId;

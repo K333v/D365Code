@@ -1,0 +1,17 @@
+class PurchInvoiceMatchingDetails
+{
+        static void main(Args _args)
+    {
+        Form vendInvoiceMatchingDetails;
+        FormRun formRun;
+
+        vendInvoiceMatchingDetails = new Form(formStr(VendInvoiceMatchingDetails));
+        _args.object(vendInvoiceMatchingDetails);
+
+        formRun = classfactory.formRunClass(_args);
+        formRun.init();
+        formRun.run();
+        formRun.wait();
+    }
+
+}

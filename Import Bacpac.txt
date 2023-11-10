@@ -1,0 +1,4 @@
+﻿
+
+SqlPackage.exe /a:import /sf:J:\MSSQL_BACKUP\eiax-pfin.bacpac /tsn:localhost /tdn:eiax-pfin /p:CommandTimeout=3600
+

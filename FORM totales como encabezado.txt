@@ -1,0 +1,141 @@
+Campos totales que apuntan a metodos display, el RemainAmount es el Resto que se va actualizando cada que se ingresa un valor en el monto o cuando se elimina un registro
+
+[Form]
+public class UFTVendEditInvoiceLineDistribution extends FormRun
+{
+    VendInvoiceInfoLine                     callerInvoiceLine;
+
+    UFTVendEditInvoiceLineDistributionForm  invoiceLineDistributionForm;
+    FormDataSource                          callerDataSource;
+
+    LineAmount                              sumAmount, remainAmount;
+
+    /// <summary>
+    /// Initializes the form by populating the Distribution for the invoice line.
+    /// </summary>
+    void init()
+    {
+        super();
+
+        if (!element.args().dataset())
+        {
+            throw error(strFmt("@SYS22678", element.name()));
+        }
+
+        callerInvoiceLine = element.args().record();
+        callerDataSource  = FormDataUtil::getFormDataSource(element.args().record());
+
+        invoiceLineDistributionForm = UFTVendEditInvoiceLineDistributionForm::newFromVendInvoiceInfoLine(callerInvoiceLine);
+        remainAmount = element.displayLineAmount(); 
+
+        OKButton.enabled(false);
+    }
+
+    /// <summary>
+    /// Display Original Net amount
+    /// </summary>
+    /// <returns>LineAmount</returns>
+    public display LineAmount displayLineAmount()
+    {
+        return abs(callerInvoiceLine.LineAmount);
+    }
+
+    /// <summary>
+    /// Display Debt amount
+    /// </summary>
+    /// <returns>LineAmount</returns>
+    public display LineAmount displayRemainAmount()
+    {
+        return remainAmount;
+    }
+
+    /// <summary>
+    /// Update debt amount
+    /// </summary>
+    /// <param name = "_amount">LineAmount</param>
+    void updateRemainAmount(LineAmount  _amount)
+    {        
+        //UFTVendEditInvoiceLineDistributionTmp.reread();
+        
+        sumAmount    += _amount;
+        remainAmount = element.displayLineAmount() - sumAmount;
+       
+        //Refresh the field that displays debt amount
+        TotalRemain.update();
+    }
+
+    [DataSource]
+    class UFTVendEditInvoiceLineDistributionTmp
+    {
+        /// <summary>
+        /// Initializes values
+        /// </summary>
+        public void initValue()
+        {
+            super();
+
+            UFTVendEditInvoiceLineDistributionTmp.OrigPurchId = callerInvoiceLine.OrigPurchId;
+            UFTVendEditInvoiceLineDistributionTmp.VendInvoiceRefRecId = callerInvoiceLine.RecId;
+        }
+
+        /// <summary>
+        /// When deleting a record, updates debt amount
+        /// </summary>
+        public void delete()
+        {
+            element.updateRemainAmount(-UFTVendEditInvoiceLineDistributionTmp.LineAmount);
+            super();
+        }
+
+        /// <summary>
+        /// enable or disable OkButton
+        /// </summary>
+        /// <returns>Integer</returns>
+        public int active()
+        {
+            int ret;
+        
+            ret = super();
+
+            //element.displayRemainAmount();
+
+            if (remainAmount == 0)
+                OKButton.enabled(true);
+            else
+                OKButton.enabled(false);
+
+            return ret;
+        }
+
+        [DataField]
+        class LineAmount 
+        {
+            /// <summary>
+            /// Updates debt amount when LineAmount field is modified
+            /// </summary>
+            public void modified()
+            {
+                element.updateRemainAmount(UFTVendEditInvoiceLineDistributionTmp.LineAmount);
+                super();
+            }
+
+        }
+
+    }
+
+    [Control("CommandButton")]
+    class OKButton
+    {
+        /// <summary>
+        /// The ok button was clicked to create new records in VendInvoiceInfoLine table and close the form.
+        /// </summary>
+        public void clicked()
+        {
+            invoiceLineDistributionForm.populateDistributionRows(UFTVendEditInvoiceLineDistributionTmp);
+            callerDataSource.research();
+            super();
+        }
+
+    }
+
+}

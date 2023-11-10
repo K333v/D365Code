@@ -1,0 +1,45 @@
+final class TestJob
+{
+    /// <summary>
+    /// Class entry point. The system will call this method when a designated menu 
+    /// is selected or when execution starts and this class is set as the startup class.
+    /// </summary>
+    /// <param name = "_args">The specified arguments.</param>
+    public static void main(Args _args)
+    {
+        str sequenceNum = "SUB-0000125";
+        
+        str contant = strKeep(sequenceNum, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    }
+
+}
+________________________
+
+/// <summary>
+    /// Valid constants between InternalHES and EINumberSequenceCode format fields values
+    /// </summary>
+    /// <param name = "_internalHES">Internal HES</param>
+    /// <returns>True or false</returns>
+    public boolean validProcess(str  _internalHES)
+    {
+        AP_ConciliationDTERules     conciliationRules;
+        NumberSequenceTable         sequenceTable;
+        boolean                     validConstant;
+	#define.HES('HES')
+	#define.Alphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+
+        select firstonly conciliationRules
+            where conciliationRules.ReferenceTypeId == #HES
+            && conciliationRules.AP_ReconcileBusinessProcess == AP_ReconcileBusinessProcess::SubcontractEP
+            && conciliationRules.IsMandatoryInERP;
+
+        sequenceTable = NumberSequenceTable::findByNaturalKey(conciliationRules.EINumberSequenceCode);
+
+        str contantSeq  = strKeep(sequenceTable.Format, #Alphabet);
+        str constantHes = strKeep(_internalHES, #Alphabet);
+
+        if (contantSeq == constantHes)
+            validConstant = true;
+
+        return validConstant;
+    }

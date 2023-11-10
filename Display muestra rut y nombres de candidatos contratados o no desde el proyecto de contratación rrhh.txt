@@ -1,0 +1,188 @@
+public class APPSPMEntryCardTable extends common
+{
+    
+    public void modifiedField(FieldId _fieldId)
+    {
+        HcmPosition     position = HcmPosition::findByPosition(this.PositionId);        
+
+        super(_fieldId);
+
+        switch(_fieldId)
+        {
+            case fieldNum(APPSPMEntryCardTable, LedgerDimensionRequested):
+                this.LedgerDimensionApproved = this.LedgerDimensionRequested;
+                break;
+
+            case fieldNum(APPSPMEntryCardTable, PositionId):
+                this.ContractType = HcmPositionType::find(HcmPositionDetail::findByPosition(position.RecId).PositionType).TypeId;                
+                break;
+
+            case fieldNum(APPSPMEntryCardTable, StartDateApproved): 
+                this.Months = this.calculateMonths(this.StartDateApproved, this.EndDateApproved);                
+                break;
+
+            case fieldNum(APPSPMEntryCardTable, EndDateApproved):                
+                this.Months = this.calculateMonths(this.StartDateApproved, this.EndDateApproved);
+                break;    
+       
+            case fieldNum(APPSPMEntryCardTable, WeeklyShiftRequested):
+                this.WeeklyShiftApproved = this.WeeklyShiftRequested;
+                break;
+
+            case fieldNum(APPSPMEntryCardTable, StartDateRequested):
+                this.StartDateApproved = this.StartDateRequested;
+                this.Months = this.calculateMonths(this.StartDateApproved, this.EndDateApproved);
+                break;
+
+            case fieldNum(APPSPMEntryCardTable, EndDateRequested):
+                this.EndDateApproved = this.EndDateRequested;
+                this.Months = this.calculateMonths(this.StartDateApproved, this.EndDateApproved);
+                break;
+
+            case fieldNum(APPSPMEntryCardTable, LegalQualityRequested):
+                this.LegalQualityApproved = this.LegalQualityRequested;
+                break;
+
+            case fieldNum(APPSPMEntryCardTable, EstateRequested):
+                this.EstateApproved = this.EstateRequested;
+                break;
+
+            case fieldNum(APPSPMEntryCardTable, RefPointIdRequested):
+                this.RefPointIdApproved = this.RefPointIdRequested;
+                break;
+
+        }
+    }
+
+    public real calculateMonths(TransDate _startDate, TransDate _endDate)
+    {
+        int         dayMth, lastDayMth, endDayMth, endLastDayMth;
+        real        ret;
+        str         retStr;
+
+        dayMth      = dayOfMth(_startDate);
+        lastDayMth  = dayOfMth(endmth(_startDate));
+        endDayMth      = dayOfMth(_endDate);
+        endLastDayMth  = dayOfMth(endmth(_endDate));
+
+        if (dayMth == dayOfMth(dateStartMth(_startDate)))
+        {
+            ret = 1;
+        }
+        else
+        {
+            //20230529 - WI20025_Bug3232 - KCL - Start
+            ret = (lastDayMth - dayMth) + 1;
+            ret = ret / lastDayMth;
+            //ret = 30/lastDayMth; //ret = dayMth/lastDayMth;
+            //20230529 - WI20025_Bug3232 - KCL - End
+        }
+
+        if(endDayMth != dayOfMth(endmth(_endDate)))
+        {
+            ret += endDayMth/endLastDayMth;
+            ret = ret -1;                       
+        }
+
+        ret = roundDown(ret, 0.01);
+
+        ret = ret + intvNo(_endDate,_startDate,intvScale::YearMonth);
+
+        return ret;
+    }
+
+    display HcmPersonnelNumberId showRecruitingId()
+    {
+        HRMApplication  hrmApplication;
+
+        select hrmApplication
+            where hrmApplication.hrmRecruitingId == this.RecruitingId
+            && hrmApplication.status == HRMApplicationStatus::Employed;
+
+        //20230609 - WI19951_Bug3211 - KCL - Start
+        if (hrmApplication)
+        {
+            //19951 - <start>
+            return HcmWorker::findByPerson(HcmApplicant::find(hrmApplication.Applicant).Person).PersonnelNumber;
+            //19951 - <end>
+        }
+        else
+        {
+            select hrmApplication
+                where hrmApplication.hrmRecruitingId == this.RecruitingId
+                && hrmApplication.status != HRMApplicationStatus::Employed;
+
+            return HcmApplicant::find(hrmApplication.Applicant).ApplicantId;
+        }
+        //20230609 - WI19951_Bug3211 - KCL - End
+    }
+
+    display Name showName()
+    {
+        HRMApplication  hrmApplication;
+
+        select hrmApplication
+            where hrmApplication.hrmRecruitingId == this.RecruitingId
+            && hrmApplication.status == HRMApplicationStatus::Employed;
+
+        //20230609 - WI19951_Bug3211 - KCL - Start
+        if (hrmApplication)
+        {
+            //19951 - <start>
+            return HcmWorker::findByPerson(HcmApplicant::find(hrmApplication.Applicant).Person).name();
+            //19951 - <end>
+        }
+        else
+        {
+            select hrmApplication
+                where hrmApplication.hrmRecruitingId == this.RecruitingId
+                && hrmApplication.status != HRMApplicationStatus::Employed;
+
+            return HcmApplicant::find(hrmApplication.Applicant).name();
+        }
+        //20230609 - WI19951_Bug3211 - KCL - End
+    }
+
+    public boolean validateWrite()
+    {
+        boolean ret = super();
+
+        if (this.StartDateRequested > this.EndDateRequested)
+        {
+            ret = ret && checkFailed("@APPSPM:ValidateStartDate");
+        }
+
+        if (this.EndDateRequested < this.StartDateRequested)
+        {
+            ret = ret && checkFailed("@APPSPM:ValidateEndDate");
+        }
+
+        if (this.StartDateApproved > this.EndDateApproved)
+        {
+            ret = ret && checkFailed("@APPSPM:ValidateStartDate");
+        }
+
+        if (this.EndDateApproved < this.StartDateApproved)
+        {
+            ret = ret && checkFailed("@APPSPM:ValidateEndDate");
+        }
+    
+        return ret;
+    }
+
+    static APPSPMEntryCardTable findCaseRecId(recId _recId, boolean _forUpdate = false)
+    {
+        APPSPMEntryCardTable  entryCardTable;
+
+        if (_recId)
+        {
+            entryCardTable.selectForUpdate(_forUpdate);
+
+            select firstonly entryCardTable
+                where entryCardTable.CaseRecId == _recId;
+        }
+
+        return entryCardTable;
+    }
+
+}

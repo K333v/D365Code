@@ -1,0 +1,251 @@
+internal class AP_Barcode
+{
+   readonly System.String  _tedElement;
+   readonly System.String  _uriTemp;
+
+    public static AP_Barcode contruct(str ted,str uri)
+    {
+        return  new AP_Barcode(ted,uri);
+    }
+
+    private void new(str ted,str uri)
+    {
+        _tedElement = ted;
+        _uriTemp = uri;
+    }
+
+    public iTextSharp.text.Image CrearTimbre417()
+    {
+        System.Text.Encoding enc_iso  = System.Text.Encoding::GetEncoding("ISO-8859-1");
+        System.Text.Encoding enc_utf8 = System.Text.Encoding::UTF8;
+
+        var cleanTed = _tedElement.Replace("\t", System.String::Empty)
+            .Replace("\r\n", System.String::Empty)
+            .Replace("\n", System.String::Empty);
+
+        iTextSharp.text.pdf.BarcodePDF417 barcode417 = 
+            new iTextSharp.text.pdf.BarcodePDF417();
+     
+        barcode417.Options = 32;
+        barcode417.CodeColumns = 18;
+        barcode417.CodeRows = 5;
+        barcode417.LenCodewords = 999;
+        barcode417.ErrorLevel = 5;
+       
+        barcode417.SetText(enc_iso.GetString(enc_utf8.GetBytes(_tedElement)));
+
+        iTextSharp.text.Image Imgbarcode417 = barcode417.GetImage();
+      
+        return Imgbarcode417;
+
+
+    }
+
+}
+_________________________________________
+
+class AP_BasePDF
+{
+     iTextSharp.text.Rectangle ps =  
+         iTextSharp.text.PageSize::GetRectangle("A4");
+
+     iTextSharp.text.Document           document; 
+     iTextSharp.text.pdf.PdfReader      reader;
+     iTextSharp.text.pdf.PdfWriter      writer;
+     iTextSharp.text.pdf.PdfContentByte cb;
+    System.IO.MemoryStream              ms;
+
+    AP_TipoDTE dteType;
+    public AP_ReceivedDTEXmlDocument_CL     propertiesPDF;
+
+    public void GenerarTimbre(str ted,int x, int y)
+    {
+        AP_Barcode barcode = AP_Barcode::contruct(ted,'');
+       
+        iTextSharp.text.Image pdf417 = barcode.CrearTimbre417();
+
+        pdf417.SetAbsolutePosition(x, y);
+        //pdf417.ScalePercent(60, 150);
+        pdf417.ScaleAbsolute(184,72);
+        document.Add(pdf417);
+
+    }
+
+    internal void initDocument()
+    {
+        ms = new System.IO.MemoryStream();
+        document =  new iTextSharp.text.Document(reader.GetPageSize(1));
+
+        writer = iTextSharp.text.pdf.PdfWriter::GetInstance(document, ms);
+        
+        // Add meta information to the document
+        document.AddAuthor("AlfaPeople");
+        document.AddCreator("Documento Generado por D365");
+        document.AddKeywords("DTE");
+        document.AddTitle("Documentro Tributario electrónico");
+
+        document.Open();
+
+        cb = writer.DirectContent;
+        iTextSharp.text.pdf.PdfImportedPage page 
+            = writer.GetImportedPage(reader, 1);
+        cb.AddTemplate(page, 0.0, 0.0);
+
+        //enable Write DTE in PDF.
+        cb.BeginText();
+    }
+
+    public void WriteindDocument(str text, int x, int y,  iTextSharp.text.pdf.BaseFont font, int size, AP_AlignPDF align, iTextSharp.text.BaseColor color)
+    {
+       cb.SetFontAndSize(font, Size);
+       cb.SetColorFill(color);
+       System.Int32 _align = enum2int(align);
+       cb.ShowTextAligned(_align, text, x, y, 0);
+    }
+
+    public System.IO.MemoryStream endDocument()
+    {
+        System.IO.MemoryStream retVal;
+
+        //Finalizar y Retornar
+        cb.EndText();
+        System.Byte[] bb = cb.ToPdf(writer);
+        document.Close();
+        writer.Close();
+        ms.Close();
+
+        retVal = new System.IO.MemoryStream(ms.GetBuffer());
+      
+        return retVal;
+        
+    }
+
+    internal void BuscarTemplate()
+    {
+        System.IO.Stream templatePDF;
+
+        var dbtemplate = AP_SettingPDF::findByTipoDTE(dteType).TemplatePdf;
+        
+        if(dbtemplate)
+        {
+            Binary bt = Binary::constructFromContainer(dbtemplate);
+            templatePDF = bt.getMemoryStream();
+            reader  = new iTextSharp.text.pdf.PdfReader(templatePDF);
+        }
+    }
+
+    internal void BuscarProperties()
+    {
+        var dbproperties = AP_SettingPDF::findByTipoDTE(dteType).PropertiesPdf;
+        
+        if(dbproperties)
+        {
+            propertiesPDF = AP_ReceivedDTEXmlDocument_CL::constructFromString(dbproperties);
+        }
+
+    }
+
+    public static AP_BasePDF construct(AP_TipoDTE dteType)
+    {
+        var retval = new AP_BasePDF(dteType);
+
+       
+        return retval;
+    }
+
+    private void new(AP_TipoDTE _dteType)
+    {
+        dteType = _dteType;
+        this.init();
+    }
+
+    private void init()
+    {
+        //Get Template By Type
+        this.BuscarTemplate();
+        this.BuscarProperties();
+        this.initDocument();
+
+    }
+
+    public iTextSharp.text.pdf.BaseFont getBaseFont(str tipo)
+    {
+        iTextSharp.text.pdf.BaseFont bf = 
+            iTextSharp.text.pdf.BaseFont::CreateFont("Courier", "Cp1252", false);
+        
+            if (tipo == "COURIER")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Courier", "Cp1252", false);
+            if (tipo=="COURIER_NEGRITA")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Courier-Bold", "Cp1252", false);
+            if (tipo=="COURIER_CURSIVA")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Courier-Oblique", "Cp1252", false);
+            if (tipo=="TIMES")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Times-Roman", "Cp1252", false);
+            if (tipo=="TIMES_NEGRITA")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Times-Bold", "Cp1252", false);
+            if (tipo=="TIMES_CURSIVA")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Times-Italic", "Cp1252", false);
+            if (tipo=="HELVETICA")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Helvetica", "Cp1252", false);
+            if (tipo=="HELVETICA_NEGRITA")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Helvetica-Bold", "Cp1252", false);
+            if (tipo=="HELVETICA_CURSIVA")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Helvetica-Oblique", "Cp1252", false);
+            if (tipo=="TIMES_ROMAN")
+                    bf = iTextSharp.text.pdf.BaseFont::CreateFont("Times-Roman", "Cp1252", false);
+           // if (tipo.Equals("CODE39"))
+           //         bf = BaseFont.CreateFont("c://Windows/Fonts/MW6Code39ST.TTF", BaseFont.WINANSI, BaseFont.EMBEDDED);
+        
+      return bf;
+    }
+
+    public iTextSharp.text.BaseColor getBaseColor(str color)
+    {
+        iTextSharp.text.BaseColor retVal =  iTextSharp.text.BaseColor::BLACK;
+
+        if (color=="NEGRO")
+            retVal = iTextSharp.text.BaseColor::BLACK;
+        if (color=="AZUL")
+            retVal = iTextSharp.text.BaseColor::BLUE;
+        if (color=="CYAN")
+            retVal = iTextSharp.text.BaseColor::CYAN;
+        if (color=="GRIS_OSCURO")
+            retVal = iTextSharp.text.BaseColor::DARK_GRAY;
+        if (color=="GRIS")
+            retVal = iTextSharp.text.BaseColor::GRAY;
+        if (color=="VERDE")
+            retVal = iTextSharp.text.BaseColor::GREEN;
+        if (color=="GRIS_CLARO")
+            retVal = iTextSharp.text.BaseColor::LIGHT_GRAY;
+        if (color=="MAGENTA")
+            retVal = iTextSharp.text.BaseColor::MAGENTA;
+        if (color=="NARANJO")
+            retVal = iTextSharp.text.BaseColor::ORANGE;
+        if (color=="ROSADO")
+            retVal = iTextSharp.text.BaseColor::PINK;
+        if (color=="BLANCO")
+            retVal = iTextSharp.text.BaseColor::WHITE;
+        if (color=="ROJO")
+            retVal = iTextSharp.text.BaseColor::RED;
+        if (color=="AMARILLO")
+            retVal = iTextSharp.text.BaseColor::YELLOW;
+        
+
+        return retVal;
+    }
+
+    public str getFormaPago(str getFmaPago)
+    {
+        str DescFPago = "Crédito";
+
+        if (getFmaPago == "1")
+                DescFPago = "Contado";
+        if (getFmaPago == "2")
+                DescFPago = "Crédito";
+        if (getFmaPago == "3")
+                DescFPago = "Sin costo (entrega gratuita)";
+
+        return DescFPago;
+    }
+
+}

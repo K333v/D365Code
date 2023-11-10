@@ -1,0 +1,606 @@
+[ExtensionOf(tableStr(AssetBook))]
+final class AssetBook_CQC_Extension
+{
+    /// <summary>
+    /// Retrieves the value of the Posting layer fields of the Value model or Depreciation book.
+    /// </summary>
+    /// <param name = "_assetBook"><c>AssetBook</c> table buffer</param>
+    /// <returns>Posting layer of a given value model record</returns>
+    public static str getBookId()
+    {
+        AssetBookTable assetBookTable;
+        str returnValue;
+
+        select firstonly BookId from assetBookTable;
+
+        if (assetBookTable)
+        {
+            returnValue = assetBookTable.BookId;
+        }
+
+        return returnValue;
+    }
+
+    public static ReasonCode getReasonCode(AssetBook _assetBook)
+    {
+        AssetTrans  assetTrans;
+        ReasonCode  reasonCode = '';
+
+        select ReasonRefRecID from assetTrans
+            order by TransDate
+            where assetTrans.AssetId == _assetBook.AssetId
+            && assetTrans.BookId == _assetBook.BookId
+            && assetTrans.AssetGroup == _assetBook.AssetGroup
+            && assetTrans.DataAreaId == _assetBook.DataAreaId
+            && assetTrans.ReasonRefRecId > 0;
+
+        if (assetTrans)
+        {
+            reasonCode = ReasonTableRef::find(assetTrans.ReasonRefRecID).Reason;
+        }
+        return reasonCode;
+    }
+
+    public static ReasonComment getReasonComment(AssetBook _assetBook)
+    {                             
+        AssetTrans  assetTrans;
+        ReasonComment   reasonComment;
+
+        select ReasonRefRecID from assetTrans
+            order by TransDate
+            where assetTrans.AssetId == _assetBook.AssetId
+            && assetTrans.BookId == _assetBook.BookId
+            && assetTrans.AssetGroup == _assetBook.AssetGroup
+            && assetTrans.DataAreaId == _assetBook.DataAreaId
+            && assetTrans.ReasonRefRecId > 0;
+
+        reasonComment = ReasonTableRef::find(assetTrans.ReasonRefRecID).reasonComment;
+        return reasonComment;
+    }
+
+    [SysClientCacheDataMethodAttribute(true)]
+    public static DimensionDisplayValueLTR getFixedAssetAccount(AssetBook _assetBook)
+    {
+        CQCAssetTransMainAccountView    assetMainACcountView;
+
+        select firstonly assetMainACcountView index hint AssetBookIdx
+            where assetMainACcountView.AssetId == _assetBook.AssetId
+            && assetMainACcountView.BookId == _assetBook.BookId
+            && assetMainACcountView.AssetGroup == _assetBook.AssetGroup
+            && assetMainACcountView.DataAreaId1 == _assetBook.DataAreaId
+            && assetMainACcountView.TransType == AssetTransType::Acquisition
+            && assetMainACcountView.PostingType == LedgerPostingType::FixedAssetsDebit;
+
+        return assetMainACcountView.LedgerAccount;
+    }
+
+    [SysClientCacheDataMethodAttribute(true)]
+    public static DimensionDisplayValueLTR getFixedAssetAccumDepAcc(AssetBook _assetBook)
+    {
+        CQCAssetTransMainAccountView    assetMainACcountView;
+
+        select firstonly assetMainACcountView index hint AssetBookIdx
+            where assetMainACcountView.AssetId == _assetBook.AssetId
+            && assetMainACcountView.BookId == _assetBook.BookId
+            && assetMainACcountView.AssetGroup == _assetBook.AssetGroup
+            && assetMainACcountView.DataAreaId1 == _assetBook.DataAreaId
+            && assetMainACcountView.TransType == AssetTransType::Depreciation
+            && assetMainACcountView.PostingType == LedgerPostingType::FixedAssetsCredit;
+
+        return assetMainACcountView.LedgerAccount;
+    }
+
+    [SysClientCacheDataMethodAttribute(true)]
+    public static DimensionDisplayValueLTR getFixedAssetDeprExpeAcc(AssetBook _assetBook)
+    {
+        CQCAssetTransMainAccountView    assetMainACcountView;
+
+        select firstonly assetMainACcountView index hint AssetBookIdx
+            where assetMainACcountView.AssetId == _assetBook.AssetId
+            && assetMainACcountView.BookId == _assetBook.BookId
+            && assetMainACcountView.AssetGroup == _assetBook.AssetGroup
+            && assetMainACcountView.DataAreaId1 == _assetBook.DataAreaId
+            && assetMainACcountView.TransType == AssetTransType::Depreciation
+            && assetMainACcountView.PostingType == LedgerPostingType::LedgerJournal;
+
+        return assetMainACcountView.LedgerAccount;
+    }
+
+    [SysClientCacheDataMethodAttribute(true)]
+    public static AccountName getAccountName(AssetBook _assetBook)
+    {
+        CQCAssetTransMainAccountView    assetMainACcountView;
+
+        select firstonly assetMainACcountView index hint AssetBookIdx
+            where assetMainACcountView.AssetId == _assetBook.AssetId
+            && assetMainACcountView.BookId == _assetBook.BookId
+            && assetMainACcountView.AssetGroup == _assetBook.AssetGroup
+            && assetMainACcountView.DataAreaId1 == _assetBook.DataAreaId
+            && assetMainACcountView.TransType == AssetTransType::Acquisition
+            && assetMainACcountView.PostingType == LedgerPostingType::FixedAssetsDebit;
+
+        return assetMainACcountView.displayAccountName();
+    }
+
+    public static AmountCurDebit getAustralLawCredit(AssetBook _assetBook, date _toDate, AssetSumCalcType _calcCurrency)
+    {
+        AssetSumCalc     assetSumCalc;
+        AmountCurDebit   amount;
+        
+        assetSumCalc = AssetSumCalc_Trans::newAssetYearByCurrency(_assetBook.AssetId,  _assetBook.BookId, _toDate, AssetYear::ThisYear, _calcCurrency);
+        amount = assetSumCalc.APAustralLawCredit();
+
+        return amount;           
+    }
+
+    public static DimensionValue getDimensionProjectsValue(AssetBook _assetBook)
+    {
+        #define.DimensionName('PROYECTOS')
+        DimensionAttributeValueSetItem  valueSetItem;
+        DimensionAttributeValue         dimAttrValue;
+        DimensionAttribute              dimAttr;
+        DimensionValue                  dimensionValue = '';
+
+        select Name from dimAttr
+        join DisplayValue from dimAttrValue
+            where dimAttrValue.DimensionAttribute == dimAttr.RecId
+        join valueSetItem
+            where valueSetItem.DimensionAttributeValue == dimAttrValue.RecId
+            && valueSetItem.DimensionAttributeValueSet == _assetBook.DefaultDimension
+            && dimAttr.Name == #DimensionName;
+
+        if (dimAttrValue)
+        {
+            dimensionValue = dimAttrValue.DisplayValue;
+        }
+        return dimensionValue;
+    }
+
+    [SysClientCacheDataMethodAttribute(true)]
+    public static DimensionValue getDimensionCCValue(AssetBook _assetBook)
+    {
+        CQCAssetBookDimensionView   assetBookDimensionView;
+
+        select firstonly assetBookDimensionView
+            where assetBookDimensionView.DimensionAttributeValueSet == _assetBook.DefaultDimension;
+
+        return assetBookDimensionView.DisplayValue;
+    }
+
+    [SysClientCacheDataMethodAttribute(true)]
+    public static DimensionValue getDimensionCCDescription(AssetBook _assetBook)
+    {            
+        DimensionAttributeValueSet      dimAttrValueSet;
+            
+        dimAttrValueSet = DimensionAttributeValueSet::find(_assetBook.DefaultDimension);
+        
+        CQCAssetBookDimensionView   assetBookDimensionView;
+
+        select firstonly assetBookDimensionView
+            where assetBookDimensionView.DimensionAttributeValueSet == dimAttrValueSet.RecId;
+
+        return assetBookDimensionView.dimensionCCDescription();
+    }
+
+    public static AssetAmount getHistoricalValueUSD(AssetBook _assetBook, boolean   _cbReportCurrency)
+    {
+        AssetTrans                  assetTr;
+        AssetAmount                 amount = 0;
+
+        select sum(AmountMST), sum(ReportingCurrencyAmount)
+            from assetTr
+        where assetTr.AssetId == _assetBook.AssetId
+            && assetTr.BookId == _assetBook.BookId
+            && assetTr.AssetGroup == _assetBook.AssetGroup
+            && assetTr.DataAreaId == _assetBook.DataAreaId
+            && (assetTr.TransType == AssetTransType::Acquisition || assetTr.TransType == AssetTransType::APAustralLawCredit);
+
+        if (assetTr)
+        {
+            if (_cbReportCurrency)
+            {
+                amount = assetTr.ReportingCurrencyAmount;//CLP
+            }
+            else
+            {
+                amount = assetTr.AmountMST;//USD
+            }
+        }
+        return amount;
+    }
+
+    public static AssetAmount getDepreciationExercise(AssetBook _assetBook, date _toDate, AssetSumCalcType _calcCurrency)
+    {
+        AssetSumCalc    assetSumCalc = AssetSumCalc_Trans::newAssetYearByCurrency(_assetBook.AssetId, _assetBook.BookId, _toDate, AssetYear::ThisYear, _calcCurrency);
+        AssetAmount     amount = assetSumCalc.depreciationValue();
+
+        return amount;
+    }
+
+    public static AssetAmount getAccumulatedDepreciationUSD(AssetBook _assetBook, date _toDate, AssetSumCalcType _calcCurrency)
+    {
+        AssetSumCalc    assetSumCalc = AssetSumCalc_Trans::newAssetYearByCurrency(_assetBook.AssetId, _assetBook.BookId, _toDate, AssetYear::All, _calcCurrency);
+        AssetAmount     amount = assetSumCalc.depreciationValue();
+
+        return  amount;
+    }
+
+    public static AssetAmount getGrossValueIFRSUSD(AssetBook _assetBook, boolean _cbReportCurrency)
+    {
+        AssetTrans                  assetTr;
+        AssetAmount                 amount = 0;
+
+        select sum(AmountMST), sum(ReportingCurrencyAmount)
+                from assetTr
+            where assetTr.AssetId == _assetBook.AssetId
+                && assetTr.BookId == _assetBook.BookId
+                && assetTr.AssetGroup == _assetBook.AssetGroup
+                && assetTr.DataAreaId == _assetBook.DataAreaId
+                && assetTr.TransType == AssetTransType::Acquisition;
+
+        if (assetTr)
+        {
+            if (_cbReportCurrency)
+            {
+                amount = assetTr.ReportingCurrencyAmount;//CLP
+            }
+            else
+            {
+                amount = assetTr.AmountMST;//USD
+            }
+        }
+        return amount;
+    }
+
+    public static AssetAmount getDepreciationCurrentMonthUSD(AssetBook _assetBook, date _toDate, AssetSumCalcType _calcCurrency)
+    {
+        AssetSumCalc    assetSumCalc = AssetSumCalc_Trans::newAssetPeriodByCurrency(_assetBook.AssetId, _assetBook.BookId, _toDate, _toDate, _calcCurrency);
+        AssetAmount     amount = assetSumCalc.depreciationValue();
+
+        return  amount;
+    }
+
+}
+_________________________________________________________
+
+[Form]
+public class CQCAssetTableAcquiredTable extends FormRun
+{
+    CQCAssetTableAcquiredTmp    assetTableAcquiredTmp;
+   
+    date                        inputDate;
+    int                         noOfMonthsBetweenYears;
+    
+    /// <summary>
+    /// Create query 
+    /// </summary>
+    public Query createQuery(boolean    _mainAsset = false)
+    {
+        Query                   query = new Query(queryStr(CQCAssetTableNotAcquiredListPage));     
+        QueryBuilddataSource    qbdsAssetTable, qbdsAssetBook;
+       
+        qbdsAssetBook = SysQuery::findOrCreateDataSource(query, tableNum(AssetBook));
+
+        if (FromDate && ToDate)
+        {
+            qbdsAssetBook = SysQuery::findOrCreateDataSource(query, tableNum(AssetBook));
+            qbdsAssetBook.addRange(fieldnum(AssetBook, AcquisitionDate)).value(SysQuery::range(FromDate.dateValue(), ToDate.dateValue()));
+        }
+
+        if (AssetBookId.valueStr())
+        {
+            qbdsAssetBook.addRange(fieldnum(AssetBook, BookId)).value(queryValue(AssetBookId.valueStr()));
+        }
+
+        if (AssetGroup.valueStr() != '')
+        {
+            qbdsAssetBook.addRange(fieldnum(AssetBook, AssetGroup)).value(queryValue(AssetGroup.valueStr()));
+        }
+
+        if (MainAssetId.valueStr() != '')
+        {
+            if (!_mainAsset)
+            {
+                qbdsAssetTable = SysQuery::findOrCreateDataSource(query, tableNum(AssetTable));
+                qbdsAssetTable.addRange(fieldnum(AssetTable, MainAssetId)).value(MainAssetId.valueStr());
+            }
+            else
+            {
+                qbdsAssetTable = SysQuery::findOrCreateDataSource(query, tableNum(AssetTable));
+                qbdsAssetTable.addRange(fieldnum(AssetTable, AssetId)).value(MainAssetId.valueStr());
+            }
+        }
+
+        qbdsAssetBook.addOrderByField(fieldNum(AssetBook, AssetId));
+        qbdsAssetBook.addOrderByField(fieldNum(AssetBook, BookId));       
+
+        return query;
+    }
+
+    /// <summary>
+    /// Populate records related to AssetId
+    /// </summary>
+    public void populateTmp()
+    {
+        Query           q = element.createQuery();
+        QueryRun        queryRun;
+        AssetBook       assetBookLocal;
+        AssetTable      assetTableLocal;
+               
+
+        q.allowCrossCompany(true);
+
+        if (Company.valueStr() != '')
+        {
+            q.clearCompanyRange();
+            q.addCompanyRange(Company.valueStr());
+        }
+
+        queryRun = new QueryRun(q);                                                        
+                                                                     
+        while (queryRun.next())
+        {
+            assetBookLocal  = queryRun.get(tableNum(AssetBook));
+            assetTableLocal = queryRun.get(tableNum(AssetTable));
+
+            //Populate TableTmp
+            element.insertTmp(assetBookLocal, assetTableLocal, ToDate.dateValue(), cbReportCurrency.checked());
+        }
+
+    }
+
+    /// <summary>
+    /// Populate records related to Main AssetId
+    /// </summary>
+    public void populateTmpMainAsset()
+    {
+        Query           q = element.createQuery(true);
+        QueryRun        queryRun;
+        AssetBook       assetBookLocal;
+        AssetTable      assetTableLocal;                         
+
+        q.allowCrossCompany(true);
+
+        if (Company.valueStr() != '')
+        {
+            q.clearCompanyRange();
+            q.addCompanyRange(Company.valueStr());
+        }
+        
+        queryRun = new QueryRun(q);
+                                                                     
+        while (queryRun.next())
+        {
+            assetBookLocal  = queryRun.get(tableNum(AssetBook));
+            assetTableLocal = queryRun.get(tableNum(AssetTable));
+
+            //insert table temporal
+            element.insertTmp(assetBookLocal, assetTableLocal, ToDate.dateValue(), cbReportCurrency.checked());
+        } 
+       
+    }
+
+    /// <summary>
+    /// Insert records in temporal table
+    /// </summary>
+    /// <param name = "_assetbook">AssetBook</param>
+    /// <param name = "_assetTable">AssetTable</param>
+    /// <param name = "_toDate">ToDate</param>
+    /// <param name = "_reportCurrency">boolean</param>
+    public void insertTmp(AssetBook  _assetbook, AssetTable  _assetTable, ToDate  _toDate, boolean  _reportCurrency = false)
+    {
+        AssetSumCalcType    calcCurrency;
+
+        if(_reportCurrency)
+        {
+            calcCurrency = AssetSumCalcType::Reporting;
+        }
+        else
+        {
+            calcCurrency = AssetSumCalcType::MST;
+        }
+
+        assetTableAcquiredTmp.clear();
+        assetTableAcquiredTmp.AssetBookId            = _assetbook.BookId;
+        assetTableAcquiredTmp.AssetId                = _assetTable.AssetId;
+        assetTableAcquiredTmp.AssetGroup             = _assetTable.AssetGroup;
+        assetTableAcquiredTmp.AssetType              = _assetTable.AssetType;
+        assetTableAcquiredTmp.CurrentOperationsTax   = AssetBookTable::find(_assetbook.BookId).CurrentOperationsTax;
+        assetTableAcquiredTmp.Name                   = _assetTable.Name;
+        assetTableAcquiredTmp.AcquisitionDate        = _assetbook.AcquisitionDate;
+        assetTableAcquiredTmp.Location               = _assetTable.Location;           
+        assetTableAcquiredTmp.WorkerResponsible      = _assetTable.WorkerResponsible;
+        assetTableAcquiredTmp.LegalEntityDataAreaId  = _assetTable.DataAreaId;         
+        assetTableAcquiredTmp.Status                 = _assetbook.Status;
+      
+        CQCAssetTransReasonRefView  reasonRefView;
+
+        select Reason, Reason from reasonRefView
+            order by TransDate
+            where reasonRefView.AssetId == _assetBook.AssetId
+            && reasonRefView.BookId == _assetBook.BookId
+            && reasonRefView.AssetGroup == _assetBook.AssetGroup
+            && reasonRefView.DataAreaId1 == _assetBook.DataAreaId
+            && reasonRefView.ReasonRefRecId > 0;
+       
+        assetTableAcquiredTmp.ReasonCode             = reasonRefView.Reason;
+        assetTableAcquiredTmp.ReasonComment          = reasonRefView.ReasonComment;
+        assetTableAcquiredTmp.MaintenanceInfo2       = _assetTable.MaintenanceInfo2;
+        assetTableAcquiredTmp.Quantity               = _assetTable.Quantity;
+        assetTableAcquiredTmp.SerialNum              = _assetTable.SerialNum;
+        assetTableAcquiredTmp.DimensionProjectsValue = AssetBook::getDimensionProjectsValue(_assetBook);
+        assetTableAcquiredTmp.FixedAssetAccount      = AssetBook::getFixedAssetAccount(_assetBook);
+        assetTableAcquiredTmp.FixedAssetAccumDepAccount = AssetBook::getFixedAssetAccumDepAcc(_assetBook);
+        assetTableAcquiredTmp.FixedAssetDeprExpeAccount = AssetBook::getFixedAssetDeprExpeAcc(_assetBook);
+        assetTableAcquiredTmp.AccountName            = AssetBook::getAccountName(_assetBook);
+        assetTableAcquiredTmp.MaintenanceInfo3       = _assetTable.MaintenanceInfo3;
+        assetTableAcquiredTmp.DimensionCCValue       = AssetBook::getDimensionCCValue(_assetBook);
+        assetTableAcquiredTmp.DimensionCCDescription = AssetBook::getDimensionCCDescription(_assetBook);
+        assetTableAcquiredTmp.LocationMemo           = _assetTable.LocationMemo;
+        assetTableAcquiredTmp.TechInfo1              = _assetTable.TechInfo1;
+        assetTableAcquiredTmp.HistoricalValueUSD     = AssetBook::getHistoricalValueUSD(_assetBook, _reportCurrency);
+        assetTableAcquiredTmp.AustralLawCredit       = AssetBook::getAustralLawCredit(_assetBook, _toDate, calcCurrency);
+        assetTableAcquiredTmp.LifeTime               = _assetbook.LifeTime;
+
+        //date    inputDate =  dateStartYr(_toDate);
+        //int     noOfMonthsBetweenYears = intvNo(_toDate, inputDate, intvScale::YearMonth) + 1;                           
+
+        assetTableAcquiredTmp.MonthsDepreciation     = noOfMonthsBetweenYears;
+        assetTableAcquiredTmp.DepreciationExercise   = AssetBook::getDepreciationExercise(_assetBook, _toDate, calcCurrency);
+        assetTableAcquiredTmp.ScrapValue             = _assetbook.ScrapValue;
+        assetTableAcquiredTmp.LifeTimeRest           = _assetbook.LifeTimeRest;
+        assetTableAcquiredTmp.GrossValueIFRSUSD      = AssetBook::getGrossValueIFRSUSD(_assetBook, _reportCurrency);
+        assetTableAcquiredTmp.DepreciationCurrentMonthUSD = AssetBook::getDepreciationCurrentMonthUSD(_assetBook, _toDate, calcCurrency);
+        assetTableAcquiredTmp.AccumulatedDepreciationUSD  = AssetBook::getAccumulatedDepreciationUSD(_assetBook, _toDate, calcCurrency);
+        assetTableAcquiredTmp.insert();
+    }
+
+    [DataSource]
+    class CQCAssetTableAcquiredTmp
+    {
+        public void init()
+        {
+            super();
+            
+            delete_from assetTableAcquiredTmp;
+            CQCAssetTableAcquiredTmp.linkPhysicalTableInstance(assetTableAcquiredTmp);
+        }
+
+    }
+
+    [Control("Button")]
+    class UpdateButton
+    {
+        /// <summary>
+        ///
+        /// </summary>
+        public void clicked()
+        {               
+            date    iniDate;
+            date    finDate;
+            boolean flag = true;
+                     
+            if (FromDate.valueStr() == '' || ToDate.valueStr() == '')
+            {
+                if (FromDate.valueStr() == '' && ToDate.valueStr() == '')
+                {
+                    warning("@CQC:CQC7760_0030");
+                    flag = false;
+                }
+                else if (FromDate.valueStr() == '')
+                {
+                    warning("@CQC:CQC7760_0031");
+                    flag = false;
+                }
+                else
+                {
+                    warning("@CQC:CQC7760_0032");
+                    flag = false;
+                }
+            }
+            else
+            {
+                iniDate = FromDate.dateValue();
+                finDate = ToDate.dateValue();
+
+                if (iniDate > finDate)
+                {
+                    warning("@CQC:CQC7760_0033");
+                    flag = false;
+                }
+            }
+
+            if(Company.valueStr() == "@SYS4006013")
+            {
+                Company.text('');
+            }
+
+            //if (AssetBookId.valueStr() == '')
+            //{
+            //    warning("@CQC:CQC7760_0034");
+            //    flag = false;
+            //}
+
+            if (flag)
+            { 
+                inputDate = dateStartYr(finDate);
+                noOfMonthsBetweenYears = intvNo(finDate, inputDate, intvScale::YearMonth) + 1;
+                // Add a filter to the query. Specify the field to use in the filter.
+                delete_from assetTableAcquiredTmp;
+
+                element.populateTmp();
+
+                if (MainAssetId.valueStr() != '')
+                {
+                    element.populateTmpMainAsset();
+                }
+
+                CQCAssetTableAcquiredTmp_ds.refresh();
+                CQCAssetTableAcquiredTmp_ds.reread();
+                CQCAssetTableAcquiredTmp_ds.research();               
+
+            }
+            super();
+        }
+
+    }
+
+    [Control("String")]
+    class MainAssetId
+    {
+        /// <summary>
+        /// Método lookup para Activo fijo principal
+        /// </summary>
+        public void lookup()
+        {
+            QueryBuildDataSource    queryBuildDataSource;
+            Query                   query          = new Query();                
+            SysTableLookup          sysTableLookup = SysTableLookup::newParameters(tableNum(AssetTable), this);
+
+            query.allowCrossCompany(true);
+            queryBuildDataSource = query.addDataSource(tableNum(AssetTable));
+            sysTableLookup.addLookupfield(fieldNum(AssetTable, AssetId));
+            sysTableLookup.parmQuery(query);
+            sysTableLookup.performFormLookup();
+        }
+
+    }
+
+    [Control("String")]
+    class Company
+    {
+        /// <summary>
+        /// Método lookup para empresa
+        /// </summary>
+        public void lookup()
+        {
+            Args args = new Args(formStr(ProjResourceCompanyLookup));
+            FormRun formRun;
+
+            args.callerFormControl(Company);
+            formRun = classfactory.formRunClass(args);
+            formRun.init();
+            this.performFormLookup(formRun);
+            formRun.wait();
+
+            element.formCustomFilterChanged();
+        }
+
+        /// <summary>
+        /// Modified method
+        /// </summary>
+        /// <returns>Boolean</returns>
+        public boolean modified()
+        {
+            boolean ret;
+            
+            ret = ProjLegalEntityLookupListPageHelper::setFilterValuesFromControl(CQCAssetTableAcquiredTmp_ds, Company.valueStr());
+            
+            element.formCustomFilterChanged();
+
+            return ret;
+        }
+
+    }
+
+}

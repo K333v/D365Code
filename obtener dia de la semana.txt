@@ -1,0 +1,7 @@
+private str dayOfWeekStr()
+    {
+        Debug::assert(this.LeaveDate != dateNull());
+
+        WeekDays dayOfWeek = dayOfWk(this.LeaveDate);
+        return enum2Str(dayOfWeek);
+    }

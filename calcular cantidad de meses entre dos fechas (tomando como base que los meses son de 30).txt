@@ -1,0 +1,57 @@
+   public real calculateMonths(TransDate _startDate, TransDate _endDate)
+    {
+        int         dayMth, lastDayMth, endDayMth, endLastDayMth;
+        real        ret;
+        str         retStr;
+
+        dayMth      = dayOfMth(_startDate);
+        lastDayMth  = dayOfMth(endmth(_startDate));
+        endDayMth      = dayOfMth(_endDate);
+        endLastDayMth  = dayOfMth(endmth(_endDate));
+
+        if (dayMth == dayOfMth(dateStartMth(_startDate)))
+        {
+            ret = 1;
+        }
+        else
+        {
+            //20230529 - WI20025_Bug3232 - KCL - Start
+            ret = 30/lastDayMth; //ret = dayMth/lastDayMth;
+            //20230529 - WI20025_Bug3232 - KCL - End
+        }
+
+        if(endDayMth != dayOfMth(endmth(_endDate)))
+        {
+            ret += endDayMth/endLastDayMth;
+            ret = ret -1;                       
+        }
+
+        ret = roundDown(ret, 0.01);
+
+        ret = ret + intvNo(_endDate,_startDate,intvScale::YearMonth);
+
+        return ret;
+    }
+
+__________________________________________
+
+static void EDC_intvBetweenMth(Args _args)
+{
+    date fromDate = str2Date("10/20/2015", 213);
+    date toDate = str2Date("12/15/2015", 213);
+     
+    info(strFmt("%1", intvNo(toDate, fromDate, intvScale::YearMonth))); //results: 2
+}
+
+static void EDC_intvBetweenMth(Args _args)
+{
+    date fromDate = str2Date("10/20/2014", 213);
+    date toDate = str2Date("12/15/2015", 213);
+     
+    // Days
+    info(strFmt("Day(s): %1", intvNo(toDate, fromDate, intvScale::YearMonthDay))); // Results: 421
+    // Months
+    info(strFmt("Month(s): %1", intvNo(toDate, fromDate, intvScale::YearMonth))); // Results: 14
+    // Years
+    info(strFmt("Year(s): %1", intvNo(toDate, fromDate, intvScale::Year))); // Results: 1
+}

@@ -1,0 +1,317 @@
+//cqcl-dev4-1 CQC_INV010OpeningCostSheetRecalculation INN
+internal final class CQCCostSheetAndRecalculationService
+{
+    public void  writeCostSheetAndRecalculation(CQCCostSheetAndRecalculationContract _contract)
+    {
+        FromDate                        fromDate;
+        ToDate                          toDate;
+        ProdTable                       prodTableRun;
+        ProdCalcTrans                   prodCalcTrans;
+        CQCCostSheetAndRecalculation    costSheetAndRecalculation;
+        
+        InventTransOrigin               inventTransOrigin;
+        InventTrans                     inventTrans;
+        InventTrans                     inventTransSumAdj;
+        InventTrans                     inventTransSumAP;
+        InventTransId                   inventTransId;
+        
+        Query                           query;
+        QueryBuildDataSource            qbds;
+        QueryBuildRange                 qbr;
+        QueryRun                        queryRun;
+
+
+        fromDate    = _contract.parmFromDate();
+        toDate      = _contract.parmToDate();
+        query       = _contract.getQuery();
+
+        qbds        = query.dataSourceTable(tableNum(ProdTable)); 
+        
+        if (qbds)
+        {
+            qbr = qbds.addRange(fieldNum(ProdTable, DlvDate)); 
+            if (qbr && (fromDate || toDate))
+            {
+                qbr.value(SysQuery::range(fromDate, toDate));
+            }
+                
+            queryRun = new  QueryRun (query);
+
+            ttsbegin;
+
+            delete_from costSheetAndRecalculation;
+
+            ttscommit;
+
+            while (queryRun.next())
+            {
+                prodTableRun = QueryRun.get(tableNum(ProdTable));
+
+                while select prodCalcTrans
+                    where prodCalcTrans.TransRefId == prodTableRun.ProdId
+                {
+                    costSheetAndRecalculation.clear();
+                    inventTransSumAdj.clear();
+                    inventTransSumAP.clear();
+
+                    inventTransId   = "";
+                    inventTrans.clear();
+                    switch (prodCalcTrans.IdRefTableId)
+                    {                        
+                        case tableNum(ProdTable):
+                            inventTransId = ProdTable::find(prodCalcTrans.TransRefId).InventTransId;                           
+                            break;
+
+                            inventTransId = ProdTable::find(prodCalcTrans.TransRefId).InventTransId;
+                            break;
+
+                        case tableNum(PmfProdCoBy):
+                            inventTransId = PmfProdCoBy::find(prodCalcTrans.TransRefId, prodCalcTrans.IdRefRecId).InventTransId;
+                            break;
+
+                        case tableNum(ProdBOM):
+                            inventTransId = ProdBOM::find(prodCalcTrans.IdRefRecId).InventTransId;
+                            break;                        
+                    }
+                   
+                    if (inventTransId)
+                    {
+                        select firstonly inventTrans
+                               join inventTransOrigin
+                               where inventTrans.InventTransOrigin      == inventTransOrigin.RecId   &&
+                                     inventTransOrigin.InventTransId    == inventTransId;
+                    }
+                    
+                    if (inventTrans)
+                    {
+                        costSheetAndRecalculation.DateFinancial         = inventTrans.DateFinancial;
+                        costSheetAndRecalculation.Qty                   = inventTrans.Qty;
+                        select sum (CostAmountPosted)
+                            from inventTransSumAP
+                            where inventTransSumAP.inventTransOrigin == inventTrans.inventTransOrigin;
+                        select sum (CostAmountAdjustment)
+                            from inventTransSumAdj
+                            where inventTransSumAdj.inventTransOrigin == inventTrans.inventTransOrigin;
+                        costSheetAndRecalculation.CostAmountAdjustment  = inventTransSumAdj.CostAmountAdjustment;
+                        costSheetAndRecalculation.CostFinal             = costSheetAndRecalculation.CostAmountPosted + costSheetAndRecalculation.CostAmountAdjustment;
+                    }
+
+                    costSheetAndRecalculation.CalcType              = prodCalcTrans.CalcType;
+                    costSheetAndRecalculation.ProdGroupId           = prodTableRun.ProdGroupId;
+                    costSheetAndRecalculation.ProdId                = prodTableRun.ProdId;
+                    costSheetAndRecalculation.ProdStatus            = prodTableRun.ProdStatus;
+
+                    costSheetAndRecalculation.ItemId                = prodTableRun.ItemId;
+                    costSheetAndRecalculation.ItemName              = prodTableRun.Name;
+                    costSheetAndRecalculation.ItemGroupId           = prodTableRun.inventTable().itemGroupId();
+                    costSheetAndRecalculation.NameInventGroup       = prodTableRun.inventTable().itemGroup().Name;
+                    costSheetAndRecalculation.CostGroupId           = prodCalcTrans.CostGroupId;
+
+                    costSheetAndRecalculation.CollectRefLevel       = prodCalcTrans.CollectRefLevel;
+                    costSheetAndRecalculation.Resource              = prodCalcTrans.Resource;
+                    costSheetAndRecalculation.InventDimStr          = prodCalcTrans.InventDimStr;
+                    costSheetAndRecalculation.InventSiteId          = prodTableRun.inventDim().InventSiteId;
+                    costSheetAndRecalculation.InventLocationId      = prodTableRun.inventDim().InventLocationId;
+
+                    costSheetAndRecalculation.CalcGroupId           = prodCalcTrans.CalcGroupId;
+                    costSheetAndRecalculation.UnitId                = prodCalcTrans.UnitId;
+                    costSheetAndRecalculation.ProdQtyKg             = prodTableRun.prodQtyKg();
+                    costSheetAndRecalculation.EstimatedConsumption  = prodCalcTrans.consumptionSum();
+                    costSheetAndRecalculation.RealConsumption       = prodCalcTrans.realConsumptionTotal();
+                    costSheetAndRecalculation.EstimatedCostAmount   = prodCalcTrans.costPriceSum();
+
+                    //20230705 - CQC_Bug8171_CostSheetAndRecalcultation - KCL - Start
+                    if (prodCalcTrans.CalcType == ItemCalcType::Production || prodCalcTrans.CalcType == ItemCalcType::Item)
+                        costSheetAndRecalculation.CostAmountPosted  = inventTransSumAP.CostAmountPosted;
+                    else
+                        costSheetAndRecalculation.CostAmountPosted  = prodCalcTrans.realCostAmountTotal();
+                    //20230705 - CQC_Bug8171_CostSheetAndRecalcultation - KCL - End
+                    //costSheetAndRecalculation.CostAmountPosted      = inventTransSumAP.CostAmountPosted;//prodCalcTrans.realCostAmountTotal();  //sumatoria monto de transacciones por serie                
+                    costSheetAndRecalculation.CostFinal             = costSheetAndRecalculation.CostAmountPosted + costSheetAndRecalculation.CostAmountAdjustment;
+                    
+                    costSheetAndRecalculation.insert();
+                    
+                }
+            }
+        }
+    }
+
+}
+__________________________________________________
+
+
+//cqcl-dev4-1 CQC_INV010OpeningCostSheetRecalculation INN
+[DataContractAttribute]
+internal final class CQCCostSheetAndRecalculationContract extends CQCCostSheetAndRecalculationQueryDataContract
+{
+    FromDate    fromDate;
+    ToDate      toDate;
+    str         packedQuery;        
+
+    [DataMemberAttribute]
+    public FromDate parmFromDate(FromDate _fromDate = fromDate)
+    {
+        fromDate = _fromDate;
+        return fromDate;
+    }
+
+    [DataMemberAttribute]
+    public ToDate parmToDate(ToDate _toDate = toDate)
+    {
+        toDate = _toDate;
+        return toDate;
+    }
+
+    [DataMemberAttribute,  AifQueryTypeAttribute('_encodedQuery', queryStr(CQCProdTableQuery))]
+    public str parmEncodedQuery(str _encodedQuery = encodedQuery)
+    {
+        return super(_encodedQuery);
+    }
+
+}
+_____________________________________
+
+//cqcl-dev4-1 CQC_INV010OpeningCostSheetRecalculation INN
+[SysOperationJournaledParametersAttribute(true)]
+internal final class CQCCostSheetAndRecalculationController extends SysOperationServiceController
+{
+    public static void main(Args _args)
+    {
+        CQCCostSheetAndRecalculationController controller = CQCCostSheetAndRecalculationController::construct();
+        controller.parmArgs(_args);
+        controller.startOperation();
+    }
+
+    public static CQCCostSheetAndRecalculationController construct(SysOperationExecutionMode _executionMode = SysOperationExecutionMode::Synchronous)
+    {
+        CQCCostSheetAndRecalculationController controller = new CQCCostSheetAndRecalculationController();
+        controller.parmExecutionMode(_executionMode);
+        controller.parmDialogCaption("@CQCLabel:INV010003");
+        return controller;
+    }
+
+    public void new()
+    {
+        super(classStr(CQCCostSheetAndRecalculationService), methodStr(CQCCostSheetAndRecalculationService, writeCostSheetAndRecalculation), SysOperationExecutionMode::Synchronous);
+    }
+
+}
+
+__________________________________________________
+
+
+//cqcl-dev4-1 CQC_INV010OpeningCostSheetRecalculation INN
+abstract class CQCCostSheetAndRecalculationQueryDataContract
+{
+    str         encodedQuery;
+    QueryName   queryName;
+ 
+    public Query createQuery()
+    {
+        Query query = new Query(this.queryName());
+        return Query;
+    }
+
+    public str parmEncodedQuery(str _encodedQuery = encodedQuery)
+    {
+        encodedQuery = _encodedQuery;
+        return encodedQuery;
+    }
+
+    public Query Query(Query _query = null)
+    {
+        if (prmisDefault(_query))
+        {
+            return
+    CQCCostSheetAndRecalculationQueryDataContract::DataContractQuery(this);
+        }
+        return CQCCostSheetAndRecalculationQueryDataContract::DataContractQuery(
+            this,
+            _query);
+    }
+
+    public final str queryName()
+    {
+        if (queryName == '')
+        {
+            queryName =
+    CQCCostSheetAndRecalculationQueryDataContract::DataContractQueryName(this);
+        }
+ 
+        return queryName;
+    }
+
+    public static Query DataContractQuery(
+        CQCCostSheetAndRecalculationQueryDataContract
+            _CQCCostSheetAndRecalculationQueryDataContract,
+        Query _query = null)
+    {
+        if (prmisDefault(_query) == false)
+        {
+            if (_query != null)
+            {
+                _CQCCostSheetAndRecalculationQueryDataContract.parmEncodedQuery(
+        SysOperationHelper::base64Encode(_query.pack()));
+            }
+            else
+            {
+                _CQCCostSheetAndRecalculationQueryDataContract.parmEncodedQuery('');
+            }
+        }
+        if (_CQCCostSheetAndRecalculationQueryDataContract.parmEncodedQuery()
+            == '')
+        {
+            _CQCCostSheetAndRecalculationQueryDataContract.parmEncodedQuery(
+                SysOperationHelper::base64Encode(
+        _CQCCostSheetAndRecalculationQueryDataContract.createQuery().pack()));
+        }
+ 
+        return new Query(SysOperationHelper::base64Decode(
+            _CQCCostSheetAndRecalculationQueryDataContract.parmEncodedQuery()));
+    }
+
+    public static queryName DataContractQueryName(
+        CQCCostSheetAndRecalculationQueryDataContract _dataContract)
+    {
+        DictMethod  dictMethod = new DictMethod(
+            UtilElementType::ClassInstanceMethod,
+            classIdGet(_dataContract),
+            methodStr(CQCCostSheetAndRecalculationQueryDataContract,
+                parmEncodedQuery));
+        
+        AifQueryTypeAttribute  aifQueryTypeAttribute =
+            dictMethod.getAttribute(
+                classStr(AifQueryTypeAttribute));
+
+        queryName queryName = '';
+        if (aifQueryTypeAttribute != null)
+        {
+            queryName = aifQueryTypeAttribute.queryName();
+        }
+ 
+        return queryName;
+    }
+
+    public Query getQuery()
+    {
+        return new Query(SysOperationHelper::base64Decode(encodedQuery));
+    }
+
+}
+
+___________________________________________
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

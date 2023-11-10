@@ -1,0 +1,452 @@
+final class EI_PurchWorkflowParticipantsProviderExpend extends WorkflowParticipantProvider_Expend
+{
+    public WorkflowParticipantExpenDocumentType documentType()
+    {
+        return WorkflowParticipantExpenDocumentType::PurchaseOrder;
+    }
+
+    /// <summary>
+    /// Resolves the <c>PurchLine</c> record dimensions to a list of users.
+    /// </summary>
+    /// <param name="_context">
+    /// An instance of the <c>WorkflowContext</c> class.
+    /// </param>
+    /// <param name="_participantTokenName">
+    /// The participant token that was selected for role-based assignment.
+    /// </param>
+    /// <returns>
+    /// An instance of a <c>WorkflowUserList</c> that contains all enabled users from the token.
+    /// </returns>
+    /// <exception cref="M:Exception::Error">
+    /// Participant token does not exist.
+    /// </exception>
+    public WorkflowUserList resolve(WorkflowContext          _context,
+                                    WorkflowParticipantToken _participantTokenName)
+    {
+        PurchTable                                  purchTable;
+        PurchLine                                   purchLine;
+        WorkflowParticipantExpenToken               workflowParticipantExpenToken;
+        WorkflowParticipantExpenTokenLine           workflowParticipantExpenTokenLine;
+        WorkflowUserList                            userList = WorkflowUserList::construct();
+        RefRecId                                    dimensionAttributeSetRecId;
+        MarkupTrans                                 markupTrans;
+        CompanyInfo                                 legalEntity;
+        str                                         projDimension;
+
+        if (!_participantTokenName)
+        {
+            throw error("@SYS105453");
+        }
+
+        workflowParticipantExpenToken = WorkflowParticipantExpenToken::findName(
+            this.documentType(),
+            _participantTokenName);
+
+        if (!workflowParticipantExpenToken)
+        {
+            throw error(strFmt("@SYS313865", _participantTokenName));
+        }
+
+        if (_context.parmTableId() == tableNum(PurchTable))
+        {
+            purchTable   = PurchTable::findRecId(_context.parmRecId());
+        }
+        else
+        {
+            purchTable   = PurchLine::findRecId(_context.parmRecId()).purchTable();
+        }
+        
+        purchTable.distributeUnprocessedLines();
+
+        legalEntity = purchTable.companyInfo();
+
+        projDimension = PurchWorkflowParticipantProviderExpend::getDimAttrNames(purchTable.DefaultDimension,"PROYECTO");
+
+        while select ProjId, SourceDocumentLine, RecId from purchLine
+            where purchLine.PurchId == purchTable.PurchId
+                && (_context.parmTableId() == tableNum(PurchTable)
+                || (_context.parmTableId() == tableNum(PurchLine) && purchLine.RecId == _context.parmRecId()))
+        {
+            workflowParticipantExpenTokenLine = WorkflowParticipantExpenTokenLine::findTokenLine(
+                workflowParticipantExpenToken.RecId,
+                legalEntity.RecId);
+
+            if (workflowParticipantExpenTokenLine)
+            {
+                if (purchLine.ProjId)
+                {
+                    this.resolveProject(purchLine.ProjId, workflowParticipantExpenTokenLine, userList);
+
+                    dimensionAttributeSetRecId  = workflowParticipantExpenTokenLine.ProjectDimensionAttributeSet;
+                }
+
+                else if ((projDimension != "") && (purchLine.ProjId == ""))
+                {
+                    this.resolveProject(projDimension, workflowParticipantExpenTokenLine, userList);
+
+                    dimensionAttributeSetRecId  = workflowParticipantExpenTokenLine.ProjectDimensionAttributeSet;
+                }
+
+                else
+                {
+                    dimensionAttributeSetRecId  = workflowParticipantExpenTokenLine.OrganizationDimensionAttributeSet;
+                }
+
+                if (dimensionAttributeSetRecId)
+                {
+                    this.resolveDimensions(userList,
+                                           purchLine.SourceDocumentLine,
+                                           dimensionAttributeSetRecId);
+
+                    while select SourceDocumentLine from  markupTrans
+                        where markupTrans.TransTableId == purchLine.TableId
+                        &&    markupTrans.TransRecId   == purchLine.RecId
+                    {
+                        this.resolveDimensions(userList,
+                                               markupTrans.SourceDocumentLine,
+                                               dimensionAttributeSetRecId);
+                    }
+                }
+            }
+        }
+
+        if (userList.getCount() == 0)
+        {
+            throw error(strFmt("@SCM:ParticipantTokenNotResolveUserCorrectAaccountingDistributionTryAgain", _participantTokenName));
+        }
+
+        return userList;
+    }
+
+    public static PurchWorkflowParticipantProviderExpend construct()
+    {
+        return new PurchWorkflowParticipantProviderExpend();
+    }
+
+    public static str getDimensionDisplayValue(RecId defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetStorage dimStorage;
+ 
+        dimStorage = DimensionAttributeValueSetStorage::find(defaultDimension);
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(dimName).RecId);
+    }
+
+    public static str getDimAttrNames(DimensionDefault _defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetItem valueSetItem;
+        DimensionAttributeValue dimAttrValue;
+        DimensionAttribute dimAttr;
+        str dimensionAttributeNames;
+
+        dimensionAttributeNames = '';
+
+        select firstonly dimAttr
+            where dimAttr.Name == dimName
+            join dimAttrValue
+                where dimAttrValue.DimensionAttribute == dimAttr.RecId
+           join valueSetItem
+                where valueSetItem.DimensionAttributeValue == dimAttrValue.RecId
+            && valueSetItem.DimensionAttributeValueSet == _defaultDimension;
+       
+        dimensionAttributeNames = valueSetItem.DisplayValue ;
+
+        return dimensionAttributeNames;
+    }
+
+}
+
+________________________________________________________________________________________________________
+
+[ExtensionOf(classStr(PurchWorkflowParticipantProviderExpend))]
+final class EI_PurchWorkflowParticipantProviderExpend_Extension
+{
+
+    public WorkflowUserList resolve(WorkflowContext          _context,
+                                    WorkflowParticipantToken _participantTokenName)
+    {
+        PurchTable                                  purchTable;
+        PurchTable                                  purchTableUpd;
+        PurchLine                                   purchLine;
+        PurchLine                                   purchLineUpd;
+        WorkflowParticipantExpenToken               workflowParticipantExpenToken;
+        WorkflowParticipantExpenTokenLine           workflowParticipantExpenTokenLine;
+        WorkflowUserList                            userList = WorkflowUserList::construct();
+        RefRecId                                    dimensionAttributeSetRecId;
+        MarkupTrans                                 markupTrans;
+        CompanyInfo                                 legalEntity;
+        str                                         projDimension;
+        System.ArgumentException                    ex;
+
+       
+
+       
+        if (!_participantTokenName)
+        {
+            throw error("@SYS105453");
+        }
+
+        workflowParticipantExpenToken = WorkflowParticipantExpenToken::findName(
+            this.documentType(),
+            _participantTokenName);
+
+        if (!workflowParticipantExpenToken)
+        {
+            throw error(strFmt("@SYS313865", _participantTokenName));
+        }
+
+        if (_context.parmTableId() == tableNum(PurchTable))
+        {
+            purchTable   = PurchTable::findRecId(_context.parmRecId());
+        }
+        else
+        {
+            purchTable   = PurchLine::findRecId(_context.parmRecId()).purchTable();
+        }
+        
+        projDimension = PurchWorkflowParticipantProviderExpend::getDimAttrNames(purchTable.DefaultDimension,"PROYECTO");
+       
+        
+            
+        userList = next resolve(_context,_participantTokenName);
+
+
+        return userList;
+    }
+
+    static str getAttributeValueFromCombination(
+    RefRecId _combination,
+    Name _attributeName)
+    {
+        DimensionAttributeValueSet valueView;
+        DimensionAttribute attribute = DimensionAttribute::findByName(_attributeName); //Retrive attribute record by Name
+    
+        select valueView
+            where valueView.RecId == _combination;
+        //&& valueView. == attribute.RecId; //Retrieve individual Dimension attribute record
+ 
+        return valueView.CreatedBy; //Retrive dimension attribute value
+    }
+
+    //For D365FO
+    public static str getDimensionDisplayValue(RecId defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetStorage dimStorage;
+ 
+        dimStorage = DimensionAttributeValueSetStorage::find(defaultDimension);
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(dimName).RecId);
+    }
+
+    public static str getDimAttrNames(DimensionDefault _defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetItem valueSetItem;
+        DimensionAttributeValue dimAttrValue;
+        DimensionAttribute dimAttr;
+        str dimensionAttributeNames;
+
+        dimensionAttributeNames = '';
+
+        select firstonly dimAttr
+            where dimAttr.Name == dimName
+            join dimAttrValue
+                where dimAttrValue.DimensionAttribute == dimAttr.RecId
+           join valueSetItem
+                where valueSetItem.DimensionAttributeValue == dimAttrValue.RecId
+            && valueSetItem.DimensionAttributeValueSet == _defaultDimension;
+       
+        dimensionAttributeNames = valueSetItem.DisplayValue ;
+
+        return dimensionAttributeNames;
+    }
+
+}
+
+_________________________________________________________
+
+final class EI_PurchReqWFExpendiParticipantProvider extends WorkflowParticipantProvider_Expend
+{
+    public WorkflowParticipantExpenDocumentType documentType()
+    {
+        return WorkflowParticipantExpenDocumentType::PurchReq;
+    }
+
+    /// <summary>
+    /// Gets a list that has the <c>WorkflowParticipantExpenToken.Name</c> field for display in the
+    /// workflow configuration UI.
+    /// </summary>
+    /// <returns>
+    /// An instance of a <c>WorkflowParticipantTokenList</c> class that contains the value of the
+    /// <c>WorkflowParticipantExpenToken.Name</c> fieldnum as the participant token ID and the
+    /// <c>WorkflowParticipantExpenToken.Name</c> value as the participant token name.
+    /// </returns>
+
+    public WorkflowParticipantTokenList getParticipantTokens()
+    {
+        return super();
+    }
+
+    protected void new()
+    {
+        super();
+    }
+
+    /// <summary>
+    /// Resolves the <c>PurchReqLine</c> dimensions to a list of users.
+    /// </summary>
+    /// <param name="_context">
+    /// An instance of the <c>WorkflowContext</c> class.
+    /// </param>
+    /// <param name="_participantTokenName">
+    /// A <c>PurchLine.Requisitioner</c> token.
+    /// </param>
+    /// <returns>
+    /// An instance of the <c>WorkflowUserList</c> class that contains all enabled users from the token.
+    /// </returns>
+    /// <exception cref="M:Exception::Error">
+    /// The participant token does not exist.
+    /// </exception>
+
+    public WorkflowUserList resolve(WorkflowContext          _context,
+                                    WorkflowParticipantToken _participantTokenName)
+    {
+        PurchReqTable                               purchReqTable;
+        PurchReqLine                                purchReqLine;
+        WorkflowParticipantExpenToken               workflowParticipantExpenToken;
+        WorkflowParticipantExpenTokenLine           workflowParticipantExpenTokenLine;
+        WorkflowUserList                            userList = WorkflowUserList::construct();
+
+        if (!_participantTokenName)
+            throw error("@SYS105453");
+
+        workflowParticipantExpenToken = WorkflowParticipantExpenToken::findName(WorkflowParticipantExpenDocumentType::PurchReq,
+                                                                                _participantTokenName);
+
+        if (!workflowParticipantExpenToken)
+        {
+            throw error(strFmt("@SYS313865", _participantTokenName));
+        }
+
+        if (_context.parmTableId() == tableNum(PurchReqTable))
+        {
+            purchReqTable   = PurchReqTable::find(_context.parmRecId());
+        }
+        else
+        {
+            purchReqTable   = PurchReqTable::find(PurchReqLine::find(_context.parmRecId()).PurchReqTable);
+        }
+
+        SourceDocumentProcessorFacade::submitSourceDocumentLinesForHeader(purchReqTable, SourceDocumentLineAccountingStatus::FullyDistributed);
+
+        while select ProjId, SourceDocumentLine, BuyingLegalEntity, RecId, DefaultDimension from purchReqLine where
+                    purchReqLine.PurchReqTable == purchReqTable.RecId &&
+                    (
+                     _context.parmTableId() == tableNum(PurchReqTable) ||
+                     (_context.parmTableId() == tableNum(PurchReqLine) && purchReqLine.RecId == _context.parmRecId())
+                    )
+        {
+            changecompany(CompanyInfo::findRecId(purchReqLine.BuyingLegalEntity).DataArea)
+            {
+                workflowParticipantExpenTokenLine = WorkflowParticipantExpenTokenLine::findTokenLine(workflowParticipantExpenToken.RecId,
+                                                                                                     purchReqLine.BuyingLegalEntity);
+                this.initializeUserList(workflowParticipantExpenTokenLine, purchReqLine, userList);
+            }
+        }
+
+        if (userList.getCount() == 0)
+        {
+            throw error(strFmt("@SCM:ParticipantTokenNotResolveUserCorrectAaccountingDistributionTryAgain", _participantTokenName));
+        }
+
+        return userList;
+    }
+
+    /// <summary>
+    /// Resolves the dimensions of the <c>PurchReqLine</c> table to a list of users
+    /// depending if the <c>WorkflowParticipantExpenTokenLine</c> record exists.
+    /// </summary>
+    /// <param name = "_workflowParticipantExpenTokenLine">The <c>WorkflowParticipantExpenTokenLine</c> record.</param>
+    /// <param name = "_purchReqLine">The <c>PurchReqLine</c> record.</param>
+    /// <param name = "_userList">An instance of the <c>WorkflowUserList</c> class.</param>
+    protected void initializeUserList(WorkflowParticipantExpenTokenLine _workflowParticipantExpenTokenLine,
+                                      PurchReqLine                      _purchReqLine,
+                                      WorkflowUserList                  _userList)
+    {
+        RefRecId    dimensionAttributeSetRecId;
+        MarkupTrans markupTrans;
+        str         projDimension;
+
+        projDimension = PurchWorkflowParticipantProviderExpend::getDimAttrNames(_purchReqLine.DefaultDimension,"PROYECTO");
+
+        if (!_workflowParticipantExpenTokenLine)
+        {
+            return;
+        }
+        
+        if (_purchReqLine.ProjId)
+        {
+            this.resolveProjectDistributions(_purchReqLine.SourceDocumentLine, _workflowParticipantExpenTokenLine, _userList);
+
+            dimensionAttributeSetRecId  = _workflowParticipantExpenTokenLine.ProjectDimensionAttributeSet;
+        }
+
+        else if((projDimension != "")&&(_purchReqLine.ProjId == ""))
+        {
+            this.ResolveProjectDistributionsReq(projDimension, _workflowParticipantExpenTokenLine, _userList);
+
+            dimensionAttributeSetRecId  = _workflowParticipantExpenTokenLine.ProjectDimensionAttributeSet;
+        }
+
+        else
+        {
+            dimensionAttributeSetRecId  = _workflowParticipantExpenTokenLine.OrganizationDimensionAttributeSet;
+        }
+
+        if (dimensionAttributeSetRecId)
+        {
+            this.resolveDimensions(_userList, _purchReqLine.SourceDocumentLine, dimensionAttributeSetRecId);
+
+            while select SourceDocumentLine from  markupTrans where markupTrans.TransTableId == _purchReqLine.TableId &&
+                                                                            markupTrans.TransRecId   == _purchReqLine.RecId
+            {
+                this.resolveDimensions(_userList, markupTrans.SourceDocumentLine, dimensionAttributeSetRecId);
+            }
+        }
+    }
+
+    public static EI_PurchReqWFExpendiParticipantProvider construct()
+    {
+        return new EI_PurchReqWFExpendiParticipantProvider();
+    }
+
+    public static str getDimensionDisplayValue(RecId defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetStorage dimStorage;
+ 
+        dimStorage = DimensionAttributeValueSetStorage::find(defaultDimension);
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(dimName).RecId);
+    }
+
+    public static str getDimAttrNames(DimensionDefault _defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetItem valueSetItem;
+        DimensionAttributeValue dimAttrValue;
+        DimensionAttribute dimAttr;
+        str dimensionAttributeNames;
+
+        dimensionAttributeNames = '';
+
+        select firstonly dimAttr
+            where dimAttr.Name == dimName
+            join dimAttrValue
+                where dimAttrValue.DimensionAttribute == dimAttr.RecId
+           join valueSetItem
+                where valueSetItem.DimensionAttributeValue == dimAttrValue.RecId
+            && valueSetItem.DimensionAttributeValueSet == _defaultDimension;
+       
+        dimensionAttributeNames = valueSetItem.DisplayValue ;
+
+        return dimensionAttributeNames;
+    }
+
+}
+
+___________________________________________________________________

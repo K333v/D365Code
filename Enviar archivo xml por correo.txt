@@ -1,0 +1,338 @@
+class AP_DTEEmailSender_CL
+{   
+    AP_DTEParameters_CL         eInvoiceParameters;
+    AP_EInvoiceJour_CL          eInvoiceJour;
+    AP_Envelope                 envelope;
+
+    #File
+    protected const str TempFilePrefixName = 'AP_EnvioDTE_';
+
+    protected str getAttachmentFilePrefix()
+    {
+        return TempFilePrefixName;
+    }
+
+    protected AP_DTEEmail_CL getEInvoiceMail(
+        FileName                _attachmentName,
+        BinData                 _attachmentContent,
+        SysEmailRecipients      _email,
+        SysEmailDescriptionType _eMailDescription,
+        BinData                 _attachmentContentPDF)
+    {
+        return AP_DTEEmail_CL::construct(_attachmentName, _attachmentContent, _email, _eMailDescription,_attachmentContentPDF);
+    }
+
+    protected Email getPartyEmail(CustTable _custTable)
+    {
+        Email email;
+
+        LogisticsLocationEntity primaryElectronicAddressLocation = DirParty::primaryElectronicAddressLocation(_custTable.Party, LogisticsElectronicAddressMethodType::Email);
+        if (primaryElectronicAddressLocation)
+        {
+            email = primaryElectronicAddressLocation.getEmail();
+        }
+        return email;
+       // return "jaime.saavedra@omarket.cl;";
+    }
+
+   /* protected BinData getPdfFile()
+    {
+        BinData pdfBinFile = new BinData();
+        pdfBinFile.setData(eInvoiceJour.PDFDocumentSigned);
+        return pdfBinFile;
+    }*/
+
+    protected void new(AP_EInvoiceJour_CL _eInvoiceJour,AP_Envelope _envelope)
+    {
+        eInvoiceParameters      = AP_DTEParameters_CL::find();
+        eInvoiceJour            = _eInvoiceJour;
+        envelope                = _envelope;
+
+    }
+
+    public boolean sendMail()
+    {
+        if(eInvoiceParameters.SendPDF)
+             return this.sendXMLFile();
+        else
+            return false;
+
+    }
+
+    protected boolean sendXMLFile()
+    {
+        SysEmailParameters  emailParameters;
+        Email               email;
+        CustTable           custTable;
+
+        custTable = this.getCustTableFromEinvoiceJour();
+        emailParameters     = SysEmailParameters::find();
+        email = this.getPartyEmail(custTable);
+
+        if (email)
+        {
+            BinData xmlBinData = new BinData();
+            xmlBinData.setAsciiData(envelope.getxml());
+
+            var pdfdata = eInvoiceJour.PDFDocumentSigned;
+
+            BinData pdfBinData = new BinData();
+            if(pdfdata)
+            {
+                pdfBinData.setBinaryData(Binary::constructFromContainer(pdfdata));
+            }
+            
+            this.sendEinvoiceMail(email, this.getTempFileName(), xmlBinData,pdfBinData);
+
+            return true;
+        }
+        else
+        {
+            warning((strfmt("@SYS341172", custTable.AccountNum)));
+            return false;
+        }
+    }
+
+    public static AP_DTEEmailSender_CL construct(AP_EInvoiceJour_CL _eInvoiceJour,AP_Envelope _envelope)
+    {
+        return new AP_DTEEmailSender_CL(_eInvoiceJour,_envelope);
+    }
+
+    protected CustTable getCustTableFromEinvoiceJour()
+    {
+        CustTable       custTable;
+
+        switch (eInvoiceJour.RefTableId)
+        {
+            case tableNum(CustInvoiceJour) :
+                custTable = custTable::find(CustInvoiceJour::findRecId(eInvoiceJour.RefRecId).InvoiceAccount);
+                break;
+
+            case tableNum(ProjInvoiceJour) :
+                custTable = custTable::find(ProjInvoiceJour::findRecId(eInvoiceJour.RefRecId).InvoiceAccount);
+                break;
+        }
+
+        return custTable;
+    }
+
+    protected str getTempFileName()
+    {
+        return strFmt("%1%2%3",
+                        this.getAttachmentFilePrefix(),
+                        envelope.SetDTEId(),
+                        this.getTimeKey());//quite el punto
+    }
+
+    protected str getTimeKey()
+    {
+        return strFmt('_T%1', DateTimeUtil::getTimeNow(DateTimeUtil::getUserPreferredTimeZone()));
+    }
+
+    protected void sendEinvoiceMail(Email _email, FileName _attachmentName, BinData _attachmentContent,BinData _attachmentContentPDF)
+    {
+        AP_DTEEmail_CL     eInvoiceMail;
+        str                 eMailDescription;
+
+        eMailDescription    = this.getAttachmentFilePrefix() + eInvoiceJour.invoiceId();
+        eInvoiceMail        = this.getEInvoiceMail(_attachmentName, _attachmentContent, _email, eMailDescription,_attachmentContentPDF);
+
+        eInvoiceMail.addInvoiceNumberToMailSubject(eInvoiceJour.invoiceId());
+        eInvoiceMail.sendMail();
+    }
+
+}
+___________________________________________________________________
+
+public class AP_DTEEmail_CL
+{
+    SysEmailTable           emailTable;
+    SysEmailMessageTable    emailMessage;
+    SysEmailParameters      emailParameters;
+
+    SysEmailId              emailId;
+    LanguageId              languageId;
+
+    SysEmailRecipients      toEmailAddr;
+    SysEmailDescriptionType emailIdentifier;
+
+    FileName                attachmentName;
+    BinData                 attachmentContent;
+    BinData                 attachmentContentPDF;
+
+
+    Public void addInvoiceNumberToMailSubject(str _invoiceNumber)
+    {
+        #define.separator(' - ')
+
+        emailMessage.Subject = emailMessage.Subject + #separator + _invoiceNumber;
+    }
+
+    protected void initParameters()
+    {
+        emailParameters = SysEmailParameters::find();
+
+        languageId = xUserInfo::find().language;
+
+        emailTable = SysEmailTable::find(AP_DTEParameters_CL::find().EmailId);
+
+        if (!languageId)
+        {
+            languageId = emailTable.DefaultLanguage;
+        }
+
+        emailMessage = SysEmailMessageTable::find(emailTable.EmailId, languageId);
+
+        if (!emailMessage)
+        {
+            emailMessage = SysEmailMessageTable::find(emailTable.EmailId, emailTable.DefaultLanguage);
+        }
+    }
+
+    protected void new(
+        FileName                _attachmentName,
+        BinData                 _attachmentContent,
+        SysEmailRecipients      _toEmailAddr,
+        SysEmailDescriptionType _emailIdentifier,
+        BinData                 _attachmentContentPDF)
+    {
+        attachmentName      = _attachmentName;
+        attachmentContent   = _attachmentContent;
+        toEmailAddr         = _toEmailAddr;
+        emailIdentifier     = _emailIdentifier;
+        attachmentContentPDF = _attachmentContentPDF;
+        this.initParameters();
+    }
+
+    public void sendMail()
+    {
+        #File
+
+        SysEmailContents        messageBody;
+
+        Filename                filePath;
+        Filename                filename;
+        Filename                fileExtension;
+
+        SysEmailItemId          nextEmailItemId;
+
+        SysOutgoingEmailTable   outgoingEmailTable;
+        SysOutgoingEmailData    outgoingEmailData;
+
+        if (emailMessage)
+        {
+            messageBody = emailMessage.Mail;
+            ttsbegin;
+
+            nextEmailItemId = EventInbox::nextEventId();
+
+            outgoingEmailTable.EmailItemId      = nextEmailItemId;
+            outgoingEmailTable.TemplateId       = emailTable.EmailId;
+            outgoingEmailTable.IsSystemEmail    = NoYes::No;
+
+            outgoingEmailTable.Sender           = emailParameters.SMTPUserName;//emailTable.SenderAddr;
+            outgoingEmailTable.SenderName       = emailTable.SenderName;
+            outgoingEmailTable.Recipient        = toEmailAddr;
+            outgoingEmailTable.Origin           = emailIdentifier;
+
+            messageBody                         = SysEmailMessage::stringExpand(messageBody, null);
+
+            outgoingEmailTable.Subject      = emailMessage.Subject;
+            outgoingEmailTable.Priority     = emailTable.Priority;
+            outgoingEmailTable.WithRetries  = true;
+            outgoingEmailTable.RetryNum     = 0;
+            outgoingEmailTable.UserId       = curuserid();
+            outgoingEmailTable.Status       = SysEmailStatus::Unsent;
+            outgoingEmailTable.Message      = messageBody;
+
+
+            int counter=1;
+
+            // Attach EnvioDTE
+            if (this.attachmentName)
+            {
+                var xmlFileName = attachmentName + '.xml';
+                var xmlBinFile = attachmentContent;
+                if (!this.attachFile(nextEmailItemId, outgoingEmailData, xmlBinFile, xmlFileName, emailParameters, counter))
+                {
+                    CodeAccessPermission::revertAssert();
+
+                    ttsAbort;
+                }
+
+                counter++;
+            }
+
+            CodeAccessPermission::revertAssert();
+
+            // Attach PDF
+            if (attachmentContentPDF)
+            {
+                var pdfFileName = attachmentName + '.pdf';
+                var pdfBinFile = attachmentContentPDF;
+                if (!this.attachFile(nextEmailItemId, outgoingEmailData, pdfBinFile, pdfFileName, emailParameters, counter))
+                {
+                    CodeAccessPermission::revertAssert();
+
+                    ttsAbort;
+                }
+            }
+
+      
+            CodeAccessPermission::revertAssert();
+
+            outgoingEmailTable.LatestStatusChangeDateTime = DateTimeUtil::getSystemDateTime();
+            outgoingEmailTable.insert();
+
+            ttscommit;
+        }
+        else
+        {
+            throw error(strfmt("@SYS74260", languageId));
+        }
+    }
+
+    public static AP_DTEEmail_CL construct(
+        FileName                _attachmentName,
+        BinData                 _attachmentContent,
+        SysEmailRecipients      _toEmailAddr,
+        SysEmailDescriptionType _emailIdentifier,
+        BinData                 _attachmentContentPDF)
+    {
+        AP_DTEEmail_CL   eInvoiceMail;
+        eInvoiceMail = new AP_DTEEmail_CL(_attachmentName, _attachmentContent, _toEmailAddr, _emailIdentifier,_attachmentContentPDF);
+
+        return eInvoiceMail;
+    }
+
+    private boolean attachFile(SysEmailItemId              _nextEmailItemId,
+                            SysOutgoingEmailData        _outgoingEmailData,
+                            BinData                     _file,
+                            FileName                    _filename,
+                            SysEmailParameters          _emailParameters,
+                            Counter                     _counter)
+    {
+        Filename                filePath;
+        Filename                fileName;
+        Filename                fileExtension;
+
+        if (_file.size() < (_emailParameters.MaxEmailAttachmentSize * 1000000))
+        {
+            [filePath, filename, fileExtension] = Global::fileNameSplit(_filename);
+            _outgoingEmailData.EmailItemId       = _nextEmailItemId;
+            _outgoingEmailData.DataId            = _counter;
+            _outgoingEmailData.EmailDataType     = SysEmailDataType::Attachment;
+            _outgoingEmailData.Data              = _file.getData();
+            _outgoingEmailData.FileName          = fileName;
+            _outgoingEmailData.FileExtension     = fileExtension;
+            _outgoingEmailData.insert();
+
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+}

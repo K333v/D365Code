@@ -1,0 +1,496 @@
+using Microsoft.Dynamics365.LocalizationFramework;
+using Microsoft.Dynamics.AX.Framework.FileManagement;
+using Microsoft.Dynamics.Platform.Integration.SharePoint;
+using System.Collections;
+
+
+class BSLFileSharepoint
+{
+    int procesed,updated,notExist,notConsume;
+    str errorMessage;
+    ISharePointProxy proxy;
+    //20210329 - CONT02_6 CC1 - hhernandez - begin
+    boolean processByCompany,
+            DeleteProposal,
+            notDeleteProposal;
+    //20210329 - CONT02_6 CC1 - hhernandez - end
+    //20210426 - CONT02_6 INC8 - hhernandez - start
+    TransDate valDateExcel;
+    //20210426 - CONT02_6 INC8 - hhernandez - end
+
+    /// <summary>
+    /// Runs the class with the specified arguments.
+    /// </summary>
+    /// <param name = "_args">The specified arguments.</param>
+    public static void main(Args _args)
+    {
+        BSLFileSharepoint BSLTestDownloadFileSharepoint = new BSLFileSharepoint();
+      
+        FormRun formRun = _args.caller();
+        FormDataSource fds = formRun.dataSource();
+        //20210315 - CONT02_6 CC1 - hhernandez - begin
+        if(_args.menuItemName() == menuItemActionStr(BSLFileSharepointLocation))
+        {
+            BSLTestDownloadFileSharepoint.ReadFile(fds);
+        }
+        else if(_args.menuItemName() == menuItemActionStr(BSLFileSharepointCompany))
+        {
+            BSLTestDownloadFileSharepoint.ReadFileByCompany(fds);
+        }
+        //20210315 - CONT02_6 CC1 - hhernandez - end
+        fds.executeQuery();
+
+        
+        
+    }
+
+    public void importFromExcelfiles(System.IO.Stream _stream,FormDataSource _fds)
+    {
+        OfficeOpenXml.ExcelWorksheet        worksheet;
+        OfficeOpenXml.ExcelRange            cells;
+        OfficeOpenXml.ExcelPackage          package = new OfficeOpenXml.ExcelPackage(_stream);
+       
+        int totalRows,totalCells,rowCounter,cellCounter;
+        TmpAssetConsumptionProposal assetConsumptionProposal = _fds.cursor();
+
+        if(package)
+        {           
+            worksheet       = package.get_Workbook().get_Worksheets().get_Item(1);
+            cells           = worksheet.Cells;
+            totalRows       = worksheet.Dimension.End.Row ;
+            totalCells      = worksheet.Dimension.End.Column;
+
+            for (rowCounter = 2; rowCounter<= totalRows; rowCounter++)
+            {       
+                procesed++;
+                str _company =  cells.get_Item(rowCounter, 1).Value;
+                //20210205 - Fix BUG 30469 - msepulveda - begin
+                str _date = cells.get_Item(rowCounter, 2).Value.ToString();
+                //20210205 - Fix BUG 30469 - msepulveda - end
+                str assetId = cells.get_Item(rowCounter, 3).Value;
+                str _consume = cells.get_Item(rowCounter, 4).Value;
+
+                if(this.validRecord(assetConsumptionProposal,assetId,_company,_date,_consume))
+                {
+                    updated++;
+                }
+            }
+
+            while select  assetConsumptionProposal
+                where assetConsumptionProposal.BSLExists == NoYes::No
+            {
+                notExist++;
+                errorMessage += strFmt("@BSL:BSL100032",assetConsumptionProposal.AssetId);
+            }
+
+        }
+        Info(strFmt("@BSL:BSL100033",errorMessage));
+        Info(strFmt("@BSL:BSL100034",notConsume));
+        Info(strFmt("@BSL:BSL100035",notExist));
+        Info(strFmt("@BSL:BSL100036",updated));
+        Info(strFmt("@BSL:BSL100037",procesed));
+        
+    }
+
+    public boolean validRecord(TmpAssetConsumptionProposal assetConsumptionProposal, AssetId _assetId,str _company, str _date,str _consume)
+    {
+        boolean isValid = false;
+        //20210329 - CONT02_6 CC1 - hhernandez - start
+        if(!processByCompany)
+        {
+            select forupdate assetConsumptionProposal
+                where assetConsumptionProposal.AssetId == _assetId;
+        }
+        //20210329 - CONT02_6 CC1 - hhernandez - end
+
+        //20210426 - CONT02_6 INC8 - hhernandez - start
+        valDateExcel = dateNull();
+        //20210426 - CONT02_6 INC8 - hhernandez - end
+
+        if(assetConsumptionProposal)
+        {
+            if(_company == curExt())
+            {
+                isValid = true;
+            }
+            else
+            {
+                errorMessage += strFmt("@BSL:BSL100038",assetConsumptionProposal.AssetId);
+                isValid = false;
+                ttsbegin;
+                assetConsumptionProposal.BSLExists = NoYes::Yes;
+                assetConsumptionProposal.update();
+                ttscommit;
+            }
+
+            if(str2Date(_date,123) == assetConsumptionProposal.TransDate)
+            {
+                isValid = true;
+                //20210426 - CONT02_6 INC8 - hhernandez - start
+                valDateExcel = str2Date(_date,123);
+                //20210426 - CONT02_6 INC8 - hhernandez - end
+            }
+            else
+            {
+                if(str2Date(_date,213) == assetConsumptionProposal.TransDate)
+                {
+                    isValid = true;
+                    //20210426 - CONT02_6 INC8 - hhernandez - start
+                    valDateExcel = str2Date(_date,213);
+                    //20210426 - CONT02_6 INC8 - hhernandez - end
+                }
+                else
+                {
+                    if(str2Date(_date,321) == assetConsumptionProposal.TransDate)
+                    {
+                        isValid = true;
+                        //20210426 - CONT02_6 INC8 - hhernandez - start
+                        valDateExcel = str2Date(_date,321);
+                        //20210426 - CONT02_6 INC8 - hhernandez - end
+                    }
+                    else
+                    {
+                        errorMessage += strFmt("@BSL:BSL100039",assetConsumptionProposal.AssetId);
+                        isValid = false;
+                        ttsbegin;
+                        assetConsumptionProposal.BSLExists = NoYes::Yes;
+                        assetConsumptionProposal.update();
+                        ttscommit;
+                    }
+                }
+            }
+
+            if(_consume == "0")
+            {
+                errorMessage += strFmt("@BSL:BSL100040",assetConsumptionProposal.AssetId);
+                notConsume++;
+                isValid = false;
+
+                //20210315 - CONT02_6 CC1 - hhernandez - begin
+                if(this.DialogBoxDeleteProposal())
+                {
+                    ttsbegin;
+                    delete_from assetConsumptionProposal where assetConsumptionProposal.AssetId == _assetId;
+                    ttscommit;
+                }
+                //20210315 - CONT02_6 CC1 - hhernandez - end
+                
+            }
+        }
+        else
+        {
+            errorMessage += strFmt("@BSL:BSL100041",_assetId);
+            notExist++;
+            isValid = false;
+        }
+        if(isValid == true)
+        {
+            ttsbegin;
+            assetConsumptionProposal.BSLExists = NoYes::Yes;
+            assetConsumptionProposal.Qty = str2Int(_consume);
+            assetConsumptionProposal.Depreciation = assetConsumptionProposal.Qty * assetConsumptionProposal.depreciationAmountUnit();
+            assetConsumptionProposal.DepreciationReportingCurrency = assetConsumptionProposal.Qty * assetConsumptionProposal.depreciationAmountUnitReportingCurrency();
+            assetConsumptionProposal.update();
+            ttscommit;
+        }
+
+        return isValid;
+    }
+
+    public void ReadFile(FormDataSource _fds)
+    {
+        int contValid;
+        TmpAssetConsumptionProposal assetConsumptionProposal = _fds.cursor();
+        AssetTable assetTable = AssetTable::find(assetConsumptionProposal.AssetId);
+        FileContents file;
+        BSLBesalcoIntegrationParameter parameters = BSLBesalcoIntegrationParameter::find();
+        str FOLDER_PATH;
+
+        select forupdate assetConsumptionProposal order by assetConsumptionProposal.TransDate desc;       
+
+        FOLDER_PATH = strFmt("%1%2%3.xlsx",curExt(),assetTable.Location,date2Str(assetConsumptionProposal.TransDate,0,0,0,2,0,4));
+
+        proxy = this.getProxy(parameters.HostConsume, parameters.SiteConsume);
+        
+        FileResults fileResults = SharePointHelper::GetFiles(proxy, parameters.FolderPathConsume, "");
+      
+        if (fileResults && fileResults.Results)
+        {
+            if(fileResults.Results.count == 0 )
+            {
+                throw Error("@BSL:BSL100042");
+            }
+            IEnumerable results = fileResults.Results;
+            
+            var fileListEnumerator = results.GetEnumerator();
+            
+            while (fileListEnumerator.MoveNext())
+            {
+                FileResult fileResult = fileListEnumerator.Current;
+                System.Uri uri = new System.Uri(fileResult.Metadata.Uri);
+                file = SharePointHelper::GetFileContents(proxy, uri);
+                if(file.FileName == FOLDER_PATH)
+                {
+                    contValid = 1;
+                    using(System.IO.MemoryStream ms = new System.IO.MemoryStream())
+                    {
+                        System.IO.Stream fileStream = file.Content;
+                        fileStream.CopyTo(ms);
+                        if(ms)
+                        {                        
+                            this.importFromExcelfiles(ms,_fds);
+                            break;
+                        }
+                        else
+                        {
+                            throw Error("@BSL:BSL100042");
+                        }
+                    }
+                }
+            }
+            if(contValid == 0)
+            {
+                throw Error("@BSL:BSL100042");
+            }
+        }
+        else
+        {
+
+            throw Error("@BSL:BSL100043");
+        }
+    }
+
+    private ISharePointProxy getProxy(str _host, str _site, str _userExternalId = xUserInfo::getCurrentUserExternalId())
+    {
+        return (proxy && proxy.Config.TargetHost == _host && proxy.Config.Site == _site) ?
+            proxy :
+            SharePointHelper::createProxy(_host, _site, _userExternalId);
+    }
+
+    //20210315 - CONT02_6 CC1 - hhernandez
+    public void ReadFileByCompany(FormDataSource _fds)
+    {
+        int contValid;
+        //20210426 - CONT02_6 INC8 - hhernandez - start
+        TransDate transDateLoc = this.getdateForDoc(_fds);
+        FileContents file;
+        BSLBesalcoIntegrationParameter parameters = BSLBesalcoIntegrationParameter::find();
+        str FOLDER_PATH;
+        processByCompany = true;
+
+        FOLDER_PATH = strFmt("%1%2.xlsx",curExt(),date2Str(transDateLoc,0,0,0,2,0,4));
+        //20210426 - CONT02_6 INC8 - hhernandez - end
+        proxy = this.getProxy(parameters.HostConsume, parameters.SiteConsume);
+        
+        FileResults fileResults = SharePointHelper::GetFiles(proxy, parameters.FolderPathConsume, "");
+      
+        if (fileResults && fileResults.Results)
+        {
+            if(fileResults.Results.count == 0 )
+            {
+                throw Error("@BSL:BSL100042");
+            }
+            IEnumerable results = fileResults.Results;
+            
+            var fileListEnumerator = results.GetEnumerator();
+            
+            while (fileListEnumerator.MoveNext())
+            {
+                FileResult fileResult = fileListEnumerator.Current;
+                System.Uri uri = new System.Uri(fileResult.Metadata.Uri);
+                file = SharePointHelper::GetFileContents(proxy, uri);
+                if(file.FileName == FOLDER_PATH)
+                {
+                    contValid = 1;
+                    using(System.IO.MemoryStream ms = new System.IO.MemoryStream())
+                    {
+                        System.IO.Stream fileStream = file.Content;
+                        fileStream.CopyTo(ms);
+                        if(ms)
+                        {
+                            //20210329 - CONT02_6 CC1 - hhernandez - start
+                            this.iterateDSCompany(ms,_fds);
+                            //20210329 - CONT02_6 CC1 - hhernandez - end
+                            break;
+                        }
+                        else
+                        {
+                            throw Error("@BSL:BSL100042");
+                        }
+                    }
+                }
+            }
+            if(contValid == 0)
+            {
+                throw Error("@BSL:BSL100042");
+            }
+        }
+        else
+        {
+
+            throw Error("@BSL:BSL100043");
+        }
+    }
+
+    //20210329 - CONT02_6 CC1 - hhernandez
+    boolean DialogBoxDeleteProposal()
+    {
+
+        if(!processByCompany)
+            return false;
+        else if(DeleteProposal)
+            return true;
+        else if(notDeleteProposal)
+            return false;
+        else
+        {
+            DialogButton diagBut;
+
+            diagBut = Box::okCancel(
+                "@BSL:BSL40005",
+                DialogButton::No);
+            if (diagBut == DialogButton::Cancel)
+            {
+                DeleteProposal = false;
+                notDeleteProposal = true;
+            }
+            else
+            {
+                DeleteProposal = true;
+            }
+        }
+        return DeleteProposal;
+    }
+
+    //20210329 - CONT02_6 CC1 - hhernandez
+    public void iterateDSCompany(System.IO.Stream _stream,FormDataSource _fds)
+    {
+        TmpAssetConsumptionProposal assetConsumptionProposalLocal;
+
+        for (assetConsumptionProposalLocal = _fds.getFirst() ? _fds.getFirst() : _fds.cursor();
+            assetConsumptionProposalLocal;
+            assetConsumptionProposalLocal = _fds.getNext())
+        {
+            TmpAssetConsumptionProposal assetConsumptionProposalRec;
+            assetConsumptionProposalRec.setTmpData(_fds.cursor());
+
+            select assetConsumptionProposalRec
+                where assetConsumptionProposalRec.AssetId == assetConsumptionProposalLocal.AssetId
+                //20210426 - CONT02_6 INC8 - hhernandez - start
+                && assetConsumptionProposalRec.TransDate == assetConsumptionProposalLocal.TransDate;
+                //20210426 - CONT02_6 INC8 - hhernandez - end
+
+            this.importFromExcelfilesCompany(_stream,assetConsumptionProposalRec, _fds);
+        }
+
+        Info(strFmt("@BSL:BSL100033",errorMessage));
+        Info(strFmt("@BSL:BSL100034",notConsume));
+        Info(strFmt("@BSL:BSL100035",notExist));
+        Info(strFmt("@BSL:BSL100036",updated));
+        Info(strFmt("@BSL:BSL100037",procesed));
+
+    }
+
+    //20210329 - CONT02_6 CC1 - hhernandez
+    public void importFromExcelfilesCompany(System.IO.Stream _stream, TmpAssetConsumptionProposal _assetConsumptionProposal, FormDataSource _fds)
+    {
+        boolean                             foundInExcelDoc;
+        boolean                             deleteBlank = true;;
+        OfficeOpenXml.ExcelWorksheet        worksheet;
+        OfficeOpenXml.ExcelRange            cells;
+        OfficeOpenXml.ExcelPackage          package = new OfficeOpenXml.ExcelPackage(_stream);
+       
+        int totalRows,totalCells,rowCounter,cellCounter;
+
+        if(package)
+        {
+            worksheet       = package.get_Workbook().get_Worksheets().get_Item(1);
+            cells           = worksheet.Cells;
+            totalRows       = worksheet.Dimension.End.Row ;
+            totalCells      = worksheet.Dimension.End.Column;
+
+            procesed++;
+
+            for (rowCounter = 2; rowCounter<= totalRows; rowCounter++)
+            {
+                str _company =  cells.get_Item(rowCounter, 1).Value;
+                //<AP5423.sn>
+                if(!_company)
+                {
+                    break;
+                }
+                //<AP5423.en>
+                str _date = cells.get_Item(rowCounter, 2).Value.ToString();
+                str assetId = cells.get_Item(rowCounter, 3).Value;
+                str _consume = cells.get_Item(rowCounter, 4).Value;
+
+                if(_assetConsumptionProposal.AssetId == assetId)
+                {
+                    deleteBlank = false;
+                    foundInExcelDoc = true;
+
+                    if(this.validRecord(_assetConsumptionProposal,assetId,_company,_date,_consume))
+                    {
+                        updated++;
+                    }
+                    //20210426 - CONT02_6 INC8 - hhernandez - start
+                    if(valDateExcel != _assetConsumptionProposal.TransDate)
+                    {
+                        AssetId assetIdV = _assetConsumptionProposal.AssetId;
+                        TransDate transDateV = _assetConsumptionProposal.TransDate;
+                        foundInExcelDoc = false;
+                        ttsbegin;
+                        delete_from _assetConsumptionProposal 
+                            where   _assetConsumptionProposal.AssetId == assetIdV
+                                &&  _assetConsumptionProposal.TransDate == transDateV;
+                        ttscommit;
+                    }
+                    //20210426 - CONT02_6 INC8 - hhernandez - end
+                }
+            }
+
+            if(deleteBlank)
+            {
+                DeleteProposal = this.DialogBoxDeleteProposal();
+
+                if(DeleteProposal)
+                {
+                    AssetId assetIdVar = _assetConsumptionProposal.AssetId;
+                    ttsbegin;
+                    delete_from _assetConsumptionProposal where _assetConsumptionProposal.AssetId == assetIdVar;
+                    ttscommit;
+                }
+
+            }
+
+            if(!foundInExcelDoc)
+            {
+                errorMessage += strFmt("@BSL:BSL100032",_assetConsumptionProposal.AssetId);
+                notExist++;
+            }
+
+        }
+    }
+
+    //20210426 - CONT02_6 INC8 - hhernandez
+    public TransDate getdateForDoc(FormDataSource _fds)
+    {
+        TmpAssetConsumptionProposal assetConsumptionProposalLocal;
+        TransDate                   datRet;
+        FormDataSource              fdslocal = _fds;
+
+        for (assetConsumptionProposalLocal = fdslocal.getFirst() ? fdslocal.getFirst() : fdslocal.cursor();
+        assetConsumptionProposalLocal;
+        assetConsumptionProposalLocal = fdslocal.getNext())
+        {
+            if(assetConsumptionProposalLocal.TransDate > datRet)
+            {
+                datRet = assetConsumptionProposalLocal.TransDate;
+            }
+        }
+
+        return datRet;
+
+    }
+
+}

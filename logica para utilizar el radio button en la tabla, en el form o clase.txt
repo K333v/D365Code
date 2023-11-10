@@ -1,0 +1,169 @@
+     /// <summary>
+    /// METODO active del datasource
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, APPSPMMobilityDependenceTable), FormDataSourceEventType::Activated)]
+    public static void APPSPM_MobilityDependenceTable_OnActivated(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormRun formRun = sender.formRun();
+        FormDataSource  formDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail, CaseDetailBase  ));
+                        formDS.refresh();
+        FormDataSource  mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail,APPSPMMobilityDependenceTable));
+                        mobilityDependenceTableDS.refresh();
+        CaseDetailBase caseDetailBase = formDS.cursor();
+        APPSPMMobilityDependenceTable mobilityDependenceTable = mobilityDependenceTableDS.cursor();//Add by jpr
+        FormControl radioControl = sender.formRun().design().controlName(formControlStr(CaseDetail,FormRadioButtonControl1));
+        DimAttributeOMDepartment dimAttributeOMDepartment;
+        APPSPMResolutionTable resolTable;
+        APPSPMWorkerRelationTable workerRelTable;
+        OMOperatingUnit OMOperatingUnit;
+        APPSPMPayment APPSPMPayment;
+
+        //KCL- MUESTRA EL VALOR POR DEFECTO DEL RADIO BUTTON DE ACUERDO A LO QUE HAY EN LA TABLA
+        FormRadioControl radioControl1 = sender.formRun().design().controlName(formControlStr(CaseDetail, FormRadioButtonControl1));
+        radioControl1.selection(enum2int(mobilityDependenceTable.TypeMobility));
+        FormRadioControl radioControl2 = sender.formRun().design().controlName(formControlStr(CaseDetail, FormRadioButtonControl2));
+        radioControl2.selection(enum2int(mobilityDependenceTable.SelectDependency));
+        //KCL
+
+        if(mobilityDependenceTable)
+        {
+            if (mobilityDependenceTable.SelectDependency == APPSPMSelectDependency::Dependency) //Check Dependence is marked
+            {
+                if(mobilityDependenceTable.Volunteer == NoYes::Yes)
+                {
+                    sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTab)).enabled(false);
+                    sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(false);
+                    sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(true);
+                }
+                else
+                {
+                    sender.formRun().design().controlName(formControlStr(CaseDetail,PaymentsTab)).enabled(true);
+                    sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(false);
+                    sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMMaintainPayrollCredits)).enabled(false);
+                    
+                    select firstonly RecId from APPSPMPayment  //KCL
+                        where APPSPMPayment.CaseId == caseDetailBase.CaseId;
+
+                    if(APPSPMPayment)
+                    {
+                        sender.formRun().design().controlName(formControlStr(CaseDetail,APPSPMGenerateResolution)).enabled(true);
+                    }
+                }
+            }
+}
+
+
+___________________________
+//KCL- METODO SELECTIONCHANGED que actualizara los valores en la tabla
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, FormRadioButtonControl1), FormControlEventType::SelectionChanged)]
+    public static void FormRadioButtonControl1_OnSelectionChanged(FormControl sender, FormControlEventArgs e)
+    {
+        FormDataSource                  mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail, APPSPMMobilityDependenceTable));         
+        APPSPMMobilityDependenceTable   mobilityDependenceTable   = mobilityDependenceTableDS.cursor();
+        FormControl                     radioControl = sender.formRun().design().controlName(formControlStr(CaseDetail, FormRadioButtonControl1));
+        
+        if (radioControl.valueStr() == enum2Value(APPSPMTypeMobility::Destination))
+            APPSPMMobilityDependenceTable::updateTypeMobility(APPSPMTypeMobility::Destination, mobilityDependenceTable);
+        else
+            APPSPMMobilityDependenceTable::updateTypeMobility(APPSPMTypeMobility::InternalOrder, mobilityDependenceTable);
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, FormRadioButtonControl2), FormControlEventType::SelectionChanged)]
+    public static void FormRadioButtonControl2_OnSelectionChanged(FormControl sender, FormControlEventArgs e)
+    {           
+        FormDataSource                  mobilityDependenceTableDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail, APPSPMMobilityDependenceTable));
+        APPSPMMobilityDependenceTable   mobilityDependenceTable   = mobilityDependenceTableDS.cursor();
+        FormControl                     radioControl = sender.formRun().design().controlName(formControlStr(CaseDetail, FormRadioButtonControl2));
+        
+        FormDataSource                  caseDetailBaseDS = sender.formRun().dataSource(FormDataSourcestr(CaseDetail, CaseDetailBase));
+        CaseDetailBase                  caseDetailBase = caseDetailBaseDS.cursor();
+        HcmPositionDetail               positionDetail;
+
+        if (radioControl.valueStr() == enum2Value(APPSPMSelectDependency::AppointmentCompatiblePosition))
+        {
+            APPSPMMobilityDependenceTable::updateSelectDependency(APPSPMSelectDependency::AppointmentCompatiblePosition, mobilityDependenceTable);
+        }
+        else
+        {
+            if (!mobilityDependenceTable.ActualDependenceInt64)
+                positionDetail = APPSPMMaintainPayrollCredits::getHcmPositionDetail(caseDetailBase);
+
+            APPSPMMobilityDependenceTable::updateSelectDependency(APPSPMSelectDependency::Dependency, mobilityDependenceTable, positionDetail);
+            
+            if (mobilityDependenceTable.Volunteer)
+            {
+                sender.formRun().design().controlName(formControlStr(CaseDetail, PaymentsTab)).enabled(false);
+                sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMGenerateResolution)).enabled(false);
+                sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMMaintainPayrollCredits)).enabled(true);
+            }
+            else
+            {
+                sender.formRun().design().controlName(formControlStr(CaseDetail, PaymentsTab)).enabled(true);
+                sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMGenerateResolution)).enabled(false);
+                sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMMaintainPayrollCredits)).enabled(false);
+                 
+                APPSPMPayment APPSPMPayment;
+
+                select firstonly RecId from APPSPMPayment
+                        where APPSPMPayment.CaseId == caseDetailBase.CaseId;
+
+                if (APPSPMPayment)
+                {
+                    sender.formRun().design().controlName(formControlStr(CaseDetail, APPSPMGenerateResolution)).enabled(true);
+                }
+            }
+        }
+    }
+    //KCL
+
+
+____________
+public static void updateTypeMobility(APPSPMTypeMobility  _typeMobility, APPSPMMobilityDependenceTable  _mobilityDependenceTable)
+    {
+        APPSPMMobilityDependenceTable   mobilityDependenceTable = _mobilityDependenceTable;
+
+        if (mobilityDependenceTable)
+        {
+            ttsbegin;
+            mobilityDependenceTable.selectForUpdate(true);
+            mobilityDependenceTable.TypeMobility = _typeMobility;
+            mobilityDependenceTable.update();
+            ttscommit;
+        }
+    }
+
+
+/// <summary>
+    /// KCL
+    /// </summary>
+    public static void updateSelectDependency(APPSPMSelectDependency         _selectDependency, 
+                                              APPSPMMobilityDependenceTable  _mobilityDependenceTable,
+                                              HcmPositionDetail              _positionDetail = null)
+    {
+        APPSPMMobilityDependenceTable   mobilityDependenceTable = _mobilityDependenceTable;
+
+        if (mobilityDependenceTable)
+        {
+            ttsbegin;
+            mobilityDependenceTable.selectForUpdate(true);
+            mobilityDependenceTable.SelectDependency = _selectDependency;
+            
+            if (_positionDetail)
+                mobilityDependenceTable.ActualDependenceInt64 = _positionDetail.Department;
+
+            mobilityDependenceTable.update();
+            ttscommit;
+        }
+    }

@@ -1,0 +1,14 @@
+public class EI_VendInvoiceJournal_EventHandler
+{
+    [PostHandlerFor(formStr(VendInvoiceJournal), formMethodStr(VendInvoiceJournal, init))]
+    public static void VendInvoiceJournal_Post_init(XppPrePostArgs args)
+    {
+        FormRun         vendInvoiceJournalForm = args.getThis();
+        FormDataSource  vendInvoiceJour_ds = vendInvoiceJournalForm.dataSource(formDataSourceStr(VendInvoiceJournal,VendInvoiceJour));
+        boolean         enableScheduledPaymentDate = VendParameters::find().EI_EnableScheduledPaymentDate;
+
+        vendInvoiceJournalForm.control(vendInvoiceJournalForm.controlId(formControlStr(VendInvoiceJournal, EI_ModifyScheduledPaymentDate))).visible(enableScheduledPaymentDate);
+        vendInvoiceJour_ds.object(fieldNum(VendInvoiceJour, EI_ScheduledPaymentDate)).visible(enableScheduledPaymentDate);
+    }
+
+}

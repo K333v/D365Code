@@ -1,0 +1,13 @@
+ APHNCAITable    CAITable;
+                TransDate       dateSO = DateTimeUtil::date(salesTableUpd.CreatedDateTime);
+                
+                select firstonly CAITable
+                    where CAITable.DocumentTypeCE == salesTableUpd.APHNDocumentTypeCE
+                    && CAITable.APHNIniDate <= dateSO
+                    && CAITable.APHNFinDate >= dateSO
+                    && CAITable.Status == APHNStatus::Active;
+
+                if (!CAITable)
+                    throw error(strFmt(#errorCAI));
+
+                salesTableUpd.APHNCAIId = CAITable.CAIId;

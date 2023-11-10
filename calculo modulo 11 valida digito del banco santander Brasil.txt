@@ -1,0 +1,42 @@
+/// <summary>
+    /// Calculates mod 11 digit from Santander bank
+    /// </summary>
+    /// <remarks>
+    /// 2023.02.22 - CNAB - Ilziane.Campos
+    /// </remarks>
+    public void calcOurNumberDigit()
+    {
+        int ourNumber = str2Int(this.UFTOurNumber);
+        int result, digitSum, digit;
+        int digitSequence = 2;
+
+        while (ourNumber > 0)
+        {
+            digitSum    = ourNumber mod 10;
+            result      = result + (digitSum * digitSequence);
+            ourNumber   = ourNumber / 10;
+
+            if (digitSequence == 9)
+            {
+                digitSequence = 2;
+            }
+            else
+            {
+                digitSequence++;
+            }
+        }
+
+        result  = result mod 11;
+        digit   = 11 - result;
+
+        if (digit == 1 || digit == 0 )
+        {
+            digit = 0;
+        }
+        else
+        {
+            digit = digit mod 10;
+        }
+
+        this.UFTOurNumDigit = int2Str(digit);
+    }

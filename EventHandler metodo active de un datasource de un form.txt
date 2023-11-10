@@ -1,0 +1,45 @@
+class AP_DTEReceivedListEventHandler
+{
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataSourceEventHandler(formDataSourceStr(AP_DTEReceivedList, AP_DTEReceived), FormDataSourceEventType::Activated)]
+    public static void AP_DTEReceived_OnActivated(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormRun                 element = sender.formRun();
+        FormControl             MenuButtonAceptActions = element.design(0).controlName("MenuButtonAceptActions");
+        FormControl             RejectActions = element.design(0).controlName("RejectActions");
+        FormControl             AP_DTEReceivedToPost = element.design(0).controlName("AP_DTEReceivedToPost");
+        FormControl             UpdateGroup = element.design(0).controlName("UpdateGroup");
+        FormControl             AP_ManualApprovalControlDTE_CL = element.design(0).controlName("AP_ManualApprovalControlDTE_CL");
+        FormControl             AP_DTECreatePendingInvoice = element.design(0).controlName("AP_DTECreatePendingInvoice");
+
+        
+        AP_DTEReceivedXML_CL           AP_DTEReceived         = sender.cursor();
+        FormDataSource                 AP_DTEReceived_ds      = sender.formRun().dataSource('AP_DTEReceived');
+        
+        if(AP_DTEReceived.Motive)
+        {
+            MenuButtonAceptActions.enabled(false);
+            RejectActions.enabled(false);
+            AP_DTEReceivedToPost.enabled(false); 
+            AP_DTECreatePendingInvoice.enabled(false); 
+            UpdateGroup.enabled(false); 
+            AP_ManualApprovalControlDTE_CL.enabled(false);
+        }
+        else
+        {
+            MenuButtonAceptActions.enabled(true);
+            RejectActions.enabled(true);
+            AP_DTEReceivedToPost.enabled(true);
+            AP_DTECreatePendingInvoice.enabled(true);
+            UpdateGroup.enabled(true);
+            AP_ManualApprovalControlDTE_CL.enabled(true);
+        }
+      
+
+    }
+
+}

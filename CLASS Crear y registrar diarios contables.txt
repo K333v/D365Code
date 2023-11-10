@@ -1,0 +1,253 @@
+/// <summary>
+/// Create and post Ledger Journal
+/// </summary>
+class UFTCreateAndPostLedgerJournal
+{
+    private container recordCon;
+    private UFTAccountingSetupsRecId accountingSetupsRecId;
+    private Description journalDesrcription;
+    private UFTCostsRevenueDetails costsRevenueDetails;
+    private LedgerJournalTable journalTable;
+
+    /// <summary>
+    /// Construct for <c>UFTCreateAndPostLedgerJournal</c> class
+    /// </summary>
+    /// <returns> An instance of <c>UFTCreateAndPostLedgerJournal</c> class </returns>
+    public static UFTCreateAndPostLedgerJournal construct()
+    {
+        return new UFTCreateAndPostLedgerJournal();
+    }
+
+    /// <summary>
+    /// Get <c>UFTCreateAndPostLedgerJournal</c> class name
+    /// </summary>
+    /// <returns> The class name </returns>
+    public static Name description()
+    {
+        return "@UFINET_AP:RCAR_031";
+    }
+
+    /// <summary>
+    /// Create <c>UFTCreateAndPostLedgerJournal</c> class instance
+    /// </summary>
+    /// <param name = "_args"> Args used to create class </param>
+    public static void main(Args _args)
+    {
+        UFTCreateAndPostLedgerJournal   createAndPost = UFTCreateAndPostLedgerJournal::construct();
+        UFTCostsRevenueDetails          costsRevenueDetails;
+
+        if (_args.record() && _args.dataset() == tableNum(UFTCostsRevenueDetails))
+        {
+            costsRevenueDetails = _args.record();
+            createAndPost.parmAccountingSetups(costsRevenueDetails.CumulativeId);
+            createAndPost.parmJournalDescription(costsRevenueDetails.Description);
+            createAndPost.parmCostsRevenueDetails(costsRevenueDetails);
+        }
+
+        createAndPost.run();
+    }
+
+    /// <summary>
+    /// Execute the process
+    /// </summary>
+    public void run()
+    {
+        #OCCRetryCount
+
+        try
+        {
+            ttsbegin;
+
+            journalTable = this.createJournal();
+            this.postLedgerJournal(journalTable);
+
+            ttscommit;
+        }
+        catch (Exception::Deadlock)
+        {
+            if (xSession::currentRetryCount() >= #RetryNum)
+            {
+                throw Exception::Deadlock;
+            }
+            else
+            {
+                retry;
+            }
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+        catch (Exception::Error)
+        {
+            throw Exception::Error;
+        }
+    }
+
+    /// <summary>
+    /// Post <c>LedgerJournalTable</c> table
+    /// </summary>
+    /// <param name = "_ledgerJournalTable"> <c>LedgerJournalTable</c> record to post </param>
+    public void postLedgerJournal(LedgerJournalTable _ledgerJournalTable)
+    {
+        LedgerJournalCheckPost ledgerJournalCheckPost;
+
+        if (_ledgerJournalTable.RecId)
+        {
+            ledgerJournalCheckPost = ledgerJournalCheckPost::newLedgerJournalTable(_ledgerJournalTable,  NoYes::Yes);
+            ledgerJournalCheckPost.run();
+            Info(strFmt("@UFINET_AP:RCAR_032", fieldPName(LedgerJournalTable, JournalNum), _ledgerJournalTable.JournalNum));
+        }
+    }
+
+    /// <summary>
+    /// Fill <c>UFTAccrualProjections</c> table
+    /// </summary>
+    /// <returns> <c>LedgerJournalTable</c> record created </returns>
+    public LedgerJournalTable createJournal()
+    {
+        UFTAccountingSetups     accountingSetups;     
+        LedgerJournalTable      ledgerJournalTable;
+        LedgerJournalTrans      ledgerJournalTrans;
+        LedgerJournalEngine     ledgerJournalEngine;
+        LedgerJournalName       ledgerJournalName;
+        int                     numLines;
+
+        accountingSetups  = UFTAccountingSetups::find(this.parmAccountingSetups());
+        ledgerJournalName = LedgerJournalName::find(accountingSetups.JournalName);
+
+        while select costsRevenueDetails
+            order by VoucherNum, RecId
+        {
+            if (!ledgerJournalTable.RecId)
+            {
+                ledgerJournalTable.clear();
+                ledgerJournalTable.initValue();
+                ledgerJournalTable.JournalName = ledgerJournalName.JournalName;
+                ledgerJournalTable.initFromLedgerJournalName();
+                ledgerJournalTable.JournalNum = JournalTableData::newTable(ledgerJournalTable).nextJournalId();
+                ledgerJournalTable.Name       = strFmt("@SYS76498", accountingSetups.VoucherDescription, this.parmJournalDescription());
+                ledgerJournalTable.insert();
+
+                ledgerJournalEngine = LedgerJournalEngine::construct(ledgerJournalTable.JournalType);
+                ledgerJournalEngine.newJournalActive(ledgerJournalTable);
+            }
+
+            if (numLines == 0 ||
+                numLines mod 2 == 0)
+            {
+                ledgerJournalTrans.clear();
+                ledgerJournalTrans.initValue();
+                ledgerJournalEngine.initValue(ledgerJournalTrans);
+                ledgerJournalTrans.JournalNum = ledgerJournalTable.JournalNum;
+                ledgerJournalTrans.TransDate  = costsRevenueDetails.TransDate;
+            }
+
+            switch (costsRevenueDetails.VoucherNum)
+            {
+                case 1:
+                    if (numLines mod 2 == 0)
+                    {
+                        ledgerJournalTrans.AccountType = costsRevenueDetails.AccountType;
+                        ledgerJournalTrans.modifiedField(fieldNum(LedgerJournalTrans, AccountType));
+                        ledgerJournalTrans.LedgerDimension = costsRevenueDetails.LedgerDimension;
+                        // 7975 heredar dimension desde nombre de diario etm 16052023 begin
+                        ledgerJournalTrans.LedgerDimension       = LedgerDimensionFacade::ServiceCreateLedgerDimension(ledgerJournalTrans.LedgerDimension, LedgerJournalName::find(ledgerJournalTable.JournalName).DefaultDimension);
+                        // 7975 heredar dimension desde nombre de diario etm 16052023 end
+                        ledgerJournalTrans.modifiedField(fieldNum(LedgerJournalTrans, LedgerDimension));
+                        ledgerJournalEngine.accountModified(LedgerJournalTrans);
+                    }
+                    else
+                    {
+                        ledgerJournalTrans.OffsetAccountType = costsRevenueDetails.AccountType;
+                        ledgerJournalTrans.modifiedField(fieldNum(LedgerJournalTrans, OffsetAccountType));
+                        ledgerJournalTrans.OffsetLedgerDimension = costsRevenueDetails.LedgerDimension;
+                        // 7975 heredar dimension desde nombre de diario etm 16052023 begin
+                        ledgerJournalTrans.OffsetLedgerDimension = LedgerDimensionFacade::ServiceCreateLedgerDimension(ledgerJournalTrans.OffsetLedgerDimension, LedgerJournalName::find(ledgerJournalTable.JournalName).DefaultDimension);
+                        ledgerJournalTrans.modifiedField(fieldNum(LedgerJournalTrans, OffsetLedgerDimension));
+                        ledgerJournalEngine.offsetAccountModified(ledgerJournalTrans);
+                    }
+                    break;
+
+                case 2:
+                    if (numLines mod 2 == 0)
+                    {
+                        ledgerJournalTrans.OffsetAccountType = costsRevenueDetails.AccountType;
+                        ledgerJournalTrans.modifiedField(fieldNum(LedgerJournalTrans, OffsetAccountType));
+                        ledgerJournalTrans.OffsetLedgerDimension = costsRevenueDetails.LedgerDimension;
+                        // 7975 heredar dimension desde nombre de diario etm 16052023 begin
+                        ledgerJournalTrans.OffsetLedgerDimension = LedgerDimensionFacade::ServiceCreateLedgerDimension(ledgerJournalTrans.OffsetLedgerDimension, LedgerJournalName::find(ledgerJournalTable.JournalName).DefaultDimension);
+                        // 7975 heredar dimension desde nombre de diario etm 16052023 end
+                        ledgerJournalTrans.modifiedField(fieldNum(LedgerJournalTrans, OffsetLedgerDimension));
+                        ledgerJournalEngine.offsetAccountModified(ledgerJournalTrans);
+                    }
+                    else
+                    {
+                        ledgerJournalTrans.AccountType = costsRevenueDetails.AccountType;
+                        ledgerJournalTrans.modifiedField(fieldNum(LedgerJournalTrans, AccountType));
+                        ledgerJournalTrans.LedgerDimension = costsRevenueDetails.LedgerDimension;
+                        // 7975 heredar dimension desde nombre de diario etm 16052023 begin
+                        ledgerJournalTrans.LedgerDimension = LedgerDimensionFacade::ServiceCreateLedgerDimension(ledgerJournalTrans.LedgerDimension, LedgerJournalName::find(ledgerJournalTable.JournalName).DefaultDimension);
+                        // 7975 heredar dimension desde nombre de diario etm 16052023 end
+                        ledgerJournalTrans.modifiedField(fieldNum(LedgerJournalTrans, LedgerDimension));
+                        ledgerJournalEngine.accountModified(LedgerJournalTrans);
+                    }
+                    break;
+            }
+
+            if (numLines != 0 &&
+                numLines mod 2 != 0)
+            {
+                LedgerJournalTrans.CurrencyCode = Ledger::accountingCurrency(CompanyInfo::current());
+                ledgerJournalEngine.currencyModified(LedgerJournalTrans);
+                LedgerJournalTrans.AmountCurCredit                = abs(costsRevenueDetails.AmountCur);
+                LedgerJournalTrans.Approver                       = HcmWorker::userId2Worker(curuserid());
+                LedgerJournalTrans.Approved                       = NoYes::Yes;
+                ledgerJournalTrans.Txt                            = costsRevenueDetails.Txt;
+                LedgerJournalTrans.SkipBlockedForManualEntryCheck = true;
+                ledgerJournalTrans.insert();
+                ledgerJournalEngine.write(ledgerJournalTrans);
+            }
+
+            numLines++;
+        }
+        
+        return ledgerJournalTable;
+    }
+
+    public UFTAccountingSetupsRecId parmAccountingSetups(UFTAccountingSetupsRecId _accountingSetupsRecId = accountingSetupsRecId)
+    {
+        accountingSetupsRecId = _accountingSetupsRecId;
+
+        return accountingSetupsRecId;
+    }
+
+    public Description parmJournalDescription(Description _journalDesrcription = journalDesrcription)
+    {
+        journalDesrcription = _journalDesrcription;
+
+        return journalDesrcription;
+    }
+
+    public UFTCostsRevenueDetails parmCostsRevenueDetails(UFTCostsRevenueDetails _costsRevenueDetails = costsRevenueDetails)
+    {
+        costsRevenueDetails = _costsRevenueDetails;
+
+        return costsRevenueDetails;
+    }
+
+}

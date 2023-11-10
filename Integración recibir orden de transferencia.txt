@@ -1,0 +1,318 @@
+[DataContractAttribute]
+class UFTReceiveTransferOrderHeaderContract
+{
+    str                 trasnferOrder;
+
+    /// [UFTReceiveTransferOrderHeaderContract]
+    /// </summary>
+    /// <param name="TransferId"></param>
+    [DataMemberAttribute('NumTransferencia')]
+    public Str parmTransferId(Str _trasnferOrder   = trasnferOrder)
+    {
+        trasnferOrder = _trasnferOrder;
+
+        return trasnferOrder;
+    }
+
+}
+
+_____________________________________________
+
+[DataContractAttribute]
+class UFTReceiveTransferOrderContract
+{
+    UFTAccountIdCRM                                 accountCRM;
+    str                                             companyId;
+    UFTReceiveTransferOrderHeaderContract           transferOrderHeaderList;
+
+   
+
+    /// </summary>
+    /// <param name="companyId"></param>
+    [DataMemberAttribute('Empresa')]
+    public str parmIdSociedadFO(str _accountCRM = accountCRM)
+    {
+        accountCRM = _accountCRM;
+        return accountCRM;
+    }
+
+    [DataMemberAttribute('Encabezado'),
+    AifCollectionType("transferOrderheaderList", Types::Class, classStr(UFTReceiveTransferOrderHeaderContract)),
+    AifCollectionType("return", Types::Class, classStr(UFTReceiveTransferOrderHeaderContract))]
+    public UFTReceiveTransferOrderHeaderContract parmHeader(UFTReceiveTransferOrderHeaderContract _transferOrderHeaderList = transferOrderHeaderList)
+    {
+        transferOrderHeaderList = _transferOrderHeaderList;
+        return transferOrderHeaderList;
+    }
+
+}
+
+___________________________________
+
+
+final class UFTProcessTransferOrderReceiveIntegration
+{
+    UFTCompanyMapping                           companyMapping;
+    InventTransferTable                         inventTransferOrder;
+    UFTReceiveTransferOrderContract             parmContract;
+    UFTReceiveTransferOrderHeaderContract       headerContract;
+    InventTransferTable                         inventTransferTable;
+    InventTransferParmTable                     inventTransferParmTable;
+    InventTransferUpdShip                       inventTransferUpdShip;
+    
+
+
+    /// <summary>
+    /// Process TransferOrder
+    /// </summary>
+    /// <param name = ""></param>
+    public static InventTransferTable processTransferOrderReceive(UFTReceiveTransferOrderContract contract)
+    {
+        InventTransferTable                             transferOrder;
+        UFTProcessTransferOrderReceiveIntegration       integration = new UFTProcessTransferOrderReceiveIntegration();
+
+        if(integration.initFromArgs(contract))
+        {
+            transferOrder = integration.run();
+        }
+
+        return transferOrder;
+    }
+
+    /// <summary>
+    /// Init from  args
+    /// </summary>
+    public boolean initFromArgs(UFTReceiveTransferOrderContract contract)
+    {
+        boolean                 ret = false;
+        parmContract            = contract;
+        headerContract          = contract.parmHeader();
+
+        inventTransferTable =  InventTransferTable::find(headerContract.parmTransferId());
+
+
+        if(inventTransferTable.RecId)
+        {
+            ret = true;
+        }
+
+
+        return ret;
+
+    }
+
+    /// <summary>
+    /// Send TransferOrder
+    /// </summary>
+    /// <param name = ""></param>
+    public void receiveTransferOrder()
+    {
+        
+        InventTransferTable                      invTransferTable;
+        DocuRef                                 docuRef;
+        DocuRefExt_BR                           docuRefExtBR;
+        FiscalDocumentSourceText_BR             fiscalDocumentSourceText;
+        InventTransferJour                      trasnferJour;
+        InventTransferParmTable                 invTransParmTable;
+        InventTransferUpdReceive                inventTransferUpdReceive;
+
+        select firstonly trasnferJour
+            where trasnferJour.TransferId == inventTransferTable.TransferId &&
+            trasnferJour.UpdateType == InventTransferUpdateType::Shipment &&
+            trasnferJour.Return_RU == NoYes::No  &&
+            trasnferJour.ReasonTableRef_BR == 0 ;
+        
+       
+        ttsbegin;
+        inventTransferParmTable.clear();
+        inventTransferParmTable.initParmDefault();
+        inventTransferParmTable.ParmId = RunBaseMultiParm::getSysParmId();
+        inventTransferParmTable.TransferId = inventTransferTable.TransferId;
+        inventTransferParmTable.UpdateType = InventTransferUpdateType::Receive;  
+        inventTransferParmTable.PrintTransferReceipt = NoYes::No;
+        //inventTransferParmTable.ShipUpdateQty = InventTransferShipUpdateQty::ShipNow;
+        inventTransferParmTable.ReceiveUpdateQty = InventTransferReceiveUpdateQty::Shipment;
+        inventTransferParmTable.EditLines = NoYes::Yes;
+        inventTransferParmTable.ExplodeLines = NoYes::Yes;
+        inventTransferParmTable.TransDate = today(); 
+        inventTransferParmTable.InventDimFixedReceiveList = 0;
+        inventTransferParmTable.VoucherShipmentId = trasnferJour.VoucherId;
+        inventTransferParmTable.LicenseCardType_RU = LicenseCardType_RU::Standard;
+        inventTransferParmTable.TransferType_RU = InventTransferType_RU::Standard;
+        inventTransferParmTable.TransportInvoiceType_RU = TransportInvoiceType_RU::Invoice;
+        inventTransferParmTable.TransportationPayerType_RU = TransportationPayerType_RU::Consignor;
+        inventTransferParmTable.insert();
+
+
+
+        if (InventTransferParmTableFiscalInfo_BR::shouldCreateFiscalInfoParm(inventTransferTable))
+        {
+            InventTransferParmTableFiscalInfo_BR inventTransferParmTableFiscalInfo_BR;
+
+            inventTransferParmTableFiscalInfo_BR.initFromParmTable(inventTransferParmTable, inventTransferTable);
+
+            InventTransferParmTableFiscalInfo_BR.insert();
+        }
+
+        inventTransferUpdReceive = InventTransferUpdReceive::newParmBuffer(inventTransferParmTable);
+        inventTransferUpdReceive.run();
+
+        ttscommit;
+        
+
+        
+    }
+
+    public InventTransferTable  run()
+    {
+
+        try
+        {
+
+            if(inventTransferTable.RecId)
+            {   
+                ttsbegin;
+                this.receiveTransferOrder();
+                ttscommit;
+            }
+
+            else
+                throw error(strFmt(" "));
+        }
+
+        catch(Exception::Error)
+        {
+            ttsabort;
+            throw error(strFmt(" "));
+        }
+
+        return    inventTransferTable;
+
+    }
+
+}
+
+______________________________________
+
+final class UFTTransferOrderReceiveSenderIntegration
+{
+    UFTCompanyMapping                           companyMapping;
+
+
+    
+
+
+    [AifCollectionTypeAttribute('_request', Types::Class, classStr(UFTReceiveTransferOrderContract)),
+     AifCollectionTypeAttribute('return', Types::Class, classStr(UFTTransferOrderResponseServiceContract))]
+    public List ReceiveTransferOrderProcess(UFTReceiveTransferOrderContract  contract)
+    {
+        List                                        response = new List(Types::Class) ;
+        CompanyInfo                                 companyInfo;
+        ListEnumerator                              keysEnumerator,responseEnumerator;
+        System.Exception                            generalEx;
+        SysInfoLogEnumerator                        infoLogEnum;
+        SysInfologMessageStruct                     infoMessageStruct;
+        str                                         infoerror;
+        UFTTransferOrderResponseServiceContract     responseContract;
+        List                                        custTableList;
+        str                                         responseStr;
+        int                                         counterLine = 0;
+        boolean                                     ret;
+        InventTransferTable                         transferTable;
+        UFTCompanyMapping                           companyMap;
+        
+
+        ListEnumerator                              keysEnumLine;
+
+
+        if(contract)
+        {
+               
+            companyMap = UFTCompanyMapping::findByExternalCompany(contract.parmIdSociedadFO());
+            companyInfo = companyInfo::findDataArea(companyMap.LegalEntityD365);
+
+            if(companyInfo)
+            {
+                changecompany(companyInfo.DataArea)
+                {
+
+                    try
+                    {
+                       
+                        transferTable = UFTProcessTransferOrderReceiveIntegration::processTransferOrderReceive(contract);
+
+
+                        if(transferTable.RecId)
+                        {
+                            responseContract = new UFTTransferOrderResponseServiceContract();
+                            responseContract.parmIdMessage(1);
+                            responseContract.parmMessage(strFmt("@UFINET_AP_BR:UFT8091IGN012",transferTable.UFTDocumentPhoenix,transferTable.TransferId));
+                            responseContract.parmStatusMessage(strFmt("true"));
+                            responseContract.parmTransferOrder(transferTable.TransferId);
+                            response.addEnd(responseContract);
+
+                            UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::ReceiveTransferOrder,strFmt("@UFINET_AP_BR:UFT8091IGN012",transferTable.UFTDocumentPhoenix,transferTable.TransferId));
+                        }
+
+                    }
+                    catch (generalEx)
+                    {
+                        infoLogEnum = SysInfoLogEnumerator::newData(infolog.infologData());
+                        while(infoLogEnum.moveNext())
+                        {
+                            counterLine++;
+
+                            infoMessageStruct = SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                            infoerror += infoMessageStruct.message() + ' ';
+                        }
+                            responseContract = new UFTTransferOrderResponseServiceContract();
+                            responseContract.parmIdMessage(counterLine);
+                            responseContract.parmStatusMessage("false");
+                        responseContract.parmMessage(strFmt('@UFINET_AP_BR:UFT8091IGN011',contract.parmHeader().parmTransferId(),infoerror));
+                            responseContract.parmTransferOrder(transferTable.TransferId);
+                            response.addEnd(responseContract);
+
+                                
+
+                        UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::ReceiveTransferOrder,strFmt("@UFINET_AP_BR:UFT8091IGN011",contract.parmHeader().parmTransferId(),infoerror));
+
+                        
+                        ttsabort;
+                    }
+                }
+
+            }
+            
+            else
+            {
+                responseContract = new UFTTransferOrderResponseServiceContract();
+                responseContract.parmIdMessage(counterLine+1);
+                responseContract.parmStatusMessage("false");
+                responseContract.parmMessage(strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId()));
+                response.addEnd(responseContract);
+
+
+                UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::ReceiveTransferOrder,strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId()));
+            }
+            
+        }
+
+
+        return response;
+    }
+
+    public boolean validateCompany(UFTReceiveTransferOrderContract contract)
+    {
+        boolean ret;
+
+        companyMapping = UFTCompanyMapping::findByExternalCompany(contract.parmIdSociedadFO());
+
+        if(companyMapping.RecId)
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId()));
+        }
+          
+        return ret;
+    }
+
+}

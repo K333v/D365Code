@@ -1,0 +1,278 @@
+/// <summary>
+/// 20230418 - AP_CAGF007_VacationAccumulation_EXT - KCL
+/// </summary>
+[ExtensionOf(tableStr(LeaveBankTransaction))]
+final class APPSPMLeaveBankTransaction_Extension
+{
+    [Hookable(False)]
+    public static void APPSPMforecastBalances(HcmWorkerRecId _workerRecId,
+                                              LeaveDate _asOfDate,
+                                              LeaveBankTransaction _bankTransactionTemporaryDatabaseLink)
+    {
+        //LeaveBankTransaction::forecastAccruals(_workerRecId, _asOfDate, _bankTransactionTemporaryDatabaseLink);
+        LeaveBankTransaction::APPSPMforecastAccruals(_workerRecId, _asOfDate, _bankTransactionTemporaryDatabaseLink);
+
+        LeaveBankTransaction::APPSPMforecastBalanceExpiration(_workerRecId, _asOfDate, _bankTransactionTemporaryDatabaseLink);
+        //if (HcmFeatureStateProvider::isFeatureEnabled(LeaveNano20W1CarryForwardRulesFeature::instance()))
+        //{
+        //    LeaveBankTransaction::forecastBalanceExpiration(_workerRecId, _asOfDate, _bankTransactionTemporaryDatabaseLink);
+        //}
+    }
+
+    public static void APPSPMforecastAccruals(HcmWorkerRecId _workerRecId,
+                                              LeaveDate _asOfDate,
+                                              LeaveBankTransaction _bankTransactionTemporaryDatabaseLink)
+    {
+        APPSPMLeaveAccrualRequest accrualRequest = APPSPMLeaveAccrualRequest::construct();
+        accrualRequest.parmWorkerRecId(_workerRecId);
+        accrualRequest.parmAccrualDateType(LeaveAccrualDateType::OtherDate);
+        accrualRequest.parmAccrualProcessingDate(_asOfDate);
+        accrualRequest.parmRunTransactionsUncommitted(true);
+        accrualRequest.parmBankTransactionTemporaryDatabaseLink(_bankTransactionTemporaryDatabaseLink);
+
+        APPSPMLeaveAccrualOperation accrualOperation = new APPSPMLeaveAccrualOperation();
+        accrualOperation.accrue(accrualRequest);
+    }
+
+    private static void APPSPMforecastBalanceExpiration(HcmWorkerRecId _workerRecId,
+                                                        LeaveDate _asOfDate,
+                                                        LeaveBankTransaction _bankTransactionTemporaryDatabaseLink)
+    {
+        APPSPMLeaveBalanceExpirationRequest expirationRequest = APPSPMLeaveBalanceExpirationRequest::construct();
+        expirationRequest.parmWorkerRecId(_workerRecId);
+        expirationRequest.parmAccrualDateType(LeaveAccrualDateType::OtherDate);
+        expirationRequest.parmProcessingDate(_asOfDate);
+        expirationRequest.parmRunTransactionsUncommitted(true);
+        expirationRequest.parmBankTransactionTemporaryDatabaseLink(_bankTransactionTemporaryDatabaseLink);
+
+        //LeaveBalanceExpirationOperation expirationOperation = new LeaveBalanceExpirationOperation();
+        //expirationOperation.process(expirationRequest);
+        APPSPMLeaveBalanceExpirationOperation expirationOperation = new APPSPMLeaveBalanceExpirationOperation();
+        expirationOperation.process(expirationRequest);
+    }
+
+    [Hookable(False)]
+    public void APPSPMinsertWithAudit(APPSPMLeaveBankTransactionAuditor _auditor)
+    {
+        this.insert();
+
+        if (!this.isTempDb())
+        {
+            LeaveBankTransactionAuditTrail trail;
+            trail.clear();
+            trail = _auditor.constructAuditTrail(this);
+            trail.insert();
+        }
+    }
+
+    /// <summary>
+    /// Copies all bank transaction records for the specified worker from the real database to the temporary database table
+    /// specified by the provided bank transaction buffer.
+    /// </summary>
+    /// <param name = "_workerRecId">
+    /// The <c>HcmWorkerRecId</c> of the worker whose transactions to copy.
+    /// </param>
+    /// <param name = "_bankTransactionTemporaryDatabaseLink">
+    /// The <c>LeaveBankTransaction</c> buffer providing a link to the temporary database table.
+    /// </param>
+    /// <param name = "_isBuySellRequest">
+    /// The <c>boolean</c> Conditional logic is set to true when called from LeaveBuySellRequest: optional.
+    /// </param>
+    [Hookable(False)]
+    public static void APPSPMcopyFromRealToTemp(HcmWorkerRecId _workerRecId, LeaveBankTransaction _bankTransactionTemporaryDatabaseLink, boolean _isBuySellRequest = false)
+    {
+        if (!_bankTransactionTemporaryDatabaseLink.isTempDb())
+        {
+            throw error(Error::wrongUseOfFunction(funcName()));
+        }
+
+        if (!_isBuySellRequest)
+        {
+            LeaveBankTransaction crossCompanyTransactions;
+
+            while select crosscompany DataAreaId
+            from crossCompanyTransactions
+            group by DataAreaId
+                where crossCompanyTransactions.Worker == _workerRecId
+            {
+                _bankTransactionTemporaryDatabaseLink.company(crossCompanyTransactions.DataAreaId);
+
+                changecompany (crossCompanyTransactions.DataAreaId)
+                {
+                    LeaveBankTransaction::APPSPMcopyFromRealToTempForSingleCompany(_workerRecId, _bankTransactionTemporaryDatabaseLink, crossCompanyTransactions.DataAreaId);
+                }
+            }
+        }
+        
+    }
+
+    public static void APPSPMcopyFromRealToTempForSingleCompany(
+        HcmWorkerRecId _workerRecId,
+        LeaveBankTransaction _bankTransactionTemporaryDatabaseLink,
+        DataAreaId _dataAreaId)
+    {
+        LeaveBankTransaction realData;
+
+        while select Amount, HalfDayDefinition, LeavePlan, LeaveType, TransactionDate, TransactionNumber, TransactionType, Worker, AccrualSuspension
+        from realData
+        where realData.Worker == _workerRecId
+            && realData.DataAreaId == _dataAreaId
+        {
+            _bankTransactionTemporaryDatabaseLink.Amount = realData.Amount;
+            _bankTransactionTemporaryDatabaseLink.HalfDayDefinition = realData.HalfDayDefinition;
+            _bankTransactionTemporaryDatabaseLink.LeavePlan = realData.LeavePlan;
+            _bankTransactionTemporaryDatabaseLink.LeaveType = realData.LeaveType;
+            _bankTransactionTemporaryDatabaseLink.TransactionDate = realData.TransactionDate;
+            _bankTransactionTemporaryDatabaseLink.TransactionNumber = realData.TransactionNumber;
+            _bankTransactionTemporaryDatabaseLink.TransactionType = realData.TransactionType;
+            _bankTransactionTemporaryDatabaseLink.Worker = realData.Worker;
+            _bankTransactionTemporaryDatabaseLink.AccrualSuspension = realData.AccrualSuspension;
+            _bankTransactionTemporaryDatabaseLink.insert();
+        }
+    }
+
+}
+
+___________________________________
+
+/// <summary>
+/// 20230418 - AP_CAGF007_VacationAccumulation_EXT - KCL
+/// </summary>
+[ExtensionOf(tableStr(LeavePlan))]
+final class APPSPMLeavePlan_Extension
+{
+
+    [Hookable(False)]
+    public static boolean APPSPMaccrualFrequencyHasAccrualPeriods(LeavePlanAccrualFrequency _accrualFrequency)
+    {
+        return _accrualFrequency != LeavePlanAccrualFrequency::NoAccruals
+            && _accrualFrequency != LeavePlanAccrualFrequency::None;
+    }
+
+    [Hookable(False)]
+    public boolean APPSPMhasAccrualPeriods()
+    {
+        return LeavePlan::APPSPMaccrualFrequencyHasAccrualPeriods(this.AccrualFrequency);
+    }
+
+}
+
+__________________________________
+
+using Microsoft.Dynamics.HR.Platform.Instrumentation;
+/// <summary>
+/// 20230418 - AP_CAGF007_VacationAccumulation_EXT - KCL
+/// </summary>
+[ExtensionOf(tableStr(LeavePlanTier))]
+final class APPSPMLeavePlanTier_Extension
+{
+
+    [Hookable(False)]
+    public LeaveAmountUnsigned APPSPMgetAccrualAmountForWorker(HcmWorkerRecId _workerRecId, TransDate _asOfDate, APPSPMLeaveBankTransactionAuditor _auditor = null)
+    {
+        var baggage = APPSPMLogDimensions::construct()
+            .addInt64('HcmWorkerRecId', _workerRecId)
+            .addDateTime('AsOfDate', datetobeginUtcDateTime(_asOfDate, DateTimeUtil::getCompanyTimeZone()));
+
+        LeaveAmountUnsigned typeAccrualAmount;
+       
+        using (var operation = APPSPMHcmXppOperationFactory::leave('PlanTier.GetAccrualAmountForWorker', null, baggage))
+        {
+            HcmFullTimeEquivalency fullTimeEquivalency;
+                          
+            if (this.UseFullTimeEquivalency)
+            {
+                operation.LogInfo('Using full-time equivalency factor.');
+                fullTimeEquivalency = HcmPositionWorkerAssignment::getTotalFTEValueForCurrentPositionAssignments(
+                    _workerRecId,
+                    datetoendUtcDateTime(_asOfDate, DateTimeUtil::getCompanyTimeZone()));
+
+                fullTimeEquivalency = (fullTimeEquivalency == 0.0) ? 1.0 : fullTimeEquivalency;
+                typeAccrualAmount = this.AccrualAmount * fullTimeEquivalency;
+
+                if (_auditor)
+                {
+                    _auditor.insertReal(APPSPMLeaveBankTransactionAuditor::Accrual_FullTimeEquivalency, fullTimeEquivalency);
+                }
+            }
+            else
+            {
+                operation.LogInfo('Full-time equivalency feature is disabled.');
+                typeAccrualAmount = this.AccrualAmount;
+            }
+
+            operation.SetResultDetails(OperationResultType::Success);
+        }
+
+        return typeAccrualAmount;
+    }
+
+}
+
+_____________________________________
+
+/// <summary>
+/// 20230418 - AP_CAGF007_VacationAccumulation_EXT - KCL
+/// </summary>
+class APPSPMLeaveRequest_EventHandler
+{
+    /// <summary>
+    /// Fill in APPSPMAccumAmount field
+    /// </summary>
+    /// <param name="args">XppPrePostArgs</param>
+    [PreHandlerFor(tableStr(LeaveRequest), tableMethodStr(LeaveRequest, insert))]
+    public static void LeaveRequest_Pre_insert(XppPrePostArgs args)
+    {
+        LeaveRequest    request = args.getThis();
+
+        if (APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP017HR))
+        {
+            request.APPSPMAccumAmount = request.getTotalAmount();
+        }
+    }
+
+    /// <summary>
+    /// Fill in APPSPMAccumAmount field
+    /// </summary>
+    /// <param name="sender">Common</param>
+    /// <param name="e">DataEventArgs</param>
+    [DataEventHandler(tableStr(LeaveRequest), DataEventType::Updating)]
+    public static void LeaveRequest_onUpdating(Common sender, DataEventArgs e)
+    {
+        LeaveRequest    request = sender as LeaveRequest;
+        
+        if (APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP017HR))
+        {
+            if (request.Status == LeaveRequestApprovalStatus::Completed)
+            {
+                request.APPSPMAccumAmount = request.getEndDate() - request.getStartDate() + 1;
+            }
+        }
+    }
+
+}
+____________________________________________________________
+
+/// <summary>
+/// 20230418 - AP_CAGF007_VacationAccumulation_EXT - KCL
+/// </summary>
+[ExtensionOf(tableStr(LeaveRequestDetailTmp))]
+final class APPSPMLeaveRequestDetailTmp_Extension
+{
+
+    [Hookable(False)]
+    public LeaveTypeRecId APPSPMgetLeaveTypeId()
+    {
+        LeaveType type;
+
+        select firstonly crosscompany RecId
+            from type
+            where type.Type == this.LeaveTypeId
+               && type.DataAreaId == this.LeaveTypeDataAreaId;
+
+        return type.RecId;
+    }
+
+}
+
+_____________________________________________

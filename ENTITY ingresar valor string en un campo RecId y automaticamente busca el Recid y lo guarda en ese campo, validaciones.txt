@@ -1,0 +1,223 @@
+public class UFTAveragePeriodRateEntity extends common
+{
+    /// <summary>
+    /// Map some new values when create entity
+    /// </summary>
+    /// <param name = "_entityCtx"> DataEntityRuntimeContext used to execute process </param>
+    /// <param name = "_dataSourceCtx"> DataEntityDataSourceRuntimeContext used to execute process </param>
+    public void mapEntityToDataSource(DataEntityRuntimeContext _entityCtx, DataEntityDataSourceRuntimeContext _dataSourceCtx)
+    {
+        UFTAccountingSetups     accountingSetups;
+        FiscalCalendarYear      fiscalCalendarYear;
+        FiscalCalendarPeriod    fiscalCalendarPeriod;
+        UFTAveragePeriodRate    averagePeriodRateCheck;
+        utcdatetime             startDateTime, endDateTime;
+
+        if (_dataSourceCtx.name() == dataEntityDataSourceStr(UFTAveragePeriodRateEntity, UFTAveragePeriodRate))
+        {
+            if (this.CumulativeIdName)
+            {
+                changecompany(this.DataAreaId)
+                {
+                    select firstonly RecId from accountingSetups
+                        order by RecId
+                        where   accountingSetups.CumulativeId == this.CumulativeIdName;
+
+                    if (accountingSetups.RecId)
+                    {
+                        this.CumulativeId = accountingSetups.RecId;
+                    }
+                }
+            }
+
+            if (this.FiscalCalendarYearName)
+            {
+                changecompany(this.DataAreaId)
+                {
+                    select firstonly RecId from fiscalCalendarYear
+                        order by RecId
+                        where   fiscalCalendarYear.Name           == this.FiscalCalendarYearName
+                            &&  fiscalCalendarYear.FiscalCalendar == this.FiscalCalendar;
+
+                    if (fiscalCalendarYear.RecId)
+                    {
+                        this.FiscalCalendarYear = fiscalCalendarYear.RecId;
+                    }
+                }
+            }
+
+            if (this.FiscalCalendarPeriodName)
+            {
+                changecompany(this.DataAreaId)
+                {
+                    select firstonly RecId from fiscalCalendarPeriod
+                        order by RecId
+                        where   fiscalCalendarPeriod.Name               == this.FiscalCalendarPeriodName
+                            &&  fiscalCalendarPeriod.FiscalCalendar     == this.FiscalCalendar
+                            &&  fiscalCalendarPeriod.FiscalCalendarYear == this.FiscalCalendarYear;
+
+                    if (fiscalCalendarPeriod.RecId)
+                    {
+                        this.StartDate            = fiscalCalendarPeriod.EndDate;
+                        this.FiscalCalendarPeriod = fiscalCalendarPeriod.RecId;
+                
+                        select firstonly AveragePeriodRate from averagePeriodRateCheck
+                        order by FiscalCalendarPeriod asc
+                            where   averagePeriodRateCheck.CumulativeId       == this.CumulativeId
+                                &&  averagePeriodRateCheck.FiscalCalendar     == this.FiscalCalendar
+                                &&  averagePeriodRateCheck.FiscalCalendarYear == this.FiscalCalendarYear;
+
+                        if (averagePeriodRateCheck.RecId)
+                        {
+                            this.AveragePeriodRate = averagePeriodRateCheck.AveragePeriodRate;
+                            this.Periods           = this.AveragePeriodRate * 12;
+
+                            if (this.Periods < 2.0)
+                            {
+                                this.PeriodsToAccrue = 1;
+                            }
+                            else
+                            {
+                                this.PeriodsToAccrue = any2Int(decRound(this.Periods, 0));
+                            }
+
+                            startDateTime = DateTimeUtil::newDateTime(this.StartDate, 0);
+                            endDateTime   = DateTimeUtil::addMonths(startDateTime, this.PeriodsToAccrue);
+                            this.EndDate  = DateTimeUtil::date(DateTimeUtil::applyTimeZoneOffset(endDateTime, DateTimeUtil::getUserPreferredTimeZone()));
+                        }
+                    }
+                }
+            }
+
+            if (this.AveragePeriodRate)
+            {
+                if (this.CommissionAmount != 0)
+                {
+                    real calcValue = this.CommissionAmount / this.AveragePeriodRate;
+                    real perMonth  = calcValue / 12;
+
+                    this.CommissionAccruePeriod = perMonth;
+                }
+
+                this.Periods = this.AveragePeriodRate * 12;
+
+                if (this.Periods < 2.0)
+                {
+                    this.PeriodsToAccrue = 1;
+                }
+                else
+                {
+                    this.PeriodsToAccrue = any2Int(decRound(this.Periods, 0));
+                }
+                
+                startDateTime = DateTimeUtil::newDateTime(this.StartDate, 0);
+                endDateTime   = DateTimeUtil::addMonths(startDateTime, this.PeriodsToAccrue);
+                this.EndDate  = DateTimeUtil::date(DateTimeUtil::applyTimeZoneOffset(endDateTime, DateTimeUtil::getUserPreferredTimeZone()));
+            }
+
+            if (this.CommissionAmount)
+            {
+                if (this.AveragePeriodRate != 0 )
+                {
+                    real calcValue = this.CommissionAmount / this.AveragePeriodRate;
+                    real perMonth  = calcValue / 12;
+
+                    this.CommissionAccruePeriod = perMonth;
+                }
+            }
+        }
+
+        super(_entityCtx, _dataSourceCtx);
+    }
+
+    /// <summary>
+    /// Initialize variables for record
+    /// </summary>
+    public void initValue()
+    {
+        super();
+
+        this.FiscalCalendar   = Ledger::findByLegalEntity(CompanyInfo::find().RecId).FiscalCalendar;
+        this.FiscalCalendarId = FiscalCalendar::find(this.FiscalCalendar).CalendarId;
+        //20230313 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - Start
+        this.Manual = NoYes::Yes;
+        //20230313 - UFT_WI7941_HistoricalCostRecognition_CC - KCL - End
+
+    }
+
+    /// <summary>
+    /// Validate if all info is correct
+    /// </summary>
+    /// <returns> True if is correct, otherwise false </returns>
+    public boolean validateWrite()
+    {
+        UFTAccountingSetups     accountingSetups;
+        FiscalCalendarYear      fiscalCalendarYear;
+        FiscalCalendarPeriod    fiscalCalendarPeriod;
+        boolean                 ret;
+    
+        ret = super();
+    
+        if (this.CumulativeIdName)
+        {
+            changecompany(this.DataAreaId)
+            {
+                select firstonly RecId from accountingSetups
+                        order by RecId
+                        where   accountingSetups.CumulativeId == this.CumulativeIdName;
+
+                if (!accountingSetups.RecId)
+                {
+                    ret = ret && checkFailed(strFmt("@UFINET_AP:RCAR_021", this.CumulativeIdName));
+                }
+            }
+        }
+
+        if (this.FiscalCalendarYearName)
+        {
+            changecompany(this.DataAreaId)
+            {
+                select firstonly RecId from fiscalCalendarYear
+                        order by RecId
+                        where   fiscalCalendarYear.Name           == this.FiscalCalendarYearName
+                            &&  fiscalCalendarYear.FiscalCalendar == this.FiscalCalendar;
+
+                if (!fiscalCalendarYear.RecId)
+                {
+                    ret = ret && checkFailed(strFmt("@UFINET_AP:RCAR_022", this.FiscalCalendarYearName));
+                }
+            }
+        }
+
+        if (this.FiscalCalendarPeriodName)
+        {
+            changecompany(this.DataAreaId)
+            {
+                if (this.FiscalCalendarYearName)
+                {
+                    select firstonly RecId from fiscalCalendarYear
+                    order by RecId
+                        where   fiscalCalendarYear.Name           == this.FiscalCalendarYearName
+                            &&  fiscalCalendarYear.FiscalCalendar == this.FiscalCalendar;
+
+                    if (fiscalCalendarYear.RecId)
+                    {
+                        select firstonly RecId from fiscalCalendarPeriod
+                            order by RecId
+                            where   fiscalCalendarPeriod.Name               == this.FiscalCalendarPeriodName
+                                &&  fiscalCalendarPeriod.FiscalCalendar     == this.FiscalCalendar
+                                &&  fiscalCalendarPeriod.FiscalCalendarYear == fiscalCalendarYear.RecId;
+
+                        if (!fiscalCalendarPeriod.RecId)
+                        {
+                            ret = ret && checkFailed(strFmt("@UFINET_AP:RCAR_023", this.FiscalCalendarPeriodName));
+                        }
+                    }
+                }
+            }
+        }
+
+        return ret;
+    }
+
+}

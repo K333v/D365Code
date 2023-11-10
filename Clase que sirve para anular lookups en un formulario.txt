@@ -1,0 +1,48 @@
+/// <summary>
+/// Contains methods which are used to override <c>CaseDetail</c> data source field methods.
+/// </summary>
+public class CaseDetail_APPS_PM_ExtensionOverrides 
+{
+    
+    
+    /// <summary>
+    /// Constructs a new instance of <c>CaseDetail_APPS_PM_ExtensionOverrides</c> class.
+    /// </summary>
+    /// <returns>
+    /// A <c>CaseDetail_APPS_PM_ExtensionOverrides</c> class.
+    /// </returns>
+    public static CaseDetail_APPS_PM_ExtensionOverrides construct()
+    {
+        return new CaseDetail_APPS_PM_ExtensionOverrides();
+    }
+
+    public void refPointId_lookup(FormStringControl _callingControl)
+    {
+        
+        
+    }
+
+    public void positionLookup(FormStringControl _callingControl)
+    {
+        HcmPositionLookup   positionLookup;
+
+        positionLookup = HcmPositionLookup::newActiveOpenPositions();
+
+        positionLookup.lookupPositionId(_callingControl);
+    }
+
+}
+
+////como se usa la clase de arriba:
+
+  FormRun formRun                              = _sender.formRun();
+  var overrides                                = CaseDetail_APPS_PM_ExtensionOverrides::construct();
+
+ _sender.object(fieldNum(APPSPMEntryCardTable, RefPointIdApproved)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, refPointId_lookup), overrides);
+
+            _sender.object(fieldNum(APPSPMEntryCardTable, RefPointIdRequested)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, refPointId_lookup), overrides);
+
+            _sender.object(fieldNum(APPSPMEntryCardTable, PositionId)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, positionLookup), overrides);

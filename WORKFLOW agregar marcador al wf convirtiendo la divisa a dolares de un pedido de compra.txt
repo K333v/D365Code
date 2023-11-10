@@ -1,0 +1,266 @@
+/// <summary>
+/// 20220830 - UFT_WI7010_SAC_CC - KCL
+/// New workflow place holders
+/// </summary>
+[WorkflowDocIsQueueEnabledAttribute(true,"@SYS304650")]
+[ExtensionOf(classstr(PurchTableDocument))]
+final class UFTPurchTableDocument_Extension
+{
+    /// <summary>
+    /// Place holder: Company name
+    /// </summary>
+    /// <param name = "_companyId">The company ID corresponding to the workflow instance.</param>
+    /// <param name = "_tableId">The table ID corresponding to the workflow instance.</param>
+    /// <param name = "_recId">The record ID corresponding to the workflow instance.</param>
+    /// <returns>Company name</returns>
+    public CompanyName parmUFTcompanyName(CompanyId _companyId, TableId _tableId, RecId _recId)
+    {
+        PurchTable      purchTableLocal;
+        CompanyName     companyName;
+       
+        changecompany(_companyId)
+        {
+            purchTableLocal = PurchTable::findRecId(_recId);
+
+            if (purchTableLocal)
+            {
+                companyName = CompanyInfo::findDataArea(_companyId).Name;
+            }
+        }
+
+        return companyName;
+    }
+
+    /// <summary>
+    /// Place holder: Description of observations type Note
+    /// </summary>
+    /// <param name = "_companyId">The company ID corresponding to the workflow instance.</param>
+    /// <param name = "_tableId">The table ID corresponding to the workflow instance.</param>
+    /// <param name = "_recId">The record ID corresponding to the workflow instance.</param>
+    /// <returns>Description of observations</returns>
+    public UFTNotes parmUFTDescription(CompanyId _companyId, TableId _tableId, RecId _recId)
+    {
+        DocuRef         docuRef;
+        DocuType        docuType;
+        PurchTable      purchTableLocal;
+        UFTNotes        description;
+       
+        changecompany(_companyId)
+        {
+            purchTableLocal = PurchTable::findRecId(_recId);
+
+            if (purchTableLocal)
+            {
+                select docuRef order by RecId asc
+                    where docuRef.RefTableId == purchTableLocal.TableId
+                    && docuRef.RefRecId == purchTableLocal.RecId
+                join docuType
+                    where docuType.TypeId == docuRef.TypeId
+                    && docuType.TypeGroup == DocuTypeGroup::Note;
+
+                description = docuRef.Notes;
+            }
+        }
+
+        return description;
+    }
+
+    /// <summary>
+    /// Place holder: Purchase order total
+    /// </summary>
+    /// <param name = "_companyId">The company ID corresponding to the workflow instance.</param>
+    /// <param name = "_tableId">The table ID corresponding to the workflow instance.</param>
+    /// <param name = "_recId">The record ID corresponding to the workflow instance.</param>
+    /// <returns>The total amount of the PurchTable</returns>
+    public UFTPurchTotal parmUFTTotalAmount(CompanyId _companyId, TableId _tableId, RecId _recId)
+    {
+        UFTPurchTotal   totalAmount;
+        PurchTable      purchTableLocal = PurchTable::findRecId(_recId);
+        PurchTotals     purchTotals;
+                
+        if (purchTableLocal)
+        {
+            purchTotals = PurchTotals::newPurchTable(purchTableLocal);
+            purchTotals.calc();
+
+            totalAmount = purchTotals.purchTotalAmount();
+        }
+
+        return totalAmount;
+    }
+
+    //20230222 - UFT_WI 7862_ApprovalEmailCC - KCL - Start
+    /// <summary>
+    /// Place holder: Purchase order total USD
+    /// </summary>
+    /// <param name = "_companyId">The company ID corresponding to the workflow instance.</param>
+    /// <param name = "_tableId">The table ID corresponding to the workflow instance.</param>
+    /// <param name = "_recId">The record ID corresponding to the workflow instance.</param>
+    /// <returns>The total amount USD of the PurchTable</returns>
+    public UFTTotalAmountUSD parmUFTTotalAmountUSD(CompanyId _companyId, TableId _tableId, RecId _recId)
+    {
+        UFTTotalAmountUSD           totalAmountUSD;
+        PurchTable                  purchTableLocal = PurchTable::findRecId(_recId);
+        PurchTotals                 purchTotals;
+        ExchangeRateType            exchRateType;
+        ExchangeRateHelper          exchRateHelper;
+        UFTTotalAmountUSD           exchRateAmount;
+        #define.ExchRate('Presupuesto')
+
+        select firstonly exchRateType
+            where exchRateType.Name == #ExchRate;
+                       
+        if (purchTableLocal)
+        {
+            purchTotals = PurchTotals::newPurchTable(purchTableLocal);
+            purchTotals.calc();
+
+            exchRateHelper = ExchangeRateHelper::newExchangeDate(Ledger::primaryLedger(CompanyInfo::findDataArea(curext()).RecId), 
+                                                                 Ledger::reportingCurrency(), 
+                                                                 today()
+                                                                );
+            exchRateHelper.parmToCurrency(purchTableLocal.CurrencyCode);
+            exchRateHelper.parmExchangeRateTypeRecId(exchRateType.RecId);
+                        
+            exchRateAmount = exchRateHelper.displayStoredExchangeRate(exchRateHelper.getExchangeRate1());
+            totalAmountUSD = (!exchRateAmount) ? 0 : purchTotals.purchTotalAmount() / exchRateAmount;
+        }
+
+        return totalAmountUSD;
+    }   
+    //20230222 - UFT_WI 7862_ApprovalEmailCC - KCL - End
+
+}
+_____________________________________________________-
+
+
+
+/// <summary>
+/// 20220830 - UFT_WI7010_SAC_CC - KCL
+/// New workflow place holders
+/// </summary>
+[WorkflowDocIsQueueEnabledAttribute(true,"@SYS304650")]
+[ExtensionOf(classstr(PurchTableDocument))]
+final class UFTPurchTableDocument_Extension
+{
+    /// <summary>
+    /// Place holder: Company name
+    /// </summary>
+    /// <param name = "_companyId">The company ID corresponding to the workflow instance.</param>
+    /// <param name = "_tableId">The table ID corresponding to the workflow instance.</param>
+    /// <param name = "_recId">The record ID corresponding to the workflow instance.</param>
+    /// <returns>Company name</returns>
+    public CompanyName parmUFTcompanyName(CompanyId _companyId, TableId _tableId, RecId _recId)
+    {
+        PurchTable      purchTableLocal;
+        CompanyName     companyName;
+       
+        changecompany(_companyId)
+        {
+            purchTableLocal = PurchTable::findRecId(_recId);
+
+            if (purchTableLocal)
+            {
+                companyName = CompanyInfo::findDataArea(_companyId).Name;
+            }
+        }
+
+        return companyName;
+    }
+
+    /// <summary>
+    /// Place holder: Description of observations type Note
+    /// </summary>
+    /// <param name = "_companyId">The company ID corresponding to the workflow instance.</param>
+    /// <param name = "_tableId">The table ID corresponding to the workflow instance.</param>
+    /// <param name = "_recId">The record ID corresponding to the workflow instance.</param>
+    /// <returns>Description of observations</returns>
+    public UFTNotes parmUFTDescription(CompanyId _companyId, TableId _tableId, RecId _recId)
+    {
+        DocuRef         docuRef;
+        DocuType        docuType;
+        PurchTable      purchTableLocal;
+        UFTNotes        description;
+       
+        changecompany(_companyId)
+        {
+            purchTableLocal = PurchTable::findRecId(_recId);
+
+            if (purchTableLocal)
+            {
+                select docuRef order by RecId asc
+                    where docuRef.RefTableId == purchTableLocal.TableId
+                    && docuRef.RefRecId == purchTableLocal.RecId
+                join docuType
+                    where docuType.TypeId == docuRef.TypeId
+                    && docuType.TypeGroup == DocuTypeGroup::Note;
+
+                description = docuRef.Notes;
+            }
+        }
+
+        return description;
+    }
+
+    /// <summary>
+    /// Place holder: Purchase order total
+    /// </summary>
+    /// <param name = "_companyId">The company ID corresponding to the workflow instance.</param>
+    /// <param name = "_tableId">The table ID corresponding to the workflow instance.</param>
+    /// <param name = "_recId">The record ID corresponding to the workflow instance.</param>
+    /// <returns>The total amount of the PurchTable</returns>
+    public UFTPurchTotal parmUFTTotalAmount(CompanyId _companyId, TableId _tableId, RecId _recId)
+    {
+        UFTPurchTotal   totalAmount;
+        PurchTable      purchTableLocal = PurchTable::findRecId(_recId);
+        PurchTotals     purchTotals;
+                
+        if (purchTableLocal)
+        {
+            purchTotals = PurchTotals::newPurchTable(purchTableLocal);
+            purchTotals.calc();
+
+            totalAmount = purchTotals.purchTotalAmount();
+        }
+
+        return totalAmount;
+    }
+
+    //20230222 - UFT_WI 7862_ApprovalEmailCC - KCL - Start
+    /// <summary>
+    /// Place holder: Purchase order total USD
+    /// </summary>
+    /// <param name = "_companyId">The company ID corresponding to the workflow instance.</param>
+    /// <param name = "_tableId">The table ID corresponding to the workflow instance.</param>
+    /// <param name = "_recId">The record ID corresponding to the workflow instance.</param>
+    /// <returns>The total amount USD of the PurchTable</returns>
+    public UFTTotalAmountUSD parmUFTTotalAmountUSD(CompanyId _companyId, TableId _tableId, RecId _recId)
+    {
+        UFTTotalAmountUSD           totalAmountUSD;
+        PurchTable                  purchTableLocal = PurchTable::findRecId(_recId);
+        PurchTotals                 purchTotals;
+        ExchangeRateType            exchRateType;
+        ExchangeRateHelper          exchRateHelper;
+        UFTTotalAmountUSD           exchRateAmount;
+
+        if (purchTableLocal && Ledger::budgetExchangeRateType())
+        {
+            purchTotals = PurchTotals::newPurchTable(purchTableLocal);
+            purchTotals.calc();
+
+            exchRateHelper = ExchangeRateHelper::newExchangeDate(Ledger::primaryLedger(CompanyInfo::findDataArea(curext()).RecId), 
+                                                                 Ledger::reportingCurrency(), 
+                                                                 today()
+                                                                );
+            exchRateHelper.parmToCurrency(purchTableLocal.CurrencyCode);
+            exchRateHelper.parmExchangeRateTypeRecId(Ledger::budgetExchangeRateType());
+                        
+            exchRateAmount = exchRateHelper.displayStoredExchangeRate(exchRateHelper.getExchangeRate1());
+            totalAmountUSD = (!exchRateAmount) ? 0 : purchTotals.purchTotalAmount() / exchRateAmount;
+        }
+
+        return totalAmountUSD;
+    }   
+    //20230222 - UFT_WI 7862_ApprovalEmailCC - KCL - End
+
+}

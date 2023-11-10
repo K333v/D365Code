@@ -1,0 +1,311 @@
+class CQCInventAdj_TransactDialog /*extends InventAdj*/ extends RunBaseBatch implements  BatchRetryable
+{
+    container               transact;
+    TransDate               transDate;
+    InventAdjustmentSpec    specification;
+    NoYes                   updateLedger;
+    FreeTxt                 freeTxt;
+    LedgerCorrection        ledgerCorrection;
+    CQCDistributionProposalID distributionProposalID;
+    InventDataAdjTransact   dataAdjTransact;
+    InventTransCurrency_RU  inventTransCurrency;
+    TmpFormLookUp           tmpFormLookUp;
+
+    #EECountryRegionCodes
+    #ISOCountryRegionCodes
+
+    DialogField             dialogDate;
+    DialogField             dialogSpecification;
+    DialogField             dialogLedger;
+    DialogField             dialogNotes;
+    DialogField             dialogLedgerCorrection;
+    DialogField             dialogProposalId;
+
+    #DEFINE.CurrentVersion(12)
+
+    #LOCALMACRO.CurrentList
+        Transact,
+        TransDate,
+        Specification,
+        UpdateLedger,
+        freeTxt,
+        ledgerCorrection,
+        distributionProposalID
+    #ENDMACRO
+
+    InventDataAdjTransact dataAdjTransact()
+    {
+        return dataAdjTransact;
+    }
+
+    /// <summary>
+    ///    Returns a class that contains the methods that are described by the <c>RunBaseDialogable</c>
+    ///    interface.
+    /// </summary>
+    /// <returns>
+    ///    A class that contains the methods that are described by the <c>RunBaseDialogable</c> interface.
+    /// </returns>
+    /// <remarks>
+    ///    A dialog can be either built by using the <c>Dialog</c> class or by using a class that is created
+    ///    in the Application Object Tree (AOT).
+    /// </remarks>
+    Object dialog()
+    {
+        DialogRunbase dialog = super();
+
+        dialogDate              = dialog.addFieldValue(extendedTypeStr(TransDate), transDate, "@SYS14475", "@SYS8449");
+        dialogSpecification     = dialog.addFieldValue(enumStr(InventAdjustmentSpec), specification, "@SYS78941", "@SYS19204");
+        dialogLedger            = dialog.addFieldValue(enumStr(NoYes), updateLedger, "@SYS17508", "@SYS28266");
+        dialogNotes             = dialog.addFieldValue(extendedTypeStr(FreeTxt), freeTxt, "@SYS13887", "@SYS27801");
+        dialogProposalId        = dialog.addFieldValue(extendedTypeStr(CQCDistributionProposalID), distributionProposalID, "@CQCLabel:INVDSC0002", "@CQCLabel:INVDSC0001");
+        dialogProposalId.allowEdit(false);
+
+        return dialog;
+    }
+
+    boolean getFromDialog()
+    {
+        transDate          = dialogDate.value();
+        specification      = dialogSpecification.value();
+        updateLedger       = dialogLedger.value();
+        freeTxt            = dialogNotes.value();
+        distributionProposalID = dialogProposalId.value();
+        // <GEEU>
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion(#easternEuropeAll))
+        {
+            ledgerCorrection   = dialogLedgerCorrection && dialogLedgerCorrection.value();
+        }
+        // </GEEU>
+
+        if (! updateLedger)
+        {
+            if (Box::yesNo("@SYS19298"+'\n'+ "@SYS60031"+'\n\n',DialogButton::Yes) != DialogButton::Yes)
+            {
+                return false;
+            }
+        }
+
+        return super();
+    }
+
+    /// <summary>
+    ///    Initializes the internal variables.
+    /// </summary>
+    /// <remarks>
+    ///    This method is called when no <c>SysLastValue</c> record can be found by calling the
+    ///    <c>SysLastValue.GetLast</c> method. Remember to call the <c>super</c> method.
+    /// </remarks>
+    void initParmDefault()
+    {
+        specification      = InventAdjustmentSpec::Total;
+        updateLedger       = NoYes::Yes;
+    }
+
+    container  pack()
+    {
+        return [#CurrentVersion, #CurrentList] + [super()];
+    }
+
+    FreeTxt parmFreeTxt(FreeTxt _freeTxt = freeTxt)
+    {
+        freeTxt    = _freeTxt;
+        return freeTxt;
+    }
+
+    InventAdjustmentSpec parmSpecification(InventAdjustmentSpec _specification = specification)
+    {
+        specification = _specification;
+        return specification;
+    }
+
+    container parmTransact(container _transact = transact)
+    {
+        transact = _transact;
+        return transact;
+    }
+
+    TransDate parmTransDate(TransDate _transDate = transDate)
+    {
+        transDate = _transDate;
+        return transDate;
+    }
+
+    CQCDistributionProposalID parmDistributionProposalID(CQCDistributionProposalID _distributionProposalID = distributionProposalID)
+    {
+        distributionProposalID = _distributionProposalID;
+        return distributionProposalID;
+    }
+
+    /// <summary>
+    ///    Contains the code that does the actual job of the class.
+    /// </summary>
+    void run()
+    {
+        #OCCRetryCount
+
+        setPrefix(InventAdj_Transact::description());
+
+        
+        try
+        {
+            ttsbegin;
+
+            if (! this.validate())
+            {
+                throw error("@SYS18447");
+            }
+
+
+            InventAdj_Transact  inventAdj_Transact;
+            CQCFormLookUpCostOverrunDistribution      chooseDistributionProposal;
+            while select  chooseDistributionProposal where chooseDistributionProposal.ProposalID == distributionProposalID//CQCCostOverrunDistribution.ProposalID
+            {
+                this.ChooseDistributionProposal(chooseDistributionProposal);
+                dataAdjTransact = InventDataAdjTransact::newFromForm(tmpFormLookup);
+                inventAdj_Transact = InventAdj_Transact::newTransact(dataAdjTransact.pack(),inventTransCurrency);
+                inventAdj_Transact.parmTransDate(transDate);
+                inventAdj_Transact.runOperation();
+
+                super();
+            }
+
+            Info("Proceso correcto");
+
+            ttscommit;
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+    }
+
+    public boolean unpack(container packedClass)
+    {
+        container       base;
+        boolean         ret;
+        Integer         version     = conPeek(packedClass,1);
+
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version, #CurrentList, base] = packedClass;
+                ret = super(base);
+                break;
+
+            default:
+                ret = false;
+        }
+        return ret;
+    }
+
+        boolean  validate(Object calledFrom = null)
+    {
+        if (! transDate)
+            return checkFailed("@SYS16668");
+
+        if (transact== conNull())
+            return checkFailed("@SYS18753");
+
+        return true;
+    }
+
+    static CQCInventAdj_TransactDialog construct()
+    {
+        return new CQCInventAdj_TransactDialog();
+    }
+
+    static ClassDescription description(InventTransCurrency_RU _inventTransCurrency = InventTransCurrency_RU::PrimaryCur)
+    {
+         return "@SYS18752";
+    }
+
+    static CQCInventAdj_TransactDialog newTransact(container              transact,
+                                                 CQCDistributionProposalID _ProposalId)
+    {
+
+        CQCInventAdj_TransactDialog inventAdj_Transact = CQCInventAdj_TransactDialog::construct();
+
+        inventAdj_Transact.getLast();
+        inventAdj_Transact.parmTransact(transact);
+        inventAdj_Transact.parmTransDate(DateTimeUtil::getSystemDate(DateTimeUtil::getUserPreferredTimeZone()));
+        inventAdj_Transact.parmFreeTxt("");
+        inventAdj_Transact.parmDistributionProposalID(_ProposalId);
+
+        return inventAdj_Transact;
+    }
+
+    protected boolean canRunInNewSession()
+    {
+        return true;
+    }
+
+    /// <summary>
+    /// Specifies if the batch task is retryable for transient exceptions or not.
+    /// </summary>
+    /// <returns>
+    /// If true is returned, the batch task is retryable, otherwise it is not.
+    /// </returns>
+    [Hookable(false)]
+    final boolean isRetryable() 
+    {
+        return true;
+    }
+
+    private void ChooseDistributionProposal(CQCFormLookUpCostOverrunDistribution  _chooseDistributionProposal)
+    {
+        CQCFormLookUpCostOverrunDistribution      chooseDistributionProposal;
+        CQCInventAdjTransactSelect inventAdjTransactSelect;
+        TmpFormLookUp           tmp;
+        delete_from tmpFormLookUp;
+
+        tmp.setTmpData(TmpFormLookUp);
+        select firstonly tmp;
+
+        if (tmp)
+        {
+            throw error("@SYS19104");
+        }
+
+        inventAdjTransactSelect = CQCInventAdjTransactSelect::newFromForm(tmpFormLookUp,_chooseDistributionProposal.ReferenceId,inventTransCurrency);
+        inventAdjTransactSelect.runOperation();
+
+        this.promptAmount(tmpformlookup,_chooseDistributionProposal.adjustNow,inventTransCurrency);
+
+    }
+
+    private boolean  promptAmount(TmpFormLookUp          _tmpFormLookUp,CostAmount      amount,
+                                 InventTransCurrency_RU _inventTransCurrency = InventTransCurrency_RU::PrimaryCur)
+    {
+        TmpFormLookUp   tmp;
+
+        tmp.setTmpData(_tmpFormLookUp);
+        select firstonly tmp;
+        if (!tmp)
+        {
+            return checkFailed("@SYS24531");
+        }
+
+        InventDataAdjTransact::adjustAmountServer(tmp, ValueQty::Value, amount,_inventTransCurrency);
+
+        return true;
+    }
+
+}

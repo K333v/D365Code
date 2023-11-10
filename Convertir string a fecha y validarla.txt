@@ -1,0 +1,50 @@
+public static TransDate convertStrToDate(str _dateTimeStr, str _format = 'dd/MM/yyyy')
+    {
+        System.Globalization.CultureInfo culture = System.Globalization.CultureInfo::get_InvariantCulture();
+        System.Exception ex;
+        str ClrErrCatch;
+        TransDateTime utcDateTimeConv;
+
+        try
+        {
+            utcDateTimeConv = System.DateTime::ParseExact(_dateTimeStr,
+                                                        _format,
+                                                        culture);
+        }
+        catch
+        {
+            ex = ClrInterop::getLastException();
+            if (ex != null)
+            {
+                ClrErrCatch = ex.get_Message();
+                ClrErrCatch += ex.get_StackTrace();
+                ex = ex.get_InnerException();
+                if (ex != null)
+                {
+                    ClrErrCatch += ex.ToString();
+                }
+            }
+            error(strFmt("Catch: %1", ClrErrCatch));
+        }
+
+        return DateTimeUtil::date(utcDateTimeConv);
+    }
+
+
+_________________________
+
+  public boolean validateDate(str _date)
+    {
+        System.Globalization.CultureInfo culture = System.Globalization.CultureInfo::get_InvariantCulture();
+        System.Exception ex;
+        str ClrErrCatch;
+        TransDateTime       utcDateTimeConv;
+        TransDate           fecha = str2DateDMY(_date);
+
+        if(fecha == dateNull())
+            return false;
+        return true;
+    }
+
+__________
+invoiceDate = str2DateDMY(_request.parmInvoiceDate());

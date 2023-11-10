@@ -1,0 +1,208 @@
+/// <summary>
+/// Extension of HcmWorkerNewWorker form - AlfaPeople
+/// </summary>
+[ExtensionOf(formStr(HcmWorkerNewWorker))]
+final class HcmWorkerNewWorker_APPS_PM_EXT_Extension
+{
+
+
+    public void init()
+    {
+        next init();
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP011HR))
+        {
+            CertificateTabPage.visible(true);
+        }
+
+        //DCNT-005  <start>
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP003HR))
+        {
+            PublicSectorGroup.visible(true);
+            APPSPMHcmWorkerNew_LegalQualityId.visible(true);
+            APPSPMHcmWorkerNew_EstateId.visible(true);
+            APPSPMHcmWorkerNew_RefPointId.visible(true);
+            APPSPMHcmWorkerNew_Statute.visible(true);
+        }
+        //DCNT-005  <end>
+
+        //CAGF-010  <start>
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP012HR))
+        {
+            PublicSectorGroup.visible(true);
+            APPSPMAssistanceUnitId.visible(true);
+            APPSPMAssistanceUnitId.mandatory(true);
+        }
+        //CAGF-010  <end>
+
+        //CPH-002 <start>
+        if(this.args().menuItemName() == menuitemdisplaystr(HcmWorkerNewWorkerAdditional))
+        {
+            createWorkerAction.enabled(true);
+        }
+        //CPH-002 <end>
+    }
+
+    public void initApplicantFields()
+    {
+        HcmJobRecId    job;
+        HrmApplication hrmApplication = this.args().record();
+
+        next initApplicantFields();
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP011HR))
+        {
+            HcmApplicant hcmApplicant = HcmApplicant::find(hrmApplication.Applicant);
+
+            job = hrmApplication.Job;
+
+            this.insertCertificateTmp(hcmApplicant, job);
+        }   
+     
+        //DCNT-005  <start>
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP003HR))
+        {
+            this.insertNewWorkerFields(hrmApplication);
+        }
+        //DCNT-005  <end>
+
+        //CAGF-010  <start>
+        /*if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP012HR))
+        {
+            OMOperatingUnit operationgUnit = OMOperatingUnit::find(hrmApplication.Department, OMOperatingUnitType::OMDepartment);
+            APPSPMAssistanceUnitId.text(operationgUnit.APPSPMAssistanceUnitId);
+        }*/
+        //CAGF-010  <end>
+    }
+
+    public void insertCertificateTmp(HcmApplicant _hcmApplicant, HcmJobRecId _job)
+    {
+        APPSPMHcmCertificateTypeTmp apCertificatetmp;
+        HcmJobPreferredCertificate hcmJobPreferredCertificate;
+        HcmPersonCertificate hcmPersonCertificate;
+        utcDateTime dat = DateTimeUtil::utcNow();
+        HcmPersonRecId  apPerson;
+        HcmJobRecId job;
+        
+        apPerson = _hcmApplicant.Person;
+
+        delete_from apCertificatetmp;
+
+        job = _job;
+
+        while select hcmJobPreferredCertificate
+        where   hcmJobPreferredCertificate.Job == job &&
+                hcmJobPreferredCertificate.APPSPMCheckList == NoYes::Yes
+        {
+            
+            select firstOnly hcmPersonCertificate
+            where   hcmPersonCertificate.Person == apPerson &&
+                    hcmPersonCertificate.IssueDate <= today() &&                    
+                    (hcmPersonCertificate.ExpirationDate >= today() || hcmPersonCertificate.ExpirationDate == dateNull()) &&                    
+                    hcmPersonCertificate.CertificateType == hcmJobPreferredCertificate.CertificateType;
+
+            apCertificatetmp.clear();
+            apCertificatetmp.HcmCertificateTypeRecId = hcmJobPreferredCertificate.CertificateType;
+            apCertificatetmp.HcmCertificateTypeId = HcmCertificateType::find(hcmJobPreferredCertificate.CertificateType).CertificateTypeId;
+            apCertificatetmp.Description = HcmCertificateType::find(hcmJobPreferredCertificate.CertificateType).Description;
+            apCertificatetmp.Person = apPerson;
+            apCertificatetmp.Job    = job;
+
+            if(hcmPersonCertificate && (hcmPersonCertificate.ExpirationDate >= today() || !hcmPersonCertificate.ExpirationDate) )
+            {
+                apCertificatetmp.Checklist = NoYes::Yes;
+            }
+            
+            apCertificatetmp.insert();
+
+        }
+
+        if(!hcmJobPreferredCertificate)
+        {
+            apCertificatetmp.clear();
+            apCertificatetmp.Person = apPerson;
+            apCertificatetmp.Job    = job;
+            apCertificatetmp.insert();
+        }
+    }
+
+    /// <summary>
+    /// Insert field values related to DCNT-005 - AlfaPeople
+    /// </summary>
+    public void insertNewWorkerFields(HrmApplication _hrmApplication)
+    {
+        HcmPosition         hcmPosition;
+        HcmPositionDetail   hcmPositionDetail;
+        OMOperatingUnit     operationgUnit;
+        APPSPMHcmWorkerNew      workerNewTmp;
+        APPSPMEntryCardTable    entryCardTable;
+
+        select entryCardTable
+            where entryCardTable.RecruitingId == _hrmApplication.hrmRecruitingId;
+
+        delete_from workerNewTmp;
+
+        hcmPosition         = HcmPosition::findByPosition(entryCardTable.PositionId);
+        hcmPositionDetail   = HcmPositionDetail::findByPosition(hcmPosition.RecId);
+        operationgUnit      = OMOperatingUnit::find(hcmPositionDetail.Department, OMOperatingUnitType::OMDepartment);
+
+        workerNewTmp.clear();
+        workerNewTmp.LegalQualityId = entryCardTable.LegalQualityApproved;
+        workerNewTmp.EstateId       = entryCardTable.EstateApproved;
+        workerNewTmp.RefPointId     = entryCardTable.RefPointIdApproved;
+        workerNewTmp.HrmRecruitingId = entryCardTable.RecruitingId;
+        workerNewTmp.insert();
+
+        Position.text(entryCardTable.PositionId);
+        PositionTitle.text(HcmPosition::findByPosition(entryCardTable.PositionId).title());
+        APPSPMAssistanceUnitId.text(operationgUnit.APPSPMAssistanceUnitId);
+        AssignmentEndDate.dateTimeValue(entryCardTable.EndDateApproved);
+        AssignmentStartDate.dateTimeValue(entryCardTable.StartDateApproved);
+        //20230606 - WI20030_Bug3250 - KCL - Start
+        if (AssignmentStartDate.dateTimeValue() < HcmEmployment.ValidFrom)
+        {
+            AssignmentStartDate.dateTimeValue(HcmDateTimeUtil::startOfCurrentDay());
+        }
+        //20230606 - WI20030_Bug3250 - KCL - End
+        Position.modified();
+
+        if(Position.valueStr())
+        {
+            //Position.allowEdit(false);
+        }
+
+        //CPH-002 <start>
+        if(APPSPMRecruitmentHonoraryParameters::findByHonoraryAgreement(entryCardTable.HonoraryAgreementId).AssistControl == NoYes::No)
+        {
+            APPSPMAssistanceUnitId.mandatory(false);
+            APPSPMAssistanceUnitId.enabled(false);
+        }
+        //CPH-002 <end>
+    }
+
+    public boolean checkEmployment()
+    {
+        boolean ret;
+
+        ret = next checkEmployment();
+        //CPH-002 <start>
+        if(this.args().menuItemName() == menuitemdisplaystr(HcmWorkerNewWorkerAdditional))
+        {
+            ret = false;
+        }
+        //CPH-002 <end>
+        return ret;
+    }
+
+    public void isValidCreate()
+    {
+        next isValidCreate();
+        //CPH-002 <start>
+        if(this.args().menuItemName() == menuitemdisplaystr(HcmWorkerNewWorkerAdditional))
+        {
+            createWorkerAction.enabled(true);
+        }
+        //CPH-002 <end>
+    }
+
+}

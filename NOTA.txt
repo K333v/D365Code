@@ -1,0 +1,5 @@
+MAPEO nueva rama. Solución cuando no muestra los modelos para compilar. hay que descargar Main y copiar por debajo los modelos 
+a la carpeta K.
+
+- Si luego de compilar tira error en un modelo, eliminas los objetos custom que tienen problemas, mapeas a la nueva rama
+y luego no debes de darle getlastversion. Pero de ahí haces un getLastVersion al modelo que tenía esos problemas

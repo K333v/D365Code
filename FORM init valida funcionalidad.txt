@@ -1,0 +1,16 @@
+ /// <summary>
+    /// Validate functionality
+    /// </summary>
+    public void init()
+    {
+        if (APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP017HR))
+        {
+            super();
+        }
+        else
+        {
+            Box::warning("@APPSPM:FunctionUnavailable");
+
+            this.close();
+        }
+    }

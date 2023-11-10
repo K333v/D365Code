@@ -1,0 +1,64 @@
+class BSL_ViewWrongDetractJob
+{
+
+    /// <summary>
+    /// Runs the class with the specified arguments.
+    /// </summary>
+    /// <param name = "_args">The specified arguments.</param>
+    public static void main(Args _args)
+    {
+        VendInvoiceJour VendInvoiceJour;
+        VendTrans       VendTrans;
+
+        commaStreamIo       iO;
+        custInvoiceTrans    custInvoiceTrans;
+        Filename            filename;
+        ;
+
+
+        iO = commaStreamIo::constructForWrite();
+        filename = "Export.csv";
+
+        container header = ["Proveedor", "Asiento", "Factura", "Fecha"];
+        iO.writeExp(header);
+        header = conNull();
+
+        while select VendInvoiceJour
+                        join VendTrans
+                        where VendInvoiceJour.ledgerVoucher ==      VendTrans.Voucher
+                        && VendInvoiceJour.InvoiceAccount ==      VendTrans.AccountNum
+                        && VendInvoiceJour.InvoiceDate ==     VendTrans.TransDate
+                        && (VendInvoiceJour.APPEDocuType == "OTR" || VendInvoiceJour.APPEDocuType == "OTR_CP")
+                        && VendTrans. APPE_NumVoucher      != ""
+                        && VendTrans.APPE_PaymDate  != dateNull()
+        {
+            info(strFmt("Proveedor %1, Asiento %2, Factura %3, Fecha %4", VendInvoiceJour.InvoiceAccount, VendInvoiceJour.ledgerVoucher,VendInvoiceJour.InvoiceId,
+                            date2Str(VendTrans.TransDate,
+                            123,
+                            DateDay::Digits2,
+                            DateSeparator::Hyphen, // separator1
+                            DateMonth::Digits2,
+                            DateSeparator::Hyphen, // separator2
+                            DateYear::Digits4)));
+
+            container line =  [VendInvoiceJour.InvoiceAccount, VendInvoiceJour.ledgerVoucher,VendInvoiceJour.InvoiceId,
+                            date2Str(VendTrans.TransDate,
+                            123,
+                            DateDay::Digits2,
+                            DateSeparator::Hyphen, // separator1
+                            DateMonth::Digits2,
+                            DateSeparator::Hyphen, // separator2
+                            DateYear::Digits4)];
+
+            iO.writeExp(line);
+        }
+        
+        System.IO.Stream stream = iO.getStream();
+        stream.Position = 0;
+        System.IO.StreamReader reader = new System.IO.StreamReader(stream);
+        str csvFileContent = reader.ReadToEnd();
+        File::SendStringAsFileToUser(csvFileContent,  filename);
+        info(strFmt("CSV file %1 Sent to user",filename ));
+    }
+
+}

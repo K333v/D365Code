@@ -1,0 +1,937 @@
+/// <summary>
+/// 20220414 - 6340 I.GIN-001-f: Int. PNX - ALTAS Y BAJAS DE INVENTARIO - SAC
+/// </summary>
+public class UFTInventMovementJournalService
+{
+    public UFTInventMovementJournalResponse createInventMovementJournal(UFTInventMovementJournalRequest _request)
+    {
+        List                                        lines;
+        ListIterator                                literator;
+        UFTInventMovementJournalLines               inventMovementJournalLines;
+        UFTInventMovementJournalHeader              inventMovementJournalHeader;
+        var                                         response = new UFTInventMovementJournalResponse();
+        UFTCompanyMapping                           companyMapping;
+        UFTInventMovementJournalType                inventMovementJournalType;
+        InventJournalNameId                         inventJournalNameId;
+        InventJournalTable                          inventJournalTable;
+        JournalCheckPost                            journalCheckPost;
+        int                                         numOfLines;
+        UFTIntegrationProcessingLog                 integrationProcessingLog;
+        Microsoft.Dynamics.Ax.Xpp.ErrorException    xppErrorEx;
+        Microsoft.Dynamics.Ax.Xpp.WarningException  xppWarningEx;
+        str                                         message;
+        
+        try
+        {
+            ttsbegin;
+            companyMapping = UFTCompanyMapping::findByExternalCompany(_request.parmCompany());
+
+            if(!companyMapping)
+            {
+                throw error(strFmt("@UFINET_AP:ADQ001H_0006", _request.parmCompany()));
+            }
+
+            changecompany(companyMapping.LegalEntityD365)
+            {
+                inventMovementJournalHeader = _request.parmInventMovementJournalHeader();
+                if(inventMovementJournalHeader)
+                {
+                    if(inventMovementJournalHeader.parmReasonType() || inventMovementJournalHeader.parmMovementType())
+                    {
+                        inventMovementJournalType = this.getInventJournalName(inventMovementJournalHeader);
+                    }
+                    if(!inventMovementJournalHeader.parmDocPhoenix())
+                    {
+                        throw Error(strFmt('@UFINET_AP:IGIN001F_0031'));
+                    }
+                    inventJournalNameId = inventMovementJournalType.InventJournalName;
+                    if(!inventJournalNameId)
+                    {
+                        inventJournalNameId = InventParameters::find().MovementJournalNameId;
+                        if(!inventJournalNameId)
+                        {
+                            throw Error("@UFINET_AP:IGIN001F_0032");
+                        }
+                    }
+                    inventJournalTable = this.createMovementJournalHeader(inventJournalNameId, inventMovementJournalHeader);
+                    
+                    lines = _request.parmInventMovementJournalLineArray();
+                    if(lines)
+                    {         
+                        literator = new ListIterator(lines);
+                        while(literator.more())
+                        {
+                            inventMovementJournalLines = literator.value();
+                            if(this.createMovementJournalLines(inventJournalTable, inventMovementJournalLines, inventMovementJournalType))
+                            {
+                                numOfLines++;
+                            }
+                            literator.next();
+                        }
+                    }
+                    else
+                    {
+                        throw Error('@UFINET_AP:IGIN001F_0047');
+                    }
+                
+                    inventJournalTable.selectForUpdate(true);
+                    inventJournalTable.NumOfLines = numOfLines;
+                    inventJournalTable.update();
+
+                    journalCheckPost = InventJournalCheckPost::newPostJournal(inventJournalTable);
+                    journalCheckPost.run();
+
+                    message = strFmt("@UFINET_AP:IGIN001F_0048", inventJournalTable.JournalId);
+                    response.parmMessage(message);
+                    response.parmNumDiario(inventJournalTable.JournalId);
+                    response.parmSuccess(true);
+
+                    this.insertLog(UFTIntegrationType::InventMovementJournal, UFTIntegrationStatus::Processed, message);
+                }
+                else
+                {
+                    throw Error('@UFINET_AP:IGIN001F_0049');
+                }
+            }
+            ttscommit;
+        }
+        catch(xppWarningEx)
+        {
+            message = this.getErrorStr();
+            response.parmMessage(message);
+            response.parmSuccess(false);
+
+            this.insertLog(UFTIntegrationType::InventMovementJournal, UFTIntegrationStatus::Error, message);
+        }
+        catch(xppErrorEx)
+        {
+            message = this.getErrorStr();
+            response.parmMessage(message);
+            response.parmSuccess(false);
+
+            this.insertLog(UFTIntegrationType::InventMovementJournal, UFTIntegrationStatus::Error, message);
+        }
+        catch(Exception::DuplicateKeyException)
+        {
+            message = this.getErrorStr();
+            response.parmMessage(message);
+            response.parmSuccess(false);
+
+            this.insertLog(UFTIntegrationType::InventMovementJournal, UFTIntegrationStatus::Error, message);
+        }
+
+        return response;
+    }
+
+    private void insertLog(UFTIntegrationType  _integrationType, UFTIntegrationStatus _integrationStatus, str _message)
+    {
+        UFTIntegrationProcessingLog     integrationProcessingLog;
+
+        integrationProcessingLog.IntegrationType = _integrationType;
+        integrationProcessingLog.IntegrationStatus = _integrationStatus;
+        integrationProcessingLog.ProcessDateTime = DateTimeUtil::utcNow();
+        integrationProcessingLog.ExternalApplication = UFTIntegrationExternalApplicationType::Phoenix;
+        integrationProcessingLog.Message = _message;
+        integrationProcessingLog.insert();
+    }
+
+    private UFTInventMovementJournalType getInventJournalName(UFTInventMovementJournalHeader _header)
+    {
+        UFTInventMovementType           inventMovementType; 
+        UFTInventMovementReasonType     inventMovementReasonType;
+        UFTInventMovementJournalType    inventMovementJournalType;
+
+        inventMovementReasonType = UFTInventMovementReasonType::find(_header.parmReasonType());
+        if(!inventMovementReasonType)
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0027", _header.parmReasonType()));
+        }
+        
+        inventMovementType = UFTInventMovementType::find(_header.parmMovementType());
+        if(!inventMovementType)
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0028", _header.parmMovementType()));
+        }
+
+        inventMovementJournalType = UFTInventMovementJournalType::find(inventMovementReasonType.InventMovementReasonTypeId,inventMovementType.InventMovementType);
+        if(!inventMovementJournalType)
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0029", _header.parmMovementType(), _header.parmReasonType()));
+        }
+
+        if(!InventJournalName::find(inventMovementJournalType.InventJournalName))
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0030", inventMovementJournalType.InventJournalName));
+        }
+
+        return inventMovementJournalType;
+    }
+
+    private InventJournalTable createMovementJournalHeader(InventJournalNameId _inventJournalNameId, UFTInventMovementJournalHeader _header)
+    {
+        InventJournalTable      inventJournalTable;
+        
+        inventJournalTable.clear();
+        inventJournalTable.initFromInventJournalName(InventJournalName::find(_inventJournalNameId));
+        if(_header.parmDescription())
+        {
+            inventJournalTable.Description = _header.parmDescription();
+        }
+        inventJournalTable.UFTIntegrationDocRefId = _header.parmDocPhoenix();
+        inventJournalTable.insert();
+
+        return inventJournalTable;
+    }
+
+    private boolean createMovementJournalLines(InventJournalTable _inventJournalTable, 
+                                              UFTInventMovementJournalLines _lines,
+                                              UFTInventMovementJournalType _inventMovementJournalType)
+    {
+        InventJournalTrans      inventJournalTrans;
+        InventDim               inventDim;
+        container               dimAttr, dimValue;
+        boolean                 ret = false;
+        boolean                 isBatchRequired = false;
+        boolean                 isSerialRequired = false;
+        boolean                 invertedSing = true;
+        InventJournalId         inventJournalId;
+        
+        #define.dimCostCenter("CECO");
+        #define.dimVendAccount("Proveedor");
+
+        dimAttr = conNull();
+        dimValue = conNull();
+
+        isBatchRequired = this.isBatchRequired(_lines.parmItemId());
+        isSerialRequired = this.isSerialRequired(_lines.parmItemId());
+
+        if(_inventMovementJournalType)
+        {
+            invertedSing = _inventMovementJournalType.InvertedSign;
+        }
+        else if(_lines.parmJournalId())  
+        {
+            invertedSing = false;
+        }
+
+        this.validateLines(_lines, isBatchRequired, isSerialRequired);
+        
+        inventJournalTrans.clear();
+        inventJournalTrans.initFromInventJournalTable(_inventJournalTable);
+        if(_lines.parmTransDate())
+        {
+            inventJournalTrans.TransDate = str2Date(_lines.parmTransDate(),123);
+        }
+        else
+        {
+            inventJournalTrans.TransDate = DateTimeUtil::date(DateTimeUtil::utcNow());
+        }
+        inventJournalTrans.ItemId = _lines.parmItemId();
+        inventJournalTrans.initFromInventTable(InventTable::find(inventJournalTrans.ItemId));
+        inventJournalTrans.LineNum = _lines.parmLineNum(); 
+        inventDim = InventDim::find(inventJournalTrans.InventDimId);
+        if(isBatchRequired)
+        {
+            inventDim.inventBatchId = InventBatch::findOrCreate(_lines.parmInventBatchId(), inventJournalTrans.ItemId).inventBatchId;
+        }
+        if(isSerialRequired)
+        {
+            inventDim.inventSerialId = InventSerial::findOrCreate(_lines.parmInventSerialId(), inventJournalTrans.ItemId).InventSerialId;
+        }
+        if(isBatchRequired || isSerialRequired)
+        {
+            inventJournalTrans.inventDimId = InventDim::findOrCreate(inventDim).inventDimId;
+        }
+        
+        if(invertedSing)
+        {
+            if(this.getQtyAvailPhysical(inventJournalTrans.ItemId, inventDim) >= _lines.parmQty())
+            {
+                inventJournalTrans.Qty = _lines.parmQty() * -1;
+                inventJournalTrans.setCostPrice(inventJournalTrans.inventDimId,inventDim);
+            }
+            else
+            {
+                throw Error(strFmt("@UFINET_AP:IGIN001F_0042", inventJournalTrans.ItemId));
+            }
+        }
+        else
+        {
+            inventJournalTrans.Qty = _lines.parmQty();
+            
+            if(InventJournalName::find(_inventMovementJournalType.InventJournalName).JournalType == InventJournalType::LossProfit)
+            {
+                if(isBatchRequired || isSerialRequired)
+                {
+                    inventJournalTrans.CostPrice = this.getCostPriceInventTrans(inventJournalTrans.ItemId, inventJournalTrans.inventDimId);
+                    inventJournalTrans.CostAmount = inventJournalTrans.calcCostAmount(inventJournalTrans.Qty);
+
+                    if(!inventJournalTrans.CostPrice)
+                    {
+                        inventJournalTrans.setCostPrice(inventJournalTrans.inventDimId,inventDim);
+                    }
+                }
+                else
+                {
+                    inventJournalTrans.setCostPrice(inventJournalTrans.inventDimId,inventDim);
+                }
+                if(!inventJournalTrans.CostPrice)
+                {
+                    throw Error(strFmt("@UFINET_AP:IGIN001F_0043", inventJournalTrans.ItemId));
+                }
+            }
+            else
+            {
+                if(!_lines.parmJournalId())
+                {
+                    throw Error("@UFINET_AP:IGIN001F_0044");
+                }
+                
+                inventJournalId = InventJournalTable::find(_lines.parmJournalId()).JournalId;
+                if(!inventJournalId)
+                {
+                    throw Error(strFmt("@UFINET_AP:IGIN001F_0045", _lines.parmJournalId()));
+                }
+                
+                inventJournalTrans.CostPrice = this.getCostPriceByInvenJournalId(inventJournalTrans.ItemId, inventJournalId, inventJournalTrans.inventDimId);
+                
+                inventJournalTrans.CostAmount = inventJournalTrans.calcCostAmount(inventJournalTrans.Qty);
+            } 
+        }
+
+        if(_lines.parmOffsetAccount())
+        {
+            inventJournalTrans.LedgerDimension = LedgerDefaultAccountHelper::getDefaultAccountFromMainAccountId(_lines.parmOffsetAccount());
+            if(!inventJournalTrans.LedgerDimension)
+            {
+                throw Error("@UFINET_AP:IGIN001F_0046");
+            }
+        }
+
+        /*22112022 - AP_UFT_7458_DimFinTerceroMunicipio - MCV - begin */
+
+        //if(_lines.parmVendAccount())
+        //{
+        //    dimAttr = [#dimCostCenter,#dimVendAccount];
+        //    dimValue = [_lines.parmCostCenter(), _lines.parmVendAccount()];
+        //    inventJournalTrans.DefaultDimension = this.findOrCreateDefaultDimension(dimAttr,dimValue);
+        //}
+        //else
+        //{
+        //    dimAttr = [#dimCostCenter];
+        //    dimValue = [_lines.parmCostCenter()];
+        //    inventJournalTrans.DefaultDimension = this.findOrCreateDefaultDimension(dimAttr,dimValue);
+        //}
+
+        Name thirdDimName = InventParameters::find().UFT_ThirdDimensionName;
+        Name municDimName = InventParameters::find().UFT_MunicipalityDimensionName;
+        DimensionAttribute                  dimAttribute;
+        DimensionAttributeValue             dimAttrValue;
+        DimensionFinancialTag               dimFinTag;
+        DimensionAttributeValueSetStorage   valueSetStorage = new DimensionAttributeValueSetStorage();
+
+        
+        if(_lines.parmVendAccount())
+        {       
+            if(_inventJournalTable.JournalNameId == "DDIC" && strLen(thirdDimName) > 0) //cambio/reemplazo proveedor
+            {
+                VendTable vendTable = VendTable::find(_lines.parmVendAccount());
+                
+                str valueThird = this.getDimAttrValue(vendTable.DefaultDimension,thirdDimName);
+
+                dimAttr = [#dimCostCenter,#dimVendAccount,thirdDimName];
+                dimValue = [_lines.parmCostCenter(), _lines.parmVendAccount(), valueThird];
+            }
+            else
+            {
+                dimAttr = [#dimCostCenter,#dimVendAccount];
+                dimValue = [_lines.parmCostCenter(), _lines.parmVendAccount()];
+            }
+
+            inventJournalTrans.DefaultDimension = this.findOrCreateDefaultDimension(dimAttr,dimValue);
+        }
+        else
+        {
+            if((_inventJournalTable.JournalNameId == "DAIO" || _inventJournalTable.JournalNameId == "DCIR") && (strLen(thirdDimName) > 0)) //Obsolescencia - Consumo de artículos por reparación
+            {
+                //dimFinTag = DimensionFinancialTag::find(InventParameters::find().UFT_RecIdThirdDimensionValue);
+                //dimAttr = [#dimCostCenter, thirdDimName];
+                //dimValue = [_lines.parmCostCenter(), dimFinTag.Value];
+
+                dimAttr = [#dimCostCenter, thirdDimName];
+                dimValue = [_lines.parmCostCenter(), InventParameters::find().UFT_ThirdDimensionValue];
+            }
+            else if((_inventJournalTable.JournalNameId == "DAI") && (strLen(thirdDimName) > 0 || strLen(municDimName) > 0)) //Toma de inventario
+            {
+                if (strLen(thirdDimName) > 0)
+                {
+                    //dimFinTag = DimensionFinancialTag::find(InventParameters::find().UFT_RecIdThirdDimensionValue);
+                    //dimAttr = [#dimCostCenter, thirdDimName];
+                    //dimValue = [_lines.parmCostCenter(), dimFinTag.Value];
+
+                    dimAttr = [#dimCostCenter, thirdDimName];
+                    dimValue = [_lines.parmCostCenter(), InventParameters::find().UFT_ThirdDimensionValue];
+                }
+                else
+                {
+                    dimAttr = [#dimCostCenter];
+                    dimValue = [_lines.parmCostCenter()];
+                }
+
+                if (strLen(municDimName) > 0)
+                {
+                    //dimFinTag = DimensionFinancialTag::find(InventParameters::find().UFT_RecIdMunicipalityDimensionValue);
+
+                    if (strLen(thirdDimName) > 0)
+                    {
+                        dimAttr = conIns(dimAttr,3,municDimName);
+                        dimValue = conIns(dimValue,3,InventParameters::find().UFT_MunicipalityDimensionValue);
+                        //dimValue = conIns(dimValue,3,dimFinTag.Value);
+                    }
+                    else
+                    {
+                        dimAttr = [#dimCostCenter, municDimName];
+                        dimValue = [_lines.parmCostCenter(), InventParameters::find().UFT_MunicipalityDimensionValue];
+                        //dimValue = [_lines.parmCostCenter(), dimFinTag.Value];
+                    }
+                }
+                else
+                {
+                    dimAttr = [#dimCostCenter];
+                    dimValue = [_lines.parmCostCenter()];
+                }
+            }
+            else
+            {
+                dimAttr = [#dimCostCenter];
+                dimValue = [_lines.parmCostCenter()];
+            }
+
+            inventJournalTrans.DefaultDimension = this.findOrCreateDefaultDimension(dimAttr,dimValue);
+        }
+        /*22112022 - AP_UFT_7458_DimFinTerceroMunicipio - MCV - end*/
+
+        inventJournalTrans.insert();
+
+        return true;
+    }
+
+    private DimensionDefault findOrCreateDefaultDimension(container _attr, container _value, boolean _createIfNotFound = true)
+    {
+        DimensionAttributeValueSetStorage   valueSetStorage = new DimensionAttributeValueSetStorage();
+        DimensionDefault                    result;
+        int                                 i;
+        DimensionAttribute                  dimensionAttribute;
+        DimensionAttributeValue             dimensionAttributeValue;
+        str                                 dimValue;
+
+        for (i = 1; i <= conLen(_attr); i++)
+        {
+            dimensionAttribute = dimensionAttribute::findByName(conPeek(_attr, i));
+            if (dimensionAttribute.RecId == 0)
+            {
+                continue;
+            }
+            dimValue = conPeek(_value, i);
+            if (dimValue != "")
+            {
+                dimensionAttributeValue = dimensionAttributeValue::findByDimensionAttributeAndValue(dimensionAttribute,
+                                                                                                    dimValue,
+                                                                                                    false,
+                                                                                                    _createIfNotFound);
+                valueSetStorage.addItem(dimensionAttributeValue);
+            }
+        }
+        
+        result = valueSetStorage.save();
+        
+        return result;
+    }
+
+    private real getCostPriceByInvenJournalId(ItemId _itemId, InventJournalId _InventJournalId, InventDimId _inventDimId)
+    {
+        InventTransOrigin   inventTransOrigin;
+        InventTrans         inventTrans;
+
+        select inventTransOrigin
+            where inventTransOrigin.ReferenceId == _InventJournalId
+        join inventTrans
+            where inventTrans.InventTransOrigin == inventTransOrigin.RecId
+            && inventTrans.ItemId == _itemId
+            && inventTrans.inventDimId == _inventDimId;
+
+        if(!inventTrans)
+        {
+            select inventTransOrigin
+                where inventTransOrigin.ReferenceId == _InventJournalId
+            join inventTrans
+                where inventTrans.InventTransOrigin == inventTransOrigin.RecId
+                && inventTrans.ItemId == _itemId;
+        }
+
+        
+        /*08122022 - AP_UFT_7458_DimFinTerceroMunicipio - MCV - begin */
+
+        //return abs(InventTrans.CostAmountPosted / inventTrans.Qty);
+
+        if(inventTrans.Qty == 0)   //se controla la división por cero
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0051", _InventJournalId));
+        }
+        else
+        {
+            return abs(InventTrans.CostAmountPosted / inventTrans.Qty);
+        }
+
+        return abs(InventTrans.CostAmountPosted / inventTrans.Qty);
+    }
+
+    private real getCostPriceInventTrans(ItemId _itemId, InventDimId _inventDimId)
+    {
+        InventTransOrigin   inventTransOrigin;
+        InventTrans         inventTrans;
+        CostPrice           costPrice;
+
+        select inventTrans
+            where inventTrans.ItemId == _itemId
+            && inventTrans.inventDimId == _inventDimId
+            join inventTransOrigin
+            where inventTransOrigin.ItemId == _itemId
+            && inventTransOrigin.ReferenceCategory == InventTransType::Purch;
+
+        if(inventTrans
+        && inventTrans.CostAmountPhysical > 0
+        && inventTrans.Qty > 0
+        && inventTrans.CostAmountPhysical >= inventTrans.Qty)
+        {
+            costPrice = inventTrans.CostAmountPhysical / inventTrans.Qty;
+        }
+
+        return  costPrice;
+    }
+
+    private real getQtyAvailPhysical(ItemId _itemId, InventDim _inventDim)
+    {
+        InventDimParm inventDimParm;
+        InventOnHand inventOnHand;
+        InventSum inventSum;
+        InventDim inventDim;
+
+        select firstOnly inventSum
+            where inventSum.ItemId == _itemId;
+
+        inventDimParm.initFrominventDim(_inventDim);
+        inventOnHand = InventOnHand::newItemDim(inventSum.ItemId, _inventDim, inventDimParm);
+        
+        return inventOnHand.availPhysical();
+    }
+
+    private void validateLines(UFTInventMovementJournalLines _lines, 
+                              boolean _isBatchRequired,
+                              boolean _isSerialRequired)
+    {
+        if(!_lines.parmItemId())
+        {
+            throw Error("@UFINET_AP:IGIN001F_0033");
+        }
+
+        if(!_lines.parmLineNum())
+        {
+            throw Error("@UFINET_AP:IGIN001F_0034");
+        }
+
+        if(!_lines.parmQty())
+        {
+            throw Error("@UFINET_AP:IGIN001F_0035");
+        }
+        
+        if(!InventTable::find(_lines.parmItemId()))
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0036", _lines.parmItemId()));
+        }
+
+        if(_isSerialRequired && !_lines.parmInventSerialId())
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0037", _lines.parmItemId()));
+        }
+
+        if(_isBatchRequired && !_lines.parmInventBatchId())
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0038", _lines.parmItemId()));
+        }
+
+        if(!_isSerialRequired && _lines.parmInventSerialId())
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0039", _lines.parmItemId()));
+        }
+
+        if(!_isBatchRequired && _lines.parmInventBatchId())
+        {
+            throw Error(strFmt("@UFINET_AP:IGIN001F_0040", _lines.parmItemId()));
+        }
+
+        if(!_lines.parmCostCenter())
+        {
+            throw Error("@UFINET_AP:IGIN001F_0041");
+        }
+    }
+
+    private boolean isBatchRequired(ItemId _itemId)
+    {
+        InventDimGroupFieldSetup    inventDimGroupFieldSetup;
+
+        inventDimGroupFieldSetup = EcoResDimensionGroupSetup::getFieldSetupForItem(_itemId, fieldNum(InventDim, InventBatchId));
+
+        if (!inventDimGroupFieldSetup.dimFieldId()
+         || !inventDimGroupFieldSetup.isActive()
+         ||  inventDimGroupFieldSetup.isAllowBlankReceiptEnabled())
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isSerialRequired(ItemId _itemId)
+    {
+        InventDimGroupFieldSetup inventDimGroupFieldSetup = EcoResDimensionGroupSetup::getFieldSetupForItem(_itemId, fieldNum(InventDim, InventSerialId));
+    
+        if (!inventDimGroupFieldSetup.dimFieldId()
+         || !inventDimGroupFieldSetup.isActive()
+         ||  inventDimGroupFieldSetup.isAllowBlankReceiptEnabled())
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private str getErrorStr()
+    {
+        SysInfologEnumerator enumerator;
+        SysInfologMessageStruct msgStruct;
+        Exception exception;
+        str error;
+        int i;
+        enumerator = SysInfologEnumerator::newData(infolog.cut());
+        while (enumerator.moveNext())
+        {
+            msgStruct = new SysInfologMessageStruct(enumerator.currentMessage());
+            exception = enumerator.currentException();
+            if(i > 0)
+            {
+                error = strfmt("%1 %2", error, msgStruct.message());
+            }
+            else
+            {
+                error = strfmt("%1", msgStruct.message());
+            }
+            i++;
+        }
+        return error;
+    }
+
+    /// <summary>
+    /// Gets a comma separated list of the dimension attribute names.
+    /// </summary>
+    /// <param name="_defaultDimension">
+    /// The default dimension.
+    /// </param>
+    /// <returns>
+    /// A comma separated list of the dimension attribute names.
+    /// </returns>
+    private str getDimAttrValue(DimensionDefault _defaultDimension, Name _nameDimension)
+    {
+        DimensionAttributeValueSetItem valueSetItem;
+        DimensionAttributeValue dimAttrValue;
+        DimensionAttribute dimAttr;
+        str DisplayValue;
+
+        DisplayValue = '';
+
+        select Name from dimAttr
+        join dimAttrValue
+            where dimAttrValue.DimensionAttribute == dimAttr.RecId
+        join DisplayValue from valueSetItem
+            where valueSetItem.DimensionAttributeValue == dimAttrValue.RecId
+                && valueSetItem.DimensionAttributeValueSet == _defaultDimension
+                && dimAttr.Name == _nameDimension;
+             
+        DisplayValue = valueSetItem.DisplayValue;
+        
+        return DisplayValue;
+    }
+
+}
+____________________________________________________________
+
+/// <summary>
+/// 20220414 - 6340 I.GIN-001-f: Int. PNX - ALTAS Y BAJAS DE INVENTARIO - SAC
+/// </summary>
+[DataContractAttribute]
+class UFTInventMovementJournalResponse
+{
+    boolean     success;
+    str         numDiario;
+    str         message;
+
+    [DataMember("Success")]
+    public Boolean parmSuccess(Boolean _value = success)
+    {
+        if (!prmIsDefault(_value))
+        {
+            success = _value;
+        }
+        return success;
+    }
+
+    [DataMember("NumDiario")]
+    public str parmNumDiario(str _value = numDiario)
+    {
+        if (!prmIsDefault(_value))
+        {
+            numDiario = _value;
+        }
+        return numDiario;
+    }
+
+    [DataMember("Message")]
+    public str parmMessage(str _value = message)
+    {
+        if (!prmIsDefault(_value))
+        {
+            message = _value;
+        }
+        return message;
+    }
+
+}
+
+___________________________________________________________________
+
+/// <summary>
+/// 20220414 - 6340 I.GIN-001-f: Int. PNX - ALTAS Y BAJAS DE INVENTARIO - SAC
+/// </summary>
+[DataContractAttribute]
+class UFTInventMovementJournalRequest
+{
+    str                             company;
+    UFTInventMovementJournalHeader  inventMovementJournalHeader;
+    List                            inventMovementJournalLineArray;
+
+    [DataMember("Empresa")]
+    public str parmCompany(str _value = company)
+    {
+        if (!prmIsDefault(_value))
+        {
+            company = _value;
+        }
+
+        return company;
+    }
+
+    [DataMember("Encabezado")]
+    public UFTInventMovementJournalHeader parmInventMovementJournalHeader(UFTInventMovementJournalHeader _inventMovementJournalHeader = inventMovementJournalHeader)
+    {
+        if (!prmIsDefault(_inventMovementJournalHeader))
+        {
+            inventMovementJournalHeader = _inventMovementJournalHeader;
+        }
+
+        return inventMovementJournalHeader;
+    }
+
+    [DataMemberAttribute("Lineas"),
+    DataCollection(Types::Class, classStr(UFTInventMovementJournalLines)),
+    AifCollectionTypeAttribute('_inventMovementJournalLineArray', Types::Class, classStr(UFTInventMovementJournalLines)),
+    AifCollectionTypeAttribute('return', Types::Class, classStr(UFTInventMovementJournalLines))]
+    public List parmInventMovementJournalLineArray(List _inventMovementJournalLineArray = inventMovementJournalLineArray)
+    {
+        if (!prmIsDefault(_inventMovementJournalLineArray))
+        {
+            inventMovementJournalLineArray = _inventMovementJournalLineArray;
+        }
+
+        return inventMovementJournalLineArray;
+    }
+
+}
+______________________________________________________________________
+
+/// <summary>
+/// 20220414 - 6340 I.GIN-001-f: Int. PNX - ALTAS Y BAJAS DE INVENTARIO - SAC
+/// </summary>
+[DataContractAttribute]
+public class UFTInventMovementJournalLines
+{
+    str     journalId;
+    str     transDate;
+    str     itemId;
+    int     lineNum;
+    str     inventBatchId;
+    str     inventSerialId;
+    real    qty;
+    str     offsetAccount;
+    str     costCenter;
+    str     vendAccount;
+
+    [DataMember("NumDiario")]
+    public str parmJournalId(str _value = journalId)
+    {
+        if (!prmIsDefault(_value))
+        {
+            journalId = _value;
+        }
+
+        return journalId;
+    }
+
+    [DataMember("FechaActa")]
+    public str parmTransDate(str _value = transDate)
+    {
+        if (!prmIsDefault(_value))
+        {
+            transDate = _value;
+        }
+
+        return transDate;
+    }
+
+    [DataMember("CodArticulo")]
+    public str parmItemId(str _value = itemId)
+    {
+        if (!prmIsDefault(_value))
+        {
+            itemId = _value;
+        }
+        return itemId;
+    }
+
+    [DataMember("NumLinea")]
+    public int parmLineNum(int _value = lineNum)
+    {
+        if (!prmIsDefault(_value))
+        {
+            lineNum = _value;
+        }
+        return lineNum;
+    }
+
+    [DataMember("NumLote")]
+    public str parmInventBatchId(str _value = inventBatchId)
+    {
+        if (!prmIsDefault(_value))
+        {
+            inventBatchId = _value;
+        }
+        return inventBatchId;
+    }
+
+    [DataMember("NumSerie")]
+    public str parmInventSerialId(str _value = inventSerialId)
+    {
+        if (!prmIsDefault(_value))
+        {
+            inventSerialId = _value;
+        }
+        return inventSerialId;
+    }
+
+    [DataMember("Cantidad")]
+    public real parmQty(real _value = qty)
+    {
+        if (!prmIsDefault(_value))
+        {
+            qty = _value;
+        }
+        return qty;
+    }
+
+    [DataMember("CtaContable")]
+    public str parmOffsetAccount(str _value = offsetAccount)
+    {
+        if (!prmIsDefault(_value))
+        {
+            offsetAccount = _value;
+        }
+        return offsetAccount;
+    }
+
+    [DataMember("CodCECO")]
+    public str parmCostCenter(str _value = costCenter)
+    {
+        if (!prmIsDefault(_value))
+        {
+            costCenter = _value;
+        }
+        return costCenter;
+    }
+
+    [DataMember("CodProveedor")]
+    public str parmVendAccount(str _value = vendAccount)
+    {
+        if (!prmIsDefault(_value))
+        {
+            vendAccount = _value;
+        }
+        return vendAccount;
+    }
+
+}
+_________________________________________________
+
+/// <summary>
+/// 20220414 - 6340 I.GIN-001-f: Int. PNX - ALTAS Y BAJAS DE INVENTARIO - SAC
+/// </summary>
+[DataContractAttribute]
+public class UFTInventMovementJournalHeader
+{
+    str     reasonType;
+    str     movementType;
+    str     description;
+    str     docPhoenix;
+
+    [DataMember("Motivo")]
+    public str parmReasonType(str _value = reasonType)
+    {
+        if (!prmIsDefault(_value))
+        {
+            reasonType = _value;
+        }
+
+        return reasonType;
+    }
+
+    [DataMember("TipoActa")]
+    public str parmMovementType(str _value = movementType)
+    {
+        if (!prmIsDefault(_value))
+        {
+            movementType = _value;
+        }
+
+        return movementType;
+    }
+
+    [DataMember("Observaciones")]
+    public str parmDescription(str _value = description)
+    {
+        if (!prmIsDefault(_value))
+        {
+            description = _value;
+        }
+
+        return description;
+    }
+
+    [DataMember("DocRef")]
+    public str parmDocPhoenix(str _value = docPhoenix)
+    {
+        if (!prmIsDefault(_value))
+        {
+            docPhoenix = _value;
+        }
+
+        return docPhoenix;
+    }
+
+}

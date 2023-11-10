@@ -1,0 +1,20 @@
+static void CountIt(Args _args)
+{
+    DataArea  DataArea;
+
+    void doIt()
+    {;
+        info(int2str((select Count(RecId) from CustTable).RecId));
+    }
+
+    setPrefix("Counting");
+    while select DataArea where !DataArea.isVirtual
+    {
+        print(DataArea.Id);
+        setPrefix(DataArea.Id);
+        changecompany (DataArea.Id)
+        {
+            doIt();
+        }
+    }
+}

@@ -1,0 +1,72 @@
+/// <summary>
+/// 20230314 - UFT_WI7941_HistoricalCostRecognition_CC - KCL
+/// The <c>The <c>UFTFiscalCalendars_Extension</c> class extends logic to ceate the fiscal year and periods in the specified calendar.</c>
+/// </summary>
+[ExtensionOf(classStr(FiscalCalendars))]
+final class UFTFiscalCalendars_Extension
+{
+
+    public static void copyPrevYear(FiscalCalendarRecId _calendarRecId, FiscalYearName _fiscalYearName, boolean _validate)
+    {
+        next copyPrevYear(_calendarRecId, _fiscalYearName, _validate);
+
+        UFTCostRecognitionPeriods   costRecognitionPeriods;
+        FiscalCalendarYear          prevFiscalYear = FiscalCalendarYear::findMostRecentFiscalCalendar(_calendarRecId);
+        FiscalCalendarYear          fiscalCalendarYear = FiscalCalendarYear::findByCalendarYearName(_calendarRecId, _fiscalYearName);
+        FiscalCalendarPeriod        prevFiscalPeriod;
+
+        select firstonly costRecognitionPeriods
+            where costRecognitionPeriods.FiscalYearName == _fiscalYearName
+            && costRecognitionPeriods.StartDate == fiscalCalendarYear.StartDate;
+
+        if (!costRecognitionPeriods)
+        {
+            while select * from prevFiscalPeriod
+            order by StartDate asc, EndDate asc
+                where prevFiscalPeriod.FiscalCalendarYear == prevFiscalYear.RecId
+            {
+                costRecognitionPeriods.clear();
+                costRecognitionPeriods.FiscalYearName = _fiscalYearName;
+                costRecognitionPeriods.PeriodId = prevFiscalPeriod.Name;
+                costRecognitionPeriods.StartDate = prevFiscalPeriod.StartDate;
+                costRecognitionPeriods.EndDate = prevFiscalPeriod.EndDate;
+                costRecognitionPeriods.FiscalCalendarYearRecId = fiscalCalendarYear.RecId;
+                costRecognitionPeriods.FiscalCalendarPeriodRecId = prevFiscalPeriod.RecId;
+                costRecognitionPeriods.insert();
+            }   
+        }
+    }
+
+    public static void createYear(FiscalCalendarRecId _calendarRecId, date _startDate, date _endDate,
+                                  int _periodQty, PeriodUnit _periodUnit, FiscalYearName _fiscalYearName, boolean _validate)
+    {
+        next createYear(_calendarRecId, _startDate, _endDate, _periodQty, _periodUnit, _fiscalYearName, _validate);
+
+        UFTCostRecognitionPeriods   costRecognitionPeriods;
+        FiscalCalendarYear          prevFiscalYear = FiscalCalendarYear::findMostRecentFiscalCalendar(_calendarRecId);
+        FiscalCalendarYear          fiscalCalendarYear = FiscalCalendarYear::findByCalendarYearName(_calendarRecId, _fiscalYearName);
+        FiscalCalendarPeriod        prevFiscalPeriod;
+
+        select firstonly costRecognitionPeriods
+            where costRecognitionPeriods.FiscalYearName == _fiscalYearName
+            && costRecognitionPeriods.StartDate == _startDate;
+
+        if (!costRecognitionPeriods)
+        {
+            while select * from prevFiscalPeriod
+            order by StartDate asc, EndDate asc
+                where prevFiscalPeriod.FiscalCalendarYear == prevFiscalYear.RecId
+            {
+                costRecognitionPeriods.clear();
+                costRecognitionPeriods.FiscalYearName = _fiscalYearName;
+                costRecognitionPeriods.PeriodId = prevFiscalPeriod.Name;
+                costRecognitionPeriods.StartDate = prevFiscalPeriod.StartDate;
+                costRecognitionPeriods.EndDate = prevFiscalPeriod.EndDate;
+                costRecognitionPeriods.FiscalCalendarYearRecId = fiscalCalendarYear.RecId;
+                costRecognitionPeriods.FiscalCalendarPeriodRecId = prevFiscalPeriod.RecId;
+                costRecognitionPeriods.insert();
+            }
+        }
+    }
+
+}

@@ -1,0 +1,152 @@
+/// <summary>
+/// 20230427 - UFT_BR_ADQ001PurchOrderService_CC03 - KCL
+/// </summary>
+[ExtensionOf(classStr(UFTADQ001IPurchaseOrderLogic))]
+final class UFTADQ001IPurchaseOrderLogic_BR_Extension
+{
+    #ISOCountryRegionCodes
+
+    /// <summary>
+    /// Validate AccessKey_BR value
+    /// </summary>
+    /// <param name = "_request">UFTADQ001IPurchOrderRequestContract</param>
+    public static void validateData(UFTADQ001IPurchOrderRequestContract   _request)
+    {
+        next validateData(_request);
+
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoBR]) && !_request.parmInvoiceId())
+        {        
+            if (_request.parmAccessKey_BR() == "")
+            {
+                throw error("@UFINET_AP_BR:RequiredAccessKey");
+            }
+            else if (strLen(_request.parmAccessKey_BR()) != 44)
+            {
+                throw error("@UFINET_AP_BR:ValidAccessKey");
+            }
+        }
+    }
+
+    public static container createPendingVendorInvoice (List  _purchOrderReceiptContractList, InvoiceDate   _invoiceDate, Num  _invoiceId, str  _accessKeyBR)
+    {     
+        boolean     ret;
+        str         msg;
+
+        [ret, msg] = next createPendingVendorInvoice(_purchOrderReceiptContractList, _invoiceDate, _invoiceId, _accessKeyBR);
+
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoBR]) && ret)
+        {
+            ListEnumerator                          enumeratorContract = _purchOrderReceiptContractList.getEnumerator();
+            UFTADQ001IPurchOrderReceiptContract     purchOrderReceiptContract;
+            PurchTable                              purchTableLocal;
+            PurchTable_BR                           purchTableBR;
+            purchLine                               purchLineLocal;    
+            PurchId                                 purchId;
+            VendInvoiceInfoTable                    vendInvoiceInfoTable;
+            VendInvoiceInfoTable_W                  vendInvoiceInfoTable_W;
+            VendInvoiceInfoLine                     vendInvoiceInfoLine;
+            VendInvoiceInfoLine_W                   vendInvoiceInfoLine_W;
+            SalesPurchOperationType_BR              salesPurchOperationType_BR;
+            UFTIntegrationParameter                 integrationParameter = UFTIntegrationParameter::find();
+
+            ttsbegin;
+
+            while (enumeratorContract.moveNext())
+            {
+                purchOrderReceiptContract = new UFTADQ001IPurchOrderReceiptContract();
+                purchOrderReceiptContract = enumeratorContract.current();
+                
+                purchId = purchOrderReceiptContract.parmPurchId();
+                purchTableLocal = PurchTable::find(purchId);
+                purchTableBR    = purchTableLocal.purchTable_BR();
+
+                select firstonly forupdate vendInvoiceInfoTable
+                    where vendInvoiceInfoTable.PurchId == purchId
+                    && vendInvoiceInfoTable.Num == _invoiceId
+                    && vendInvoiceInfoTable.DocumentDate == _invoiceDate
+                    && vendInvoiceInfoTable.InvoiceAccount == purchTableLocal.InvoiceAccount;
+
+                vendInvoiceInfoTable_W = VendInvoiceInfoTable_W::findByVendInvoiceInfoTable(vendInvoiceInfoTable.RecId, true);
+                                
+                select firstonly forupdate salesPurchOperationType_BR
+                    where salesPurchOperationType_BR.RecId == purchTableBR.SalesPurchOperationType_BR;
+
+                if (salesPurchOperationType_BR && vendInvoiceInfoTable_W)
+                {                    
+                    vendInvoiceInfoTable_W.SalesPurchOperationType_BR = purchTableBR.SalesPurchOperationType_BR;  
+                 
+                    if (_invoiceId)
+                    {
+                        vendInvoiceInfoTable_W.FiscalDocumentModel_BR = integrationParameter.FiscalDocModelSeBR;
+                    }
+                    else
+                    {
+                        vendInvoiceInfoTable_W.FiscalDocumentModel_BR = integrationParameter.FiscalDocModelBR;
+                        vendInvoiceInfoTable_W.AccessKey_BR = _accessKeyBR;
+                        vendInvoiceInfoTable_W.modifiedField(fieldNum(VendInvoiceInfoTable_W, AccessKey_BR));
+                    }                                      
+                    vendInvoiceInfoTable_W.update();                    
+                }
+                else if (salesPurchOperationType_BR && !vendInvoiceInfoTable_W)
+                {
+                    vendInvoiceInfoTable_W.clear();
+                    vendInvoiceInfoTable_W.initValue();
+
+                    if (_invoiceId)
+                    {
+                        vendInvoiceInfoTable_W.FiscalDocumentModel_BR = integrationParameter.FiscalDocModelSeBR;
+                    }
+                    else
+                    {
+                        vendInvoiceInfoTable_W.FiscalDocumentModel_BR = integrationParameter.FiscalDocModelBR;
+                        vendInvoiceInfoTable_W.AccessKey_BR = _accessKeyBR;
+                        vendInvoiceInfoTable_W.modifiedField(fieldNum(VendInvoiceInfoTable_W, AccessKey_BR));
+                    }
+                    vendInvoiceInfoTable_W.SalesPurchOperationType_BR = salesPurchOperationType_BR.RecId;
+                    vendInvoiceInfoTable_W.VendInvoiceInfoTable = vendInvoiceInfoTable.RecId;
+                    //fill in Num field of vendInvoiceInfoTable
+                    if (vendInvoiceInfoTable)
+                    {
+                        vendInvoiceInfoTable.Num = EFDocAccessKeyBase_BR::getInvoiceNumber(_accessKeyBR);
+                        vendInvoiceInfoTable.update();
+                    }
+
+                    vendInvoiceInfoTable_W.insert();
+                }
+
+                if (vendInvoiceInfoTable)
+                {
+                    select firstonly vendInvoiceInfoLine
+                        where vendInvoiceInfoLine.TableRefId == vendInvoiceInfoTable.TableRefId
+                        && vendInvoiceInfoLine.ParmId == vendInvoiceInfoTable.ParmId
+                        && vendInvoiceInfoLine.InvoiceAccount == vendInvoiceInfoTable.InvoiceAccount;
+
+                    vendInvoiceInfoLine_W = vendInvoiceInfoLine.vendInvoiceInfoLine_W();
+
+                    if (vendInvoiceInfoLine && vendInvoiceInfoLine_W)
+                    {
+                        VendInvoiceInfoLine_W vendInvoiceInfoLine_Wupd;
+                        
+                        vendInvoiceInfoLine = null;
+                        // Update CFOP vendor invoice lines from POs.
+                        update_recordset vendInvoiceInfoLine_Wupd
+                        setting CFOPTable_BR = purchLineLocal.CFOPTable_BR
+                        join vendInvoiceInfoLine
+                        where vendInvoiceInfoLine_Wupd.VendInvoiceInfoLine == vendInvoiceInfoLine.RecId
+                        join purchLineLocal
+                        where purchLineLocal.RecId == vendInvoiceInfoLine.PurchLineRecId
+                        && purchLineLocal.PurchId == purchId;
+
+                        msg = strFmt("@UFINET_AP:ADQ001I002", vendInvoiceInfoTable.Num);
+                    }
+                }
+
+            }
+            
+            ttscommit;
+        }
+
+        return [ret, msg];
+    }
+
+}

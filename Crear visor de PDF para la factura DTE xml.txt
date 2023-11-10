@@ -1,0 +1,508 @@
+class AP_DTEPdfViewer
+{
+    AP_DTEEnvioDTEReceivedXML_CL  dteEnvioDTEReceivedXML;
+    AP_DTEReceivedXML_CL          dteReceivedXML;
+    AP_EInvoiceJour_CL            emitedXml;
+    FileName                      fileName;
+    FilePath                      fullFilePath;
+    BinData                       pdfBinData;
+
+    private boolean canBeCreated()
+    {
+        return !this.fileExists();
+    }
+
+    private boolean canBeOpened(BlobData _pdfDocument)
+    {
+        return  this.fileExists() && this.fileContentIsTheSame(_pdfDocument);
+    }
+
+    private boolean canBeRewritten(BlobData _pdfDocument)
+    {
+        return (this.fileExists() && !this.fileContentIsTheSame(_pdfDocument) && this.fileIsNotLocked());
+    }
+
+    private void createFile(BlobData _pdfDocument)
+    {
+        pdfBinData.setData(_pdfDocument);
+        pdfBinData.saveFile(fullFilePath);
+    }
+
+    private boolean fileContentIsTheSame(BlobData _pdfDocument)
+    {
+        boolean     fileExists = false;
+    
+        if (this.fileExists())
+        {
+            pdfBinData = new BinData();
+            pdfBinData.loadFile(fullFilePath);
+            fileExists = true;
+        }
+    
+        return fileExists && pdfBinData.getData() == _pdfDocument;
+    }
+
+    private boolean fileExists()
+    {
+        return WinAPI::fileExists(fullFilePath);
+    }
+
+    private boolean fileIsNotLocked()
+    {
+        return WinAPI::fileLocked(fullFilePath) == false;
+    }
+
+    public void new(Common _receivedXml)
+    {
+        switch (_receivedXml.TableId)
+        {
+            case tableNum(AP_DTEEnvioDTEReceivedXML_CL) :
+                dteEnvioDTEReceivedXML = _receivedXml;
+                break;
+    
+            case tableNum(AP_EInvoiceJour_CL) :
+                emitedXml  = _receivedXml;
+                break;
+            case tableNum(AP_DTEReceivedXML_CL):
+                dteReceivedXML = _receivedXml;
+                break;
+        }     
+    
+    
+    }
+
+    Public void open()
+    {
+        Blobdata pdfDocument;
+        AP_DTEEnvioDTEReceivedXMLPDF_CL dteEnvioReceivedPDF;
+        AP_DTEReceivedXMLPDF_CL         dteReceivedXMLPDF;
+       
+        #SRSFramework
+    
+        if(dteEnvioDTEReceivedXML)
+        {
+         select PdfDocument from dteEnvioReceivedPDF
+            where dteEnvioReceivedPDF.EFDocumentReceivedXML == dteEnvioDTEReceivedXML.RecId;
+    
+            pdfDocument = dteEnvioReceivedPDF.PdfDocument;
+            fileName = dteEnvioDTEReceivedXML.DTEId + #pdf;
+        }
+        else
+        if(emitedXml)
+        {
+           pdfDocument   = emitedXml.PDFDocumentSigned;
+           fileName = emitedXml.invoiceId() + #pdf;
+        }
+       else
+       if(dteReceivedXML)
+       {    
+            pdfDocument  =  AP_DTEReceivedXMLPDF_CL::findByReceivedXMLRecId(dteReceivedXML.RecId).PdfDocument;
+            fileName     =  dteReceivedXML.InvoiceId + #pdf;
+        }
+    
+     
+        if(pdfDocument)
+        {
+        Binary pdfBinary = Binary::constructFromContainer(pdfDocument);
+        File::SendFileToUser(pdfBinary.getMemoryStream(), fileName);
+       
+        }
+        else
+          info("@AP_Facturador:DTE99");
+
+    }
+
+    protected void openFile(FilePath _fullFilePath)
+    {
+        WinAPI::shellExecute(_fullFilePath);
+    }
+
+    public static void openPDF(Common _receivedXml)
+    {
+        AP_DTEPdfViewer viewer = new AP_DTEPdfViewer(_receivedXml);
+        viewer.open();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    public void OpenMassive()
+    {
+        Blobdata pdfDocument;
+        AP_DTEEnvioDTEReceivedXMLPDF_CL dteEnvioReceivedPDF;
+        AP_DTEReceivedXMLPDF_CL         dteReceivedXMLPDF;
+        System.IO.Stream _stream;
+        Browser br = new Browser();
+        #SRSFramework
+    
+        if(dteEnvioDTEReceivedXML)
+        {
+            select PdfDocument from dteEnvioReceivedPDF
+            where dteEnvioReceivedPDF.EFDocumentReceivedXML == dteEnvioDTEReceivedXML.RecId;
+    
+            pdfDocument = dteEnvioReceivedPDF.PdfDocument;
+            fileName = dteEnvioDTEReceivedXML.DTEId + #pdf;
+        }
+        else
+        if(emitedXml)
+        {
+            pdfDocument   = emitedXml.PDFDocumentSigned;
+            fileName = emitedXml.invoiceId() + #pdf;
+        }
+        else
+       if(dteReceivedXML)
+        {
+            pdfDocument  =  AP_DTEReceivedXMLPDF_CL::findByReceivedXMLRecId(dteReceivedXML.RecId).PdfDocument;
+            fileName     =  dteReceivedXML.InvoiceId + #pdf;
+        }
+    
+     
+        if(pdfDocument)
+        {
+            Binary pdfBinary = Binary::constructFromContainer(pdfDocument);
+          
+        
+            str downloadUrl = File::SendFileToTempStore(pdfBinary.getMemoryStream(), fileName, classstr(FileUploadTemporaryStorageStrategy), true);
+        
+            if (downloadUrl != "")
+            {
+                br.navigate(downloadUrl, true, false);
+            }
+            else
+            {
+                warning("@ApplicationPlatform:DownloadFailed");
+            }
+        }
+        else
+          info("@AP_Facturador:DTE99");
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    public void CreateandOpenPDF(Common _receivedXml)
+    {
+        str                     ret;
+        AP_DTEReceivedXML_CL dteReceivedXML_CL;
+        AP_DTEReceivedXMLData_CL dteReceivedXMLData_CL;
+        AP_ReceivedDTEXmlDocument_CL envioDTEIncomingXml;
+        AP_GeneratorPDF generatorPDF;
+        APDTE_TipoImpuesto tipoImpuesto;
+        APDTETaxes taxes;
+
+        AP_DTEPdfViewer viewer = new AP_DTEPdfViewer(_receivedXml);
+
+        dteReceivedXML_CL = AP_DTEReceivedXML_CL::findByRecId(dteReceivedXML.RecId);
+        dteReceivedXMLData_CL = AP_DTEReceivedXMLData_CL::findByRecRef(dteReceivedXML_CL.RecId);
+        envioDTEIncomingXml =  AP_ReceivedDTEXmlDocument_CL::constructFromString(dteReceivedXMLData_CL.XMLDocument);
+        
+        str ext = SRSPrintDestinationSettings::findFileNameType(SRSReportFileFormat::PDF, SRSImageFileFormat::BMP);
+                                                                                                        
+        AP_DTEReceivedPdfContract receivedPdfContract = new AP_DTEReceivedPdfContract();
+        receivedPdfContract.ParmReceivedXmlRecId(dteReceivedXML_CL.recid);
+
+        SrsReportRunController  srsReportRunController = new SrsReportRunController();
+        srsReportRunController.parmReportName(ssrsReportStr(AP_DTEReceivedPdfReport, Report));
+        srsReportRunController.parmExecutionMode(SysOperationExecutionMode::Synchronous);
+        srsReportRunController.parmShowDialog(false);
+        srsReportRunController.parmReportContract().parmRdpContract(receivedPdfContract);
+        srsReportRunController.parmReportContract().parmReportExecutionInfo(new SRSReportExecutionInfo());
+        srsReportRunController.parmReportContract().parmReportServerConfig(SRSConfiguration::getDefaultServerConfiguration());
+
+        SRSPrintDestinationSettings printerSettings = srsReportRunController.parmReportContract().parmPrintSettings();
+        printerSettings.printMediumType(SRSPrintMediumType::File);
+        printerSettings.fileFormat(SRSReportFileFormat::PDF);
+        printerSettings.parmFileName(dteReceivedXML_CL.invoiceId + ext);
+        printerSettings.overwriteFile(true);
+                                               
+        SRSReportRunService srsReportRunService = new SrsReportRunService();
+        srsReportRunService.getReportDataContract(srsReportRunController.parmReportContract().parmReportName());
+        srsReportRunService.preRunReport(srsReportRunController.parmReportContract());
+        Map reportParametersMap = srsReportRunService.createParamMapFromContract(srsReportRunController.parmReportContract());
+        Microsoft.Dynamics.AX.Framework.Reporting.Shared.ReportingService.ParameterValue[]  parameterValueArray = SrsReportRunUtil::getParameterValueArray(reportParametersMap);
+
+        SRSProxy srsProxy = SRSProxy::constructWithConfiguration(srsReportRunController.parmReportContract().parmReportServerConfig());
+                        
+        System.Byte[] reportBytes = srsproxy.renderReportToByteArray(srsReportRunController.parmreportcontract().parmreportpath(),
+                                        parameterValueArray,
+                                        printerSettings.fileFormat(),
+                                        printerSettings.deviceinfo());
+ 
+        if (reportBytes)
+        {
+            this.ap_DteAddTemplate(reportBytes,envioDTEIncomingXml, dteReceivedXML_CL.RecId);
+        }
+        //}
+        
+        AP_DTEPdfViewer::openPDF(_receivedXml);
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    public void ap_DteAddTemplate(System.Byte[] _reportBytes, AP_ReceivedDTEXmlDocument_CL _AP_ReceivedDTEXmlDocument_CL,RefRecId _dteReceivedXML_CLRefRecId)
+    {
+        APDTE_TipoImpuesto tipoImpuesto;
+        APDTETaxes taxes;
+        using (System.IO.MemoryStream memoryStream = new System.IO.MemoryStream(_reportBytes))
+        {
+            System.IO.MemoryStream ms = new System.IO.MemoryStream();
+            iTextSharp.text.pdf.PdfContentByte cb;
+            iTextSharp.text.pdf.PdfReader      reader = new iTextSharp.text.pdf.PdfReader(memoryStream);
+            iTextSharp.text.Document myDocument = new iTextSharp.text.Document(reader.GetPageSize(1));
+        
+            iTextSharp.text.pdf.PdfWriter myPDFWriter = iTextSharp.text.pdf.PdfWriter::GetInstance(myDocument,ms);
+                
+            AP_Barcode barcode = AP_Barcode::contruct(_AP_ReceivedDTEXmlDocument_CL.getTED(),'');
+            iTextSharp.text.Image pdf417 = barcode.CrearTimbre417();
+
+            myPDFWriter.CloseStream = false;
+                
+            myDocument.Open();
+            real elementos = _AP_ReceivedDTEXmlDocument_CL.getAllDetalle().elements();
+            real height = reader.GetPageSize(1).Height;
+            real con ;
+            real position;
+            real dif;
+            //20190920 - AP_6065 CC_DTE - Mguzman - Begin
+            AP_ReceivedDTEXmlDocumentItem_CL    receivedDTEXmlDocumentItem;
+            ListEnumerator enumerator =  _AP_ReceivedDTEXmlDocument_CL.getAllDetalle() .getEnumerator();
+        
+            while(enumerator.moveNext())
+            {
+                receivedDTEXmlDocumentItem = enumerator.current();
+                if(receivedDTEXmlDocumentItem.getDscItem())
+                    elementos += 1.5;
+            }
+            elementos +=  (_AP_ReceivedDTEXmlDocument_CL.getAllReference().elements() + 2);
+            //20190920 - AP_6065 CC_DTE - Mguzman - End
+
+            while select taxes
+            where taxes.AP_DTEReceivedXML_CL == _dteReceivedXML_CLRefRecId
+            join tipoImpuesto
+            where tipoImpuesto.TipoImp == taxes.TaxCode &&
+                tipoImpuesto.AP_DTEPrint == NoYes::Yes
+            {
+                elementos = elementos + 1.2;
+            }
+            select firstonly taxes
+            where taxes.AP_DTEReceivedXML_CL == _dteReceivedXML_CLRefRecId
+            join tipoImpuesto
+            where tipoImpuesto.TipoImp == taxes.TaxCode &&
+                  tipoImpuesto.AP_DTEPrint == NoYes::No;
+            if(tipoImpuesto)
+            {
+                elementos = elementos + 1.2;
+            }
+
+            while(reader.NumberOfPages > con)
+            {
+                con++;
+
+                [position,elementos,dif] = this.ap_DtePositionTimbre(con, elementos,height,dif);
+
+                cb = myPDFWriter.DirectContent;
+                var pagen = reader.GetPageN(con);
+                    
+                iTextSharp.text.pdf.PdfImportedPage page = myPDFWriter.GetImportedPage(reader, con);
+                    
+                cb.BeginText();
+                cb.AddTemplate(page,0,0);
+                cb.EndText();
+                ////enable Write DTE in PDF.
+                if(reader.NumberOfPages == con)
+                {
+                    pdf417.SetAbsolutePosition(10, position);
+                        
+                    pdf417.ScaleAbsolute(184,80);
+                    myDocument.add(pdf417);
+                    page = myPDFWriter.GetImportedPage(reader, con);
+                    cb.BeginText();
+                    cb.AddTemplate(page,0,0);
+                    cb.EndText();
+                }
+                myDocument.NewPage();
+                    
+                    
+            }
+            myDocument.Close();
+                
+            AP_DTEReceivedXMLPDF_CL::savePdfDocument(_dteReceivedXML_CLRefRecId, ms);
+
+            memoryStream.close();
+            ms.close();
+            myPDFWriter.Close();
+
+        }
+    }
+
+    //20190718 - 6065 - DTE Recepción - Chidalgo - End
+
+    /// <summary>
+    ///
+    /// </summary>
+    public container ap_DtePositionTimbre(real _con, real _elementos,real _height,real _dif)
+    {
+        real alto;
+                
+        if(_con == 1)
+        {
+            if(32 < _elementos && _elementos <= 46)
+            {
+                alto = _height - 164;
+                _elementos = _elementos - 46;
+            }
+            else
+            {
+                _elementos = _elementos - 46;
+                if(_elementos <= 0)
+                {
+                    _elementos = _elementos + 12.5;
+                    if(_elementos <= 0)
+                    {
+                        alto = abs(_elementos) * 12;
+                    }
+                    else
+                    {
+                        alto = _height - (_elementos * 12);
+                    }
+                }
+            }
+        }
+        else
+        {
+            if(0 >= _elementos)
+            {
+                if(_elementos > -7)
+                                alto = _height - 164;//(164 + (dif * 12));
+                else
+                                alto = _height - 82;
+            }
+            else if(49 < _elementos && _elementos <= 63)
+            {
+                _elementos = _elementos - 63;
+            }
+            else
+            {
+                _elementos = (_elementos - 63);//dif) - 63;
+                if(_elementos < 0)
+                {
+                    _elementos = _elementos + 12.5;
+                    if(_elementos < 0)
+                    {
+                        alto = abs(_elementos) * 12.2;
+                    }
+                    else
+                    {
+                        alto = _height - (_elementos * 12.2);
+                    }
+                }
+            }
+            _dif =_dif + 0.8;
+        }
+        return [alto,_elementos,_dif];
+    }
+
+}
+_________________________
+llamar clase pdf
+
+class AP_CreateNewPDF
+{
+    public static void main(Args _args)
+    {
+        VendInvoiceJour                  vendInvoiceJour;
+        AP_DTEReceivedXML_CL             dteReceivedXML;
+        AP_DTEReceivedXMLPDF_CL          dteReceivedXMLPDF;
+        AP_DTEEnvioDTEReceivedXML_CL     dteEnvioDTEReceivedXML;
+        //AP_InvoiceReceivedSII          invoiceReceivedSII;
+      
+        Args                             args;
+   
+        Common                           registro;
+        ;
+        //AP_DTESavePdfDocumentLocal
+        registro = _args.record();
+
+                 
+       AP_DTEPdfViewer AP_DTEPdfViewer = new AP_DTEPdfViewer(registro);
+        
+        if(registro /*&& !AP_DTEReceivedXMLPDF_CL::findByReceivedXMLRecId(dteReceivedXML.RecId).PdfDocument*/)
+            AP_DTEPdfViewer.CreateandOpenPDF(registro);
+        else
+            info("@AP_Facturador:DTE99");
+
+    }
+
+}
+
+_______________________________________________
+
+Visualizar PDF
+
+class AP_DTEPrintPDF extends RunBaseBatch
+{
+    FormDataSource              Record;
+    protected void new()
+    {
+        super();
+    }
+
+    void ProcessUpdate()
+    {
+        
+        AP_DTEPdfViewer             viewer;
+        AP_DTEReceivedXML_CL        AP_DTEReceived;
+        
+        for (AP_DTEReceived = Record.getFirst(1) ? Record.getFirst(1) : Record.cursor(); AP_DTEReceived; AP_DTEReceived = Record.getNext())
+        {
+            if(AP_DTEReceived)
+            {               
+                viewer = new AP_DTEPdfViewer(AP_DTEReceived);
+                viewer.OpenMassive();
+            } 
+            
+
+        }
+        
+    }
+
+    public void run()
+    {
+        try
+        {
+            ttsbegin;
+            this.ProcessUpdate();
+            ttscommit;
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+    }
+
+    static public AP_DTEPrintPDF construct()
+    {
+        AP_DTEPrintPDF AP_DTEPrintPDF = new AP_DTEPrintPDF();
+
+        return AP_DTEPrintPDF;
+
+    }
+
+    static public void main(Args _args)
+    {
+        AP_DTEPrintPDF AP_DTEPrintPDF = AP_DTEPrintPDF::construct();
+        
+
+        AP_DTEPrintPDF.parmDatasource(_args.record().datasource());
+        AP_DTEPrintPDF.run();
+
+    }
+
+    public FormDataSource parmDatasource(FormDataSource _record = record)
+    {
+        record = _record;
+        return record;
+    }
+
+}

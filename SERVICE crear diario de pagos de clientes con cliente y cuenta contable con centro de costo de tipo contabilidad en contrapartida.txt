@@ -1,0 +1,763 @@
+/// <summary>
+/// The <c>DIVCustPaymentService</c> main class that executes the logic of the service
+/// Create customer payment journal
+/// 20230817 - DIV_8223_SalesMonitor_PaymentPosting - KCL
+/// </summary>
+public class DIVCustPaymentJournalService
+{       
+    CustomerPaymentJournalHeaderEntity  lastJournal;
+    Amount                              invoiceAmount, amountDebCred;
+    //To go through the list
+    List                                listLjTable = new List(Types::Int64); 
+
+    /// <summary>
+    /// Main service method
+    /// </summary>
+    /// <param name = "_contract">DIVCustPaymentJournalContract</param>
+    /// <returns>Response class</returns>
+    public DIVCustPaymentJournalResponse createCustPaymentJournal(DIVCustPaymentJournalContract  _contract)
+    {
+        DIVCustPaymentJournalResponse       response = new DIVCustPaymentJournalResponse();
+        DIVCustPaymentJournalTransContract  contractList;
+
+        ListEnumerator                      listEnumerator, responseEnumerator;
+        List                                dataContractList = new List(Types::Class);
+                                                     
+        str                                 message;
+        boolean                             createHeader;
+        int                                 empId;
+        int                                 cont;
+        boolean                             posted;
+
+        //Loop through a list of data journal
+        dataContractList = _contract.parmCustPaymentJournalList();
+        listEnumerator   = dataContractList.getEnumerator();
+
+        while (listEnumerator.moveNext())
+        {
+            contractList = listEnumerator.current();
+            cont++;
+
+            try
+            {
+                ttsbegin;
+
+                if (empId != contractList.parmEmpId())
+                {
+                    createHeader  = true;
+
+                    //Validate amounts to post the journal
+                    if (invoiceAmount != 0 && amountDebCred != 0 && (invoiceAmount == amountDebCred))
+                    {
+                        posted = true;
+                    }
+
+                    invoiceAmount = 0;
+                    amountDebCred = 0;
+                    posted        = false;
+                }
+                else
+                {
+                    createHeader = false;
+                }
+
+                empId = contractList.parmEmpId();
+                                
+                //Validate company
+                CompanyInfo  companyInfo;
+                
+                select firstonly DataArea from companyInfo
+                    where companyInfo.DIVLegacyCompany == empId;
+               
+                if (!companyInfo)
+                {
+                    throw Error(strFmt("Empresa %1 no se encuentra dentro del maestro de entidades jurídicas"), int2Str(empId));
+                }
+
+                //invoiceAmount = 0;
+
+                changecompany(companyInfo.DataArea)
+                {
+                    //Create journal header
+                    CustomerPaymentJournalHeaderEntity  header;
+                    CustomerPaymentJournalLineEntity    line;
+
+                    //Validate customer account
+                    if (!CustTable::find(contractList.parmEntRut()))
+                        throw Error(strFmt("Cuenta de cliente no existe."));
+
+                    if (createHeader)
+                    {
+                        //Validate journal name parameter
+                        if (!DIVIntegrationParameters::find().CustPaymJournalName)
+                            throw Error(strFmt("El nombre del diario no ha sido configurado."));
+
+                        header = this.createCustPaymJournalHeader(contractList);
+                        lastJournal = header;
+
+                        //Save RecId LedgerJournalTable to post later
+                        listLjTable.addEnd(header.RecId); //add the value at last                       
+                    }
+                    else
+                    {
+                        header = lastJournal;
+                    }
+
+                    //Create journal lines                    
+                    line = this.createCustPaymJournalLines(header, contractList);
+
+                    //Update OffsetLedgerDimension value
+                    LedgerJournalTrans  ljTrans = LedgerJournalTrans::find(line.JournalBatchNumber, line.Voucher, true);
+
+                    if (ljTrans)
+                    {
+                        RefRecId offSetRecId = LedgerDimensionFacade::serviceCreateLedgerDimForDefaultDim(ljTrans.DefaultDimension, ljTrans.OffsetLedgerDimension);
+                    
+                        ljTrans.OffsetLedgerDimension = offSetRecId;
+                        ljTrans.update();
+                    }
+
+                    //Settlement process
+                    if (contractList.parmPCabReferenciaId())
+                        this.settleTransactions(line);
+
+                    //Validate amount
+                    amountDebCred += (contractList.parmMovCceMontoImpuDebe()) ? contractList.parmMovCceMontoImpuDebe() : contractList.parmMovCceMontoImpuHaber();
+                      
+                }                 
+                
+                ttscommit;
+
+                if (createHeader)
+                {
+                    message += " ";
+                    message += strFmt("%1 creado.", lastJournal.JournalBatchNumber);
+
+                    response.parmMessage(message);
+                }
+            }
+            catch (Exception::Error)
+            {
+                message += " ";
+                message += strFmt("Error en línea %1: ", cont);
+                message += this.getErrorStr();
+
+                response.parmMessage(message);
+            }
+            catch(Exception::CLRError)
+            {
+                message += " ";
+                message += strFmt("Error en línea %1: ", cont);
+                message += this.getErrorStr();
+
+                response.parmMessage(message);
+            }
+
+        }//end_while
+
+        //Validate and post last journal
+        str postingMessage = this.postListJournalTable();
+
+        response.parmPostMessage(postingMessage);
+        //if (invoiceAmount != 0 && amountDebCred != 0 && (invoiceAmount == amountDebCred))
+        //{                       
+        //}
+
+        return response;
+    }
+
+    /// <summary>
+    /// Create customer payment journal header
+    /// </summary>
+    /// <param name = "_request">DIVCustPaymentJournalTransContract</param>
+    /// <returns>CustomerPaymentJournalHeaderEntity</returns>
+    public CustomerPaymentJournalHeaderEntity createCustPaymJournalHeader(DIVCustPaymentJournalTransContract  _request)
+    {
+        CustomerPaymentJournalHeaderEntity  journalHeaderEntity;
+       
+        //Header
+        journalHeaderEntity.JournalName = DIVIntegrationParameters::find().CustPaymJournalName;
+        journalHeaderEntity.insert();    
+    
+        return journalHeaderEntity;
+    }
+
+    /// <summary>
+    /// Create customer payment journal lines
+    /// </summary>
+    /// <param name = "_header">CustomerPaymentJournalHeaderEntity</param>
+    /// <param name = "_request">DIVCustPaymentJournalTransContract</param>
+    /// <returns>CustomerPaymentJournalLineEntity</returns>
+    public CustomerPaymentJournalLineEntity createCustPaymJournalLines(CustomerPaymentJournalHeaderEntity  _header, DIVCustPaymentJournalTransContract  _request)
+    {
+        CustomerPaymentJournalLineEntity    journalLineEntity;
+        CustPaymModeTable                   paymModeTable;
+
+        //Find CustPaymModeTable record
+        select firstonly paymModeTable
+            where paymModeTable.DIVPaymMethod == _request.parmOpeCod();
+
+        journalLineEntity.JournalBatchNumber  = _header.JournalBatchNumber;
+        journalLineEntity.PaymentMethodName   = paymModeTable.PaymMode;
+        journalLineEntity.TransactionText     = _request.parmCabOpeGlosa();
+        journalLineEntity.AccountType         = LedgerJournalACType::Cust;
+        journalLineEntity.TransactionDate     = str2Date(_request.parmCabOpeFecha(), 321);
+        journalLineEntity.AccountDisplayValue = _request.parmEntRut();
+
+        if (_request.parmMovCceMontoImpuHaber())
+           journalLineEntity.DebitAmount = _request.parmMovCceMontoImpuHaber();
+        else
+            journalLineEntity.CreditAmount = _request.parmMovCceMontoImpuDebe();
+       
+        journalLineEntity.CurrencyCode = CustTable::find(_request.parmEntRut()).Currency;
+        journalLineEntity.OffsetAccountType = LedgerJournalACType::Ledger;
+        journalLineEntity.OffsetAccountDisplayValue = strFmt("%1-%2", _request.parmTdoId(), _request.parmCreCodigo());
+        journalLineEntity.DefaultDimensionsForAccountDisplayValue = strFmt("%1-%2---------", _request.parmCreCodigo(), _request.parmEntRut()); //Depends on DimensionIntegrationConfiguration form. Path:Contabilidad General/Plan contable/Dimensiones/Configuración de la dimensión financiera para la integración de aplicaciones
+        journalLineEntity.MarkedInvoice = _request.parmPCabReferenciaId();
+        journalLineEntity.insert();
+
+        return journalLineEntity;
+    }
+
+    /// <summary>
+    /// Get error message
+    /// </summary>
+    /// <returns>Message error</returns>
+    private str getErrorStr()
+    {
+        SysInfologEnumerator    enumerator;
+        SysInfologMessageStruct msgStruct;
+        Exception               exception;
+        str                     error;
+        int                     i;
+
+        enumerator = SysInfologEnumerator::newData(infolog.cut());
+        
+        while (enumerator.moveNext())
+        {
+            msgStruct = new SysInfologMessageStruct(enumerator.currentMessage());
+            exception = enumerator.currentException();
+            
+            if (i > 0)
+            {
+                error = strfmt("%1 %2", error, msgStruct.message());
+            }
+            else
+            {
+                error = strfmt("%1", msgStruct.message());
+            }
+            i++;
+        }
+
+        return error;
+    }
+
+    /// <summary>
+    /// Transaction settlement process
+    /// </summary>
+    /// <param name = "_journalLineEntity">CustomerPaymentJournalLineEntity</param>
+    /// <returns>True or false</returns>
+    public boolean settleTransactions(CustomerPaymentJournalLineEntity  _journalLineEntity)
+    {
+        CustTransOpen                       custTransOpen;
+        custvendopentransmanager            manager;
+        ExchangeRateHelper                  exchangeRateHelper;
+
+        boolean                             findRec;
+        AccountNum                          accountnum = _journalLineEntity.AccountDisplayValue;
+        TransDate                           transDate  = _journalLineEntity.TransactionDate;
+        str                                 invoice;
+        AmountMSTDebCred                    amountVar;
+
+        if (_journalLineEntity.CreditAmount)
+            amountVar = _journalLineEntity.CreditAmount;// * -1;
+        else
+            amountVar = _journalLineEntity.DebitAmount;
+
+        if (_journalLineEntity.MarkedInvoice)
+        {
+            invoice = _journalLineEntity.MarkedInvoice;
+        }
+       
+        custTransOpen = DIVCustPaymentJournalService::getCustTransOpen(accountnum, transDate, amountVar, invoice);
+        //save invoiceAmount
+        invoiceAmount += custTransOpen.AmountCur;
+
+        if (custTransOpen.AmountCur)
+        {
+            //To check transaction line which we want to settle
+            LedgerJournalTrans  ljTrans = LedgerJournalTrans::find(_journalLineEntity.JournalBatchNumber, _journalLineEntity.Voucher, true);
+
+            if (ljTrans)
+            {
+                manager = custvendopentransmanager::construct(ljTrans);
+                manager.updateTransMarked(custTransOpen, true);
+                manager.updateSettleAmount(custTransOpen, amountVar);
+
+                ljTrans.SettleVoucher = SettlementType::SelectedTransact;
+                ljTrans.update();
+
+                findRec = true;
+            }
+        }
+
+        return findRec;
+    }
+
+    /// <summary>
+    /// Get open customer transactions
+    /// </summary>
+    /// <param name = "_accountnum">AccountNum</param>
+    /// <param name = "_transDate">TransDate</param>
+    /// <param name = "_amountVar">AmountMSTDebCred</param>
+    /// <param name = "_numOp">String</param>
+    /// <returns>CustTransOpen</returns>
+    public static CustTransOpen getCustTransOpen(AccountNum _accountnum, TransDate _transDate, AmountMSTDebCred _amountVar, str _invoice)
+    {
+        CustTransOpen           custTransOpen;
+        CustTrans               custTrans;
+        Query                   query = new Query();
+        QueryBuildDataSource    qbdscustTransOpen, qbdscustTrans;
+        QueryRun                queryRun;
+
+        qbdscustTransOpen = query.addDataSource(tableNum(CustTransOpen));
+        SysQuery::findOrCreateRange(qbdscustTransOpen, fieldNum(CustTransOpen, AccountNum)).value(SysQuery::value(_accountnum));
+        
+        qbdscustTrans = qbdscustTransOpen.addDataSource(tableNum(CustTrans));
+        qbdscustTrans.addLink(fieldNum(CustTransOpen, RefRecId), fieldNum(CustTrans, RecId));
+        qbdscustTrans.addLink(fieldNum(CustTransOpen, AccountNum), fieldNum(CustTrans, AccountNum));
+        qbdscustTrans.joinMode(JoinMode::ExistsJoin);
+        //SysQuery::findOrCreateRange(qbdscustTrans, fieldNum(CustTrans, AmountMST)).value(SysQuery::value(_amountVar));
+        //SysQuery::findOrCreateRange(qbdscustTrans, fieldNum(CustTrans, DocumentDate)).value(SysQuery::value(_transDate));
+        
+        if (_invoice)
+        {
+            SysQuery::findOrCreateRange(qbdscustTrans, fieldNum(CustTrans, Invoice)).value(SysQuery::valueLike(_invoice));
+        }
+
+        queryRun = new QueryRun(query);
+        
+        while(queryRun.next())
+        {
+            custTransOpen = queryRun.get(tableNum(CustTransOpen));
+            break;
+        }
+
+        if (!custTransOpen && _invoice)
+        {
+            custTransOpen = DIVCustPaymentJournalService::getCustTransOpen(_accountnum, _transDate, _amountVar, '');
+        }
+
+        return CustTransOpen;
+    }
+
+    /// <summary>
+    /// Go through the LedgerjournalTable list to post the journals
+    /// </summary>
+    /// <returns>Posting message</returns>
+    public str postListJournalTable() 
+    {
+        LedgerJournalTable      ljTable;
+        LedgerJournalEngine     ledgerJournalEngine;
+        RecId                   ljtRecId;
+        Enumerator              enumerator = listLjTable.getEnumerator();
+        str                     message;
+
+        try
+        {
+            ttsbegin;
+            while (enumerator.moveNext())
+            {
+                ljtRecId = enumerator.current();
+
+                select crosscompany ljTable
+                    where ljTable.RecId == ljtRecId;
+
+                changecompany (ljTable.DataAreaId)
+                {
+                    LedgerJournalPost::post(ljTable, ljTable.TableId, NoYes::No, true, false, "", ledgerJournalEngine);
+                
+                    message += strFmt("%1 registrado", ljTable.JournalNum);
+                    message += "---";
+                }
+            }
+            ttscommit;
+        }
+        catch (Exception::Error)
+        {
+            message += " ";
+            message += strFmt("%1 no registrado. Error: ", lastJournal.JournalBatchNumber);
+            message += this.getErrorStr();
+            message += "---";
+        }
+        catch(Exception::CLRError)
+        {
+            message += " ";
+            message += strFmt("%1 no registrado. Error: ", lastJournal.JournalBatchNumber);
+            message += this.getErrorStr();
+            message += "---";
+        }
+        
+        return message;
+    }
+
+}
+_______________________Contract
+
+/// <summary>
+/// 20230817 - DIV_8223_SalesMonitor_PaymentPosting - KCL
+/// </summary>
+[DataContractAttribute('DetalleComprobante')]
+class DIVCustPaymentJournalContract
+{
+    List    custPaymentJournalList;
+
+    /// <summary>
+    /// Data list
+    /// </summary>
+    /// <param name = "_custPaymentJournalList">List</param>
+    /// <returns>List</returns>
+    [
+        DataMemberAttribute('DetalleComprobante'),
+        AifCollectionType("DetalleComprobante", Types::Class, classStr(DIVCustPaymentJournalTransContract)),
+        AifCollectionType("return", Types::Class, classStr(DIVCustPaymentJournalTransContract))
+    ]
+    public List parmCustPaymentJournalList(List _custPaymentJournalList = custPaymentJournalList)
+    {
+        custPaymentJournalList = _custPaymentJournalList;
+        return custPaymentJournalList;
+    }
+
+}
+___________________________Contract detail
+/// <summary>
+/// The <c>DIVCustPaymentJournalTransContract</c> class that shows the lines of the Ledger Journal Trans - Cust Payment
+/// 20230817 - DIV_8223_SalesMonitor_PaymentPosting - KCL
+/// </summary>
+[DataContractAttribute('DetalleComprobante')]
+class DIVCustPaymentJournalTransContract
+{
+    int     empId;
+    int     divCodigo;
+    int     uniCodigo;
+    str     cabOpeGlosa;
+    str     cabOpeFecha;
+    int     opeCod;
+    str     pCabReferenciaId;
+    str     creCodigo;
+    str     entRut;
+    int     entSucNumero;
+    str     tdoId;
+    int     docCceNumero;
+    int     movCceGlosa;
+    real    movCceMontoImpuDebe;
+    real    movCceMontoImpuHaber;
+    int     cdiCodigo;
+    int     cfiCodigo;
+    int     tprId;
+    int     pryNumero;
+
+    /// <summary>
+    /// Company code parameter request
+    /// </summary>
+    /// <param name = "_empId">Company</param>
+    /// <returns>Company</returns>
+    [DataMemberAttribute('empId')]
+    public int parmEmpId(int _empId = empId)
+    {
+        empId = _empId;
+        return empId;
+    }
+
+    /// <summary>
+    /// Div code parameter request
+    /// </summary>
+    /// <param name = "_divCodigo">Div Codigo</param>
+    /// <returns>Div Code</returns>
+    [DataMemberAttribute('divCodigo')]
+    public int parmDivCodigo(int _divCodigo = divCodigo)
+    {
+        divCodigo = _divCodigo;
+        return divCodigo;
+    }
+
+    /// <summary>
+    /// Uni code parameter request
+    /// </summary>
+    /// <param name = "_uniCodigo">Uni code</param>
+    /// <returns>Uni code</returns>
+    [DataMemberAttribute('uniCodigo')]
+    public int parmUniCodigo(int _uniCodigo = uniCodigo)
+    {
+        uniCodigo = _uniCodigo;
+        return uniCodigo;
+    }
+
+    /// <summary>
+    /// Journal text line parameter request
+    /// </summary>
+    /// <param name = "_cabOpeGlosa">Text line</param>
+    /// <returns>Text line</returns>
+    [DataMemberAttribute('cabOpeGlosa')]
+    public str parmCabOpeGlosa(str _cabOpeGlosa = cabOpeGlosa)
+    {
+        cabOpeGlosa = _cabOpeGlosa;
+        return cabOpeGlosa;
+    }
+
+    /// <summary>
+    /// Journal date parameter request
+    /// </summary>
+    /// <param name = "_cabOpeFecha">Journal date</param>
+    /// <returns>String</returns>
+    [DataMemberAttribute('cabOpeFecha')]
+    public str parmCabOpeFecha(str _cabOpeFecha = cabOpeFecha)
+    {
+        cabOpeFecha = _cabOpeFecha;
+        return cabOpeFecha;
+    }
+
+    /// <summary>
+    /// Journal payment mode parameter request
+    /// </summary>
+    /// <param name = "_opeCod">Payment mode</param>
+    /// <returns>Payment mode</returns>
+    [DataMemberAttribute('opeCod')]
+    public int parmOpeCod(int _opeCod = opeCod)
+    {
+        opeCod = _opeCod;
+        return opeCod;
+    }
+
+    /// <summary>
+    /// Invoice num parameter request
+    /// </summary>
+    /// <param name = "_pCabReferenciaId">Invoice num</param>
+    /// <returns>Invoice</returns>
+    [DataMemberAttribute('pCabReferenciaId')]
+    public str parmPCabReferenciaId(str _pCabReferenciaId = pCabReferenciaId)
+    {
+        pCabReferenciaId = _pCabReferenciaId;
+        return pCabReferenciaId;
+    }
+
+    /// <summary>
+    /// Dimension Cost center parameter request
+    /// </summary>
+    /// <param name = "_creCodigo">Dimension CC</param>
+    /// <returns>Dimension CC</returns>
+    [DataMemberAttribute('creCodigo')]
+    public str parmCreCodigo(str _creCodigo = creCodigo)
+    {
+        creCodigo = _creCodigo;
+        return creCodigo;
+    }
+
+    /// <summary>
+    /// Cust account parameter request
+    /// </summary>
+    /// <param name = "_entRut">Cust account</param>
+    /// <returns>Cust account</returns>
+    [DataMemberAttribute('entRut')]
+    public str parmEntRut(str _entRut = entRut)
+    {
+        entRut = _entRut;
+        return entRut;
+    }
+
+    /// <summary>
+    /// Number parameter request
+    /// </summary>
+    /// <param name = "_entSucNumero">1</param>
+    /// <returns>1</returns>
+    [DataMemberAttribute('entSucNumero')]
+    public int parmEntSucNumero(int _entSucNumero = entSucNumero)
+    {
+        entSucNumero = _entSucNumero;
+        return entSucNumero;
+    }
+
+    /// <summary>
+    /// Journal offset account parameter request
+    /// </summary>
+    /// <param name = "_tdoId">Offset account</param>
+    /// <returns>Offset account</returns>
+    [DataMemberAttribute('tdoId')]
+    public str parmTdoId(str _tdoId = tdoId)
+    {
+        tdoId = _tdoId;
+        return tdoId;
+    }
+
+    /// <summary>
+    /// Number parameter request
+    /// </summary>
+    /// <param name = "_docCceNumero">1</param>
+    /// <returns>1</returns>
+    [DataMemberAttribute('docCceNumero')]
+    public int parmDocCceNumero(int _docCceNumero = docCceNumero)
+    {
+        docCceNumero = _docCceNumero;
+        return docCceNumero;
+    }
+
+    /// <summary>
+    /// Number parameter request
+    /// </summary>
+    /// <param name = "_movCceGlosa">1</param>
+    /// <returns>1</returns>
+    [DataMemberAttribute('movCceGlosa')]
+    public int parmMovCceGlosa(int _movCceGlosa = movCceGlosa)
+    {
+        movCceGlosa = _movCceGlosa;
+        return movCceGlosa;
+    }
+
+    /// <summary>
+    /// Journal debit amount parameter request
+    /// </summary>
+    /// <param name = "_movCceMontoImpuDebe">Debit amount</param>
+    /// <returns>Debit amount</returns>
+    [DataMemberAttribute('movCceMontoImpuDebe')]
+    public real parmMovCceMontoImpuDebe(real _movCceMontoImpuDebe = movCceMontoImpuDebe)
+    {
+        movCceMontoImpuDebe = _movCceMontoImpuDebe;
+        return movCceMontoImpuDebe;
+    }
+
+    /// <summary>
+    /// Journal credit amount parameter request
+    /// </summary>
+    /// <param name = "_movCceMontoImpuHaber">Credit amount</param>
+    /// <returns>Credit amount</returns>
+    [DataMemberAttribute('movCceMontoImpuHaber')]
+    public real parmMovCceMontoImpuHaber(real _movCceMontoImpuHaber = movCceMontoImpuHaber)
+    {
+        movCceMontoImpuHaber = _movCceMontoImpuHaber;
+        return movCceMontoImpuHaber;
+    }
+
+    /// <summary>
+    /// Number parameter request
+    /// </summary>
+    /// <param name = "_cdiCodigo">0</param>
+    /// <returns>0</returns>
+    [DataMemberAttribute('cdiCodigo')]
+    public int parmCdiCodigo(int _cdiCodigo = cdiCodigo)
+    {
+        cdiCodigo = _cdiCodigo;
+        return cdiCodigo;
+    }
+
+    /// <summary>
+    /// Number parameter request
+    /// </summary>
+    /// <param name = "_cfiCodigo">0</param>
+    /// <returns>0</returns>
+    [DataMemberAttribute('cfiCodigo')]
+    public int parmCfiCodigo(int _cfiCodigo = cfiCodigo)
+    {
+        cfiCodigo = _cfiCodigo;
+        return cfiCodigo;
+    }
+
+    /// <summary>
+    /// Number parameter request
+    /// </summary>
+    /// <param name = "_tprId">0</param>
+    /// <returns>0</returns>
+    [DataMemberAttribute('tprId')]
+    public int parmTprId(int _tprId = tprId)
+    {
+        tprId = _tprId;
+        return tprId;
+    }
+
+    /// <summary>
+    /// Number parameter request
+    /// </summary>
+    /// <param name = "_pryNumero">Empty</param>
+    /// <returns>Empty</returns>
+    [DataMemberAttribute('pryNumero')]
+    public int parmPryNumero(int _pryNumero = pryNumero)
+    {
+        pryNumero = _pryNumero;
+        return pryNumero;
+    }
+
+}
+_____________________________________RESPONSE
+
+/// <summary>
+/// The <c>DIVCustPaymentJournalResponse</c> class declares the Final Response service
+/// 20230817 - DIV_8223_SalesMonitor_PaymentPosting - KCL
+/// </summary>
+[DataContractAttribute]
+class DIVCustPaymentJournalResponse
+{
+    str         message;
+    str         postingMessage;
+
+    /// <summary>
+    /// Message parameter response
+    /// </summary>
+    /// <param name = "_value">Message</param>
+    /// <returns>Message</returns>
+    [DataMember("Journal creation")]
+    public str parmMessage(str _value = message)
+    {
+        if (!prmIsDefault(_value))
+        {
+            message = _value;
+        }
+        return message;
+    }
+
+    /// <summary>
+    /// Posting message parameter response
+    /// </summary>
+    /// <param name = "_value">Posting message</param>
+    /// <returns>Posting message</returns>
+    [DataMember("Journal posting")]
+    public str parmPostMessage(str _value = postingMessage)
+    {
+        if (!prmIsDefault(_value))
+        {
+            postingMessage = _value;
+        }
+        return postingMessage;
+    }
+
+}
+
+______________________________JSON
+
+{
+    "_contract": //es el nombre del contract que recibe el método principal del servicio
+    {
+        "DetalleComprobante": // es el nombre que va en el contract que trabaja como arreglo o lista -> DataMemberAttribute('DetalleComprobante'),
+        [
+            {
+                "EmpId":"PEHP",
+                "DivCodigo":1,
+                "UniCodigo":1,
+                "OpeCod":1,
+                "CabOpeFecha":"2023-09-01",
+                "CabOpeGlosa":"Test Json",
+                "pCabReferenciaId":"PEHP-000006",
+                "CreCodigo":"A3104", /*centro de costo*/
+                "EntRut":"1716375363",
+                "EntSucNumero":1,
+                "TdoId":"11011101", /*cuenta contable*/
+                "DocCceNumero":1,
+                "MovCceGlosa":15,
+                "MovCceMontoImpuDebe":3000,
+                "MovCceMontoImpuHaber":0,
+                "CdiCodigo":2,
+                "CfiCodigo":3,
+                "TprId":4,
+                "PryNumero":5
+            }           
+        ]
+    }
+}

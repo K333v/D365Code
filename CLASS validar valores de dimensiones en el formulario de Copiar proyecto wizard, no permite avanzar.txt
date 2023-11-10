@@ -1,0 +1,74 @@
+/// <summary>
+/// 20230630 - AP_UFT_8069_CapitalAssets - KCL
+/// Extension class related to the ProjTableWizard form
+/// </summary>
+[ExtensionOf(formStr(ProjTableWizard))]
+final class UFTProjTableWizard_UFINET_AP_BR_Extension
+{
+    #DEFINE.DIMENSION(5)       
+                  
+    void setNext()
+    {
+        #ISOCountryRegionCodes
+        next setNext();
+
+        if (SysCountryRegionCode::countryInfo(projTableSortingAndDimension.DataAreaId) == #isoBR)
+        {
+            switch (sysWizard.curTab())
+            {
+                case #DIMENSION :
+                    if (ProjTable::exist(oldProjid.text()))
+                    {
+                        DimensionValue  dimValue = UFTProjTableWizardHelper::getDimValueEstablishment(projTableSortingAndDimension.DefaultDimension);
+
+                        if (dimValue == '')
+                        {
+                            throw Error("@UFINET_AP_BR:PRY024_0001");
+                        }
+                    }                    
+                    break;
+            }
+        }    
+    }
+
+}
+
+_______________________________
+
+final class UFTProjTableWizardHelper
+{
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name = "_defaultDimension"></param>
+    /// <returns></returns>
+    public static DimensionValue getDimValueEstablishment(DimensionDefault _defaultDimension)
+    {
+        #define.DIMENSIONNAME('FiscalEstablishment')
+        DimensionAttributeValueSet      dimAttrValueSet;
+        DimensionAttributeValueSetItem  dimAttrValueSetItem;
+        DimensionAttributeValue         dimAttrValue;
+        DimensionAttribute              dimAttribute;
+        DimensionValue                  dimValue = '';
+                        
+        dimAttrValueSet = DimensionAttributeValueSet::find(_defaultDimension);
+
+        select dimAttrValueSetItem
+            where dimAttrValueSetItem.DimensionAttributeValueSet == dimAttrValueSet.RecId
+        join dimAttrValue
+            where dimAttrValue.RecId == dimAttrValueSetItem.DimensionAttributeValue
+        join dimAttribute
+            where dimAttribute.RecId == dimAttrValue.DimensionAttribute
+            && dimAttribute.Name  == #DIMENSIONNAME;
+
+        if (dimAttrValue)
+        {
+            if (dimAttrValue.getValue() != '')
+            {
+                dimValue = dimAttrValue.getValue();
+            }
+        }
+        return dimValue;
+    }
+
+}

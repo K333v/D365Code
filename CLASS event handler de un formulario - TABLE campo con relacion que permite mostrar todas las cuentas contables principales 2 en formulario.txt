@@ -1,0 +1,374 @@
+/// <summary>
+/// Handles events raised by <c>CaseDetail</c> form.
+/// </summary>
+public static class CaseDetail_APPS_PM_EventHandler
+{
+    
+
+    
+
+    /// <summary>
+    /// Enables Contractype Field based on Position Id
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, RecruitmentAndSelectionGroup_PositionId), FormControlEventType::Modified)]
+    public static void RecruitmentAndSelectionGroup_PositionId_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        HcmPosition hcmposition;
+        HcmPositionDetail   posDetail;
+        FormRun formRun               = sender.formRun();
+        FormStringControl             positionId      = sender.formRun().design().controlName(formControlStr(CaseDetail, RecruitmentAndSelectionGroup_PositionId));
+        FormStringControl             contractType    = sender.formRun().design().controlName(formControlStr(CaseDetail, PositionInformationGroup_ContractType));
+        APPSPMEntryCardTable          entryCardTable  = formRun.dataSource(formdatasourcestr(CaseDetail, APPSPMEntryCardTable)).cursor();
+
+        if(positionId.valueStr())
+        {       
+            select hcmposition
+                where hcmposition.PositionId == positionId.valueStr()
+                join posDetail
+                where posDetail.Position == hcmposition.RecId;
+
+            entryCardTable.ContractType = HcmPositionType::find(posDetail.PositionType).TypeId;
+
+            if(entryCardTable.ContractType)
+            {
+                contractType.allowEdit(false);
+            }
+            else
+            {
+                contractType.allowEdit(true);
+            }
+        }
+        else
+        {
+            contractType.allowEdit(true);
+        }
+    }
+
+    /// <summary>
+    /// Post event handler for <c>CaseDetail</c> <c>APPSPMEntryCardTable</c> Initialized event.
+    /// </summary>
+    /// <param name=“_sender”></param>
+    /// <param name=“_e”></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, APPSPMEntryCardTable), FormDataSourceEventType::Initialized)]
+    public static void CaseDetail_OnInitialized(FormDataSource _sender, FormDataSourceEventArgs _e)
+    {
+        FormRun formRun                              = _sender.formRun();
+        var overrides                                = CaseDetail_APPS_PM_ExtensionOverrides::construct();
+        DimensionHierarchyId    dimensionHierarchyId = DimensionHierarchy::findByTypeAndName(DimensionHierarchyType::AccountStructure, BudgetParameters::find().DimensionHierarchyId).RecId;
+        SegmentedEntryControl   approvedDimension    = formRun.design().controlName(formControlStr(CaseDetail, LedgerDimensionApproved));
+        SegmentedEntryControl   solicitedDimension   = formRun.design().controlName(formControlStr(CaseDetail, LedgerDimensionRequested));
+        CaseDetailBase          caseDetailBase       = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        FormTabPageControl      entryCardTabPage     = formRun.design().controlName(formControlStr(CaseDetail, EntryCardTabPage));
+        FormControl             dirName              = formRun.design().controlName(formControlStr(CaseDetail, DirPartyTable_Name));        
+        CaseCategoryHierarchyDetail categoryDetail;
+        
+ 
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            _sender.object(fieldNum(APPSPMEntryCardTable, RefPointIdApproved)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, refPointId_lookup), overrides);
+
+            _sender.object(fieldNum(APPSPMEntryCardTable, RefPointIdRequested)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, refPointId_lookup), overrides);      
+
+            _sender.object(fieldNum(APPSPMEntryCardTable, PositionId)).registerOverrideMethod(methodStr(FormDataObject, lookup),
+                methodStr(CaseDetail_APPS_PM_ExtensionOverrides, positionLookup), overrides);
+
+            if(dimensionHierarchyId)
+            {
+                solicitedDimension.setAccountStructure(dimensionHierarchyId);
+                approvedDimension.setAccountStructure(dimensionHierarchyId);
+            }
+
+            categoryDetail = CaseCategoryHierarchyDetail::find(caseDetailBase.CategoryRecId);
+
+            if(categoryDetail.PreFeasability)
+            {
+                entryCardTabPage.visible(true);
+            }
+            else
+            {
+                entryCardTabPage.visible(false);
+            }   
+
+            if(caseDetailBase.NN == NoYes::Yes)
+            {
+                dirName.allowEdit(false);
+            }
+        }
+
+        
+        
+    }
+
+    /// <summary>
+    /// Enables/disables field Name based on NN
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataFieldEventHandler(formDataFieldStr(CaseDetail, CaseDetailBase, NN), FormDataFieldEventType::Modified)]
+    public static void NN_OnModified(FormDataObject sender, FormDataFieldEventArgs e)
+    {        
+        FormRun formRun         = sender.datasource().formRun();
+        CaseDetailBase          caseDetailBase          = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        FormControl       dirName                       = formRun.design().controlName(formControlStr(CaseDetail, DirPartyTable_Name));
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if(caseDetailBase.NN == NoYes::Yes)
+            {
+                dirName.allowEdit(false);
+            }
+            else
+            {
+                dirName.allowEdit(true);
+            }
+        }
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormDataFieldEventHandler(formDataFieldStr(CaseDetail, CaseDetailBase, CategoryRecId), FormDataFieldEventType::Modified)]
+    public static void CategoryRecId_OnModified(FormDataObject sender, FormDataFieldEventArgs e)
+    {
+        FormRun formRun         = sender.datasource().formRun();
+        CaseDetailBase          caseDetailBase          = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        FormTabPageControl      entryCardTabPage        = formRun.design().controlName(formControlStr(CaseDetail, EntryCardTabPage));
+        FormGroupControl        SRGroup                 = formRun.design().controlName(formControlStr(CaseDetail, SRGroup));
+        CaseCategoryHierarchyDetail categoryDetail;
+
+        categoryDetail = CaseCategoryHierarchyDetail::find(caseDetailBase.CategoryRecId);
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if(categoryDetail.PreFeasability)
+            {
+                entryCardTabPage.visible(true);
+            }
+            else
+            {
+                entryCardTabPage.visible(false);
+            }
+        }
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP001HR))
+        {
+            if(categoryDetail.APPSPMIsSubstitutionReplacement)
+            {
+                SRGroup.visible(true);
+            }
+            else
+            {
+                SRGroup.visible(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Post event handler for <c>CaseDetail</c> <c>APPSPMEntryCardTable</c> Initialized event.
+    /// </summary>
+    /// <param name=“_sender”></param>
+    /// <param name=“_e”></param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, APPSPMEntryCardTable), FormDataSourceEventType::Activated)]
+    public static void CaseDetail_Activated(FormDataSource _sender, FormDataSourceEventArgs _e)
+    {
+        FormRun formRun         = _sender.formRun();
+        CaseDetailBase          caseDetailBase          = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        FormTabPageControl      entryCardTabPage        = formRun.design().controlName(formControlStr(CaseDetail, EntryCardTabPage));
+        FormGroupControl        SRGroup                 = formRun.design().controlName(formControlStr(CaseDetail, SRGroup));
+        FormStringControl             positionId        = formRun.design().controlName(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionId));
+        FormStringControl             positionSR        = formRun.design().controlName(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionSR));
+        CaseCategoryHierarchyDetail categoryDetail;
+        CaseAssociation             caseAssociation     = formRun.dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+
+        categoryDetail = CaseCategoryHierarchyDetail::find(caseDetailBase.CategoryRecId);
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if(categoryDetail.PreFeasability)
+            {
+                entryCardTabPage.visible(true);
+            }
+            else
+            {
+                entryCardTabPage.visible(false);
+            }
+
+            
+            formRun.setEntryCard();
+        }
+
+        if(APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP001HR))
+        {
+            if(categoryDetail.APPSPMIsSubstitutionReplacement)
+            {
+                SRGroup.visible(true);
+            }
+            else
+            {
+                SRGroup.visible(false);
+            }
+            
+            if(caseAssociation.APPSPMPositionId)
+            {
+                positionSR.enabled(true);
+            }
+            else
+            {
+                positionSR.enabled(false);
+            }            
+        }
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionId), FormControlEventType::Lookup)]
+    public static void CaseAssociation_APPSPMPositionId_OnLookup(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun             formRun         = sender.formRun();
+        CaseAssociation     caseAssociation = formRun.dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+        SysTableLookup      sysTableLookup  = SysTableLookup::newParameters(tableNum(HcmPosition), sender);
+        Query               query           = new Query();
+        QueryBuildDataSource                qbds1, qbds2, qbds3, qbds4, qbds5, qbds6;
+
+        qbds1 = query.addDataSource(tableNum(HcmPosition));
+        qbds1.addGroupByField(fieldNum(HcmPosition, PositionId));
+        qbds2 = qbds1.addDataSource(tableNum(HcmPositionWorkerAssignment));//.addRange(fieldNum(HcmPositionWorkerAssignment, Worker)).value(queryValue(caseAssociation.RefRecId));
+        qbds2.relations(true);
+        qbds2.addRange(fieldNum(HcmPositionWorkerAssignment, Worker)).value(queryValue(caseAssociation.RefRecId));
+        qbds3 = qbds1.addDataSource(tableNum(HcmPositionDetail));
+        qbds3.relations(true);
+        qbds4 = qbds3.addDataSource(tableNum(APPSPMLegalQualityTable));
+        qbds4.relations(false);
+        qbds4.addLink(fieldNum(HcmPositionDetail, LegalQualityId),fieldNum(APPSPMLegalQualityTable, LegalQuality));
+        qbds5 = qbds4.addDataSource(tableNum(APPSPMEndowmentLegalQuality));
+        qbds5.relations(false);
+        qbds5.addLink(fieldNum(APPSPMLegalQualityTable, LegalQuality),fieldNum(APPSPMEndowmentLegalQuality, LegalQualityId));
+        qbds6 = qbds5.addDataSource(tableNum(APPSPMEndowmentTable));
+        qbds6.relations(false);
+        qbds6.addLink(fieldNum(APPSPMEndowmentTable, EndowmentId),fieldNum(APPSPMEndowmentLegalQuality, EndowmentId));
+        qbds6.addRange(fieldNum(APPSPMEndowmentTable, EndowmentType)).value(queryValue(APPSPMEndowmentType::Contract));
+        qbds6.addRange(fieldNum(APPSPMEndowmentTable, EndowmentType)).value(queryValue(APPSPMEndowmentType::Plant));
+        // Add the lookup columns
+        sysTableLookup.addLookupfield(fieldNum(HcmPosition, PositionId));
+
+        // Run the lookup
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();        
+
+        //cancel the call to super() to prevent the system from trying to show
+        //the lookup form twice and cause an error.
+        FormControlCancelableSuperEventArgs cancelableSuperEventArgs = e as FormControlCancelableSuperEventArgs;
+        cancelableSuperEventArgs.CancelSuperCall();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionSR), FormControlEventType::Lookup)]
+    public static void CaseAssociation_APPSPMPositionSR_OnLookup(FormControl sender, FormControlEventArgs e)
+    {        
+        FormRun                     formRun         = sender.formRun();
+        CaseAssociation             caseAssociation = formRun.dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+        APPSPMEndowmentTable        endowmentTable;
+        APPSPMEndowmentLegalQuality endowmentLegalQuality;
+        SysTableLookup              sysTableLookup  = SysTableLookup::newParameters(tableNum(HcmPosition), sender);
+        Query                       query           = new Query();
+        QueryBuildDataSource        qbds1, qbds3, qbds4, qbds5, qbds6;
+
+
+        endowmentLegalQuality = APPSPMEndowmentLegalQuality::findLegalQuality(caseAssociation.APPSPMLegalQualityId);
+        
+        endowmentTable        = APPSPMEndowmentTable::find(endowmentLegalQuality.EndowmentId);
+
+        qbds1 = query.addDataSource(tableNum(HcmPosition));
+        qbds1.addGroupByField(fieldNum(HcmPosition, PositionId));
+        qbds3 = qbds1.addDataSource(tableNum(HcmPositionDetail));
+        qbds3.relations(true);
+        qbds4 = qbds3.addDataSource(tableNum(APPSPMLegalQualityTable));
+        qbds4.relations(false);
+        qbds4.addLink(fieldNum(HcmPositionDetail, LegalQualityId),fieldNum(APPSPMLegalQualityTable, LegalQuality));
+        qbds5 = qbds4.addDataSource(tableNum(APPSPMEndowmentLegalQuality));
+        qbds5.relations(false);
+        qbds5.addLink(fieldNum(APPSPMLegalQualityTable, LegalQuality),fieldNum(APPSPMEndowmentLegalQuality, LegalQualityId));
+        qbds6 = qbds5.addDataSource(tableNum(APPSPMEndowmentTable));
+        qbds6.relations(false);
+        qbds6.addLink(fieldNum(APPSPMEndowmentTable, EndowmentId),fieldNum(APPSPMEndowmentLegalQuality, EndowmentId));
+
+        if(endowmentTable.EndowmentType == APPSPMEndowmentType::Plant)
+        {
+            qbds6.addRange(fieldNum(APPSPMEndowmentTable, EndowmentType)).value(queryValue(APPSPMEndowmentType::Substitution));
+        }
+
+        if(endowmentTable.EndowmentType == APPSPMEndowmentType::Contract)
+        {            
+            qbds6.addRange(fieldNum(APPSPMEndowmentTable, EndowmentType)).value(queryValue(APPSPMEndowmentType::Replacement));
+        }
+        // Add the lookup columns
+        sysTableLookup.addLookupfield(fieldNum(HcmPosition, PositionId));
+        
+        // Run the lookup
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+
+        //cancel the call to super() to prevent the system from trying to show
+        //the lookup form twice and cause an error.
+        FormControlCancelableSuperEventArgs cancelableSuperEventArgs = e as FormControlCancelableSuperEventArgs;
+        cancelableSuperEventArgs.CancelSuperCall();
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionId), FormControlEventType::Modified)]
+    public static void CaseAssociation_APPSPMPositionId_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormStringControl             positionId    = sender.formRun().design().controlName(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionId));
+        FormStringControl             positionSR    = sender.formRun().design().controlName(formControlStr(CaseDetail, CaseAssociation_APPSPMPositionSR));
+        CaseAssociation          caseAssociation    = sender.formRun().dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+
+        if(positionId.valueStr())
+        {
+            positionSR.enabled(true);
+        }
+        else
+        {
+            positionSR.enabled(false);
+        }
+        
+        caseAssociation.APPSPMPositionSR = "";
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(CaseDetail, AssociationGrid_M_linkedId), FormControlEventType::Modified)]
+    public static void AssociationGrid_M_linkedId_OnModified(FormControl sender, FormControlEventArgs e)
+    {        
+        CaseAssociation          caseAssociation    = sender.formRun().dataSource(formdatasourcestr(CaseDetail, CaseAssociation)).cursor();
+
+        caseAssociation.APPSPMPositionId     = "";
+        caseAssociation.APPSPMLegalQualityId = "";
+        caseAssociation.APPSPMEstateId       = "";
+        caseAssociation.APPSPMLevelId        = "";
+        caseAssociation.APPSPMFundNumber     = "";
+        caseAssociation.APPSPMFundName       = "";
+        caseAssociation.APPSPMPositionSR     = "";
+
+    }
+
+}

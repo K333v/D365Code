@@ -1,0 +1,632 @@
+// This is a framework class. Customizing this class may cause problems with future upgrades to the software.
+class BSLCustTopSplitRunBase extends RunBaseBatch
+{
+    // Packed variables
+    TransDate                    transDate;
+    CustAccount                  custAccount;
+    DialogRunbase                dialog;
+    QueryRun                     queryCreatePayment;
+    PositiveDays                 intervalDaysOne
+                                ,intervalDaysTwo;
+    purchRanking                 orderByranking;
+    Integer                      recordNumber;
+    DayMonth                     periodOne, periodTwo;
+    BSLCustVendTopSplitTmp       dataTmp;
+    SysLookupMultiSelectCtrl     multiSelectCtrlCompany
+                                ,multiSelectCtrlHierarchy;
+    public BSLCustVendTopSplitReportDp    bSLCustTopSplitReportDp;
+    container                    companyCon
+                                ,hierarchiesCon;
+
+    // Dialog fields
+    FormBuildStringControl       ctrlCompany
+                                ,ctrlHierarchy;
+    DialogField                  dlgCustAccount;
+    DialogField                  dlgRecordNumber;
+    DialogField                  dlgOrderBy;
+    DialogField                  dlgTransDate
+                                ,dlgIntervalsOne
+                                ,dlgIntervalsTwo
+                                ,dlgPeriodOne
+                                ,dlgPeriodTwo;
+
+    #define.CurrentVersion(1)
+    #localmacro.CurrentList
+        transDate,
+        custAccount
+       ,intervalDaysOne
+       ,intervalDaysTwo
+       ,orderByranking
+       ,recordNumber
+       ,periodOne
+       ,periodTwo
+    #endmacro
+    /// <summary>
+    ///    Indicates whether the class is shown in the list of <c>Journal</c> types.
+    /// </summary>
+    /// <returns>
+    ///    true if the class is shown in the list of <c>Journal</c> types; otherwise, false.
+    /// </returns>
+    /// <remarks>
+    ///    A class that can be used in a batch journal is a class where the same parameters can be used
+    ///    repeatedly. The dialog box can be shown and the parameters can be changed, but parameters of some
+    ///    classes might build on data that is only valid for a short time. Running a class two times with the
+    ///    same parameters is not always possible. If the <c>RunBaseBatch.canGoBatch</c> method is false, this
+    ///    method will not have any effect.
+    /// </remarks>
+    public boolean canGoBatchJournal()
+    {
+        return true;
+    }
+
+    public QueryRun queryRun()
+    {
+        return queryCreatePayment;
+    }
+
+    /// <summary>
+    /// Initializes the query for non-UI interaction.
+    /// </summary>
+    /// <param name="_dialogValues">
+    /// The class that contains values to be set for the specified query ranges.
+    /// </param>
+    protected void initQueryNonUserInteractive(CustVendCreatePaymJournalDialogValues _dialogValues)
+    {
+        this.initParmDefault();
+    }
+
+    /// <summary>
+    /// Set variable values that are used as criteria to generate payment proposal lines.
+    /// </summary>
+    /// <param name = "_dialogValues">The parameter contains values to be used for selecting invoices for payment proposal.</param>
+    /// <remarks>This method is used for setting the values when payment proposal line is to be created using non-UI interaction.</remarks>
+    public void initNonUserInteractive(CustVendCreatePaymJournalDialogValues _dialogValues)
+    {
+        this.initQueryNonUserInteractive(_dialogValues);
+    }
+
+    /// <summary>
+    ///    Returns a class that contains the methods that are described by the <c>RunBaseDialogable</c>
+    ///    interface.
+    /// </summary>
+    /// <returns>
+    ///    A class that contains the methods that are described by the <c>RunBaseDialogable</c> interface.
+    /// </returns>
+    /// <remarks>
+    ///    A dialog box can be either built by using the <c>Dialog</c> class or by using a class that is
+    ///    created in the Application Object Tree (AOT).
+    /// </remarks>
+    public Object dialog()
+    {
+        dialog = this.dialogInternal(dialog);
+
+        dialog.allowUpdateOnSelectCtrl(true);
+
+        // When a dialog has showQueryValues set to true, the mainFormGroup needs to be restored after
+        // adding controls like Tab Page because the dialog framework can't handle it automatically.
+        FormBuildGroupControl parametersGroup = dialog.mainFormGroup();
+
+        this.dialogTopFilter();
+        this.dialogPerioOne();
+        this.dialogPerioTwo();
+        this.dialogCompanyFilter();
+        this.dialogHierarchyFilter();
+
+        dialog.mainFormGroup(parametersGroup);
+        dialog.curFormGroup(parametersGroup);
+
+        return dialog;
+    }
+
+    /// <summary>
+    /// Add multiselect company Field
+    /// </summary>
+    protected void dialogCompanyFilter()
+    {
+        DialogGroup         dialogGroup;
+        FormBuildControl    formBuildControl;
+        ;
+
+        dialogGroup         = dialog.addGroup("@BSL:EntityGroup");
+        formBuildControl    = dialog.formBuildDesign().control(dialogGroup.formBuildGroup().id());
+
+        ctrlCompany         = formBuildControl.addControl(FormControlType::String, identifierstr(CompanyId));
+        ctrlCompany.label("@SYS16939");
+    }
+
+    /// <summary>
+    /// Add multiselect company Field
+    /// </summary>
+    protected void dialogHierarchyFilter()
+    {
+        DialogGroup         dialogGroup;
+        FormBuildControl    formBuildControl;
+        ;
+
+        dialogGroup         = dialog.addGroup("@SYS315347");
+        formBuildControl    = dialog.formBuildDesign().control(dialogGroup.formBuildGroup().id());
+
+        ctrlHierarchy         = formBuildControl.addControl(FormControlType::String, identifierstr(Name));
+        ctrlHierarchy.label("@SYS7399");
+    }
+
+    /// <summary>
+    ///  Show query values
+    /// </summary>
+    /// <returns>boolean</returns>
+    public boolean showQuerySelectButton()
+    {
+        boolean ret;
+
+        ret = true;
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Show query values
+    /// </summary>
+    /// <returns>boolean</returns>
+    public boolean showQueryValues()
+    {
+        boolean ret;
+
+        ret = true;
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Add period filter One
+    /// </summary>
+    protected void dialogPerioOne()
+    {
+        DialogGroup centralizedPaymentsGroup = dialog.addGroup("@BSL:PeriodOneGroup");
+
+        dlgPeriodOne    = dialog.addFieldValue(enumStr(DayMonth), periodOne,"@SYS16024");
+        dlgIntervalsOne = dialog.addFieldValue(extendedTypeStr(PositiveDays), intervalDaysOne,"@SYS12899");
+    }
+
+    /// <summary>
+    /// Add period filter Two
+    /// </summary>
+    protected void dialogPerioTwo()
+    {
+        DialogGroup centralizedPaymentsGroup = dialog.addGroup("@BSL:PeriodTwoGroup");
+
+        dlgPeriodTwo    = dialog.addFieldValue(enumStr(DayMonth), periodTwo,"@SYS16024");
+        dlgIntervalsTwo = dialog.addFieldValue(extendedTypeStr(PositiveDays), intervalDaysTwo,"@SYS12899");
+    }
+
+    /// <summary>
+    /// Header contract parameters
+    /// </summary>
+    protected void dialogTopFilter()
+    {
+        DialogGroup paymentDefaultsGroup = dialog.addGroup("@BSL:ParametersGroup");
+        paymentDefaultsGroup.widthMode(FormWidth::SizeToAvailable);
+
+        dlgRecordNumber = dialog.addFieldValue(extendedTypeStr(Integer), recordNumber, "@SYS283");
+        dlgOrderBy      = dialog.addFieldValue(enumStr(purchRanking), orderByranking);
+        dlgTransDate    = dialog.addFieldValue(extendedTypeStr(TransDate), TransDate);
+        
+    }
+
+    /// <summary>
+    /// Init parameters Default
+    /// </summary>
+    public void initParmDefault()
+    {
+        Query query;
+
+        super();
+
+        query = new Query(queryStr(CQCCustTransOpenPerDate));
+        query.recordLevelSecurity(true);
+        
+        queryCreatePayment = new QueryRun(query);
+    }
+
+    public void dialogPostRun(DialogRunbase _dialog)
+    {
+        super(_dialog);
+
+        this.setMultiselectCompanyControl(_dialog);
+    }
+
+    /// <summary>
+    /// Set multiselect control company
+    /// </summary>
+    /// <param name = "_dialog">DialogRunbase</param>
+    protected void setMultiselectCompanyControl(DialogRunbase _dialog)
+    {
+        FormRun                 formRun;
+        FormStringControl       frmStrctrlCompanyId;
+        Query                   q;
+        ;
+
+        formRun = _dialog.dialogForm().formRun();
+ 
+        if (formRun)
+        {
+            q       =  this.getCompanyQuery();
+
+            frmStrctrlCompanyId     = formRun.design().control(ctrlCompany.id());
+            multiSelectCtrlCompany  = SysLookupMultiSelectCtrl::constructWithQuery(formRun, frmStrctrlCompanyId, q);
+            multiSelectCtrlCompany.set([this.companyIdToRecIds(companyCon), companyCon]);
+
+            q       =  this.getOrganization();
+
+            frmStrctrlCompanyId     = formRun.design().control(ctrlHierarchy.id());
+            multiSelectCtrlHierarchy = SysLookupMultiSelectCtrl::constructWithQuery(formRun, frmStrctrlCompanyId, q);
+            multiSelectCtrlHierarchy.set([this.hierarchyIdToRecIds(hierarchiesCon), hierarchiesCon]);
+        }
+    }
+
+    /// <summary>
+    /// Get Hierarchy Organization
+    /// </summary>
+    /// <returns>Query</returns>
+    protected Query getOrganization()
+    {
+        Query                   q;
+        QueryBuildDataSource    qbds;
+        ;
+ 
+        q       = new Query();
+        qbds    = q.addDataSource(tablenum(OMHierarchyType));
+        qbds.addOrderByField(fieldNum(OMHierarchyType, Name));
+        qbds.addSelectionField(fieldNum(OMHierarchyType, Name));
+
+        return q;
+    }
+
+    /// <summary>
+    // Read company selected 
+    /// </summary>
+    /// <param name = "_companyIds">container</param>
+    /// <returns>container</returns>
+    public container companyIdToRecIds(container _companyIds)
+    {
+        DataAreaId      dataAreaId;
+        CompanyInfo     companyInfo;
+        container       companyLocalCon;
+        int             i;
+ 
+        companyLocalCon = conNull();
+ 
+        for (i = 1; i <= conLen(_companyIds); i++)
+        {
+            dataAreaId = conPeek(_companyIds, i);
+ 
+            select firstOnly RecId 
+                from companyInfo
+                where companyInfo.DataArea == dataAreaId;
+ 
+            companyLocalCon += [companyInfo.RecId];
+        }
+ 
+        return companyLocalCon;
+    }
+
+    /// <summary>
+    // Read hierarchies selected
+    /// </summary>
+    /// <param name = "_hierarchies">container</param>
+    /// <returns>container</returns>
+    public container hierarchyIdToRecIds(container _hierarchies)
+    {
+        Name            name;
+        OMHierarchyType oMHierarchyType;
+        container       hierarchiesLocalCon;
+        int             i;
+ 
+        hierarchiesLocalCon = conNull();
+ 
+        for (i = 1; i <= conLen(_hierarchies); i++)
+        {
+            name = conPeek(_hierarchies, i);
+ 
+            select firstOnly RecId
+                from oMHierarchyType
+                where oMHierarchyType.Name == name;
+ 
+            hierarchiesLocalCon += [oMHierarchyType.RecId];
+        }
+ 
+        return hierarchiesLocalCon;
+    }
+
+    /// <summary>
+    /// Return the company query to control multiselect
+    /// </summary>
+    /// <returns>Query</returns>
+    protected Query getCompanyQuery()
+    {
+        Query                   q;
+        QueryBuildDataSource    qbds;
+ 
+        q       = new Query();
+        qbds    = q.addDataSource(tablenum(CompanyInfo));
+        qbds.addOrderByField(fieldNum(CompanyInfo, DataArea));
+        qbds.addSelectionField(fieldNum(CompanyInfo, DataArea));
+        qbds.addSelectionField(fieldNum(CompanyInfo, Name));
+
+        return q;
+    }
+
+    /// <summary>
+    /// Get all filter from Dialog
+    /// </summary>
+    /// <returns>boolean</returns>
+    public boolean getFromDialog()
+    {
+        ;
+
+        orderByranking  = dlgOrderBy.value();
+        recordNumber    = dlgRecordNumber.value();
+        periodOne       = dlgPeriodOne.value();
+        periodTwo       = dlgPeriodTwo.value();
+        intervalDaysOne = dlgIntervalsOne.value();
+        intervalDaysTwo = dlgIntervalsTwo.value();
+        transDate       = dlgTransDate.value();
+        companyCon      = this.getCompanySelectedId(multiSelectCtrlCompany.get());
+        hierarchiesCon  = this.getHierarchiesSelected(multiSelectCtrlHierarchy.get());
+
+        companyCon      = BSLCustVendTopSplitReportDp::mergeCompanyAndHierarchy(companyCon,hierarchiesCon);
+
+        return super();
+    }
+
+    /// <summary>
+    /// Convert RecId record to Id from Company Selected
+    /// </summary>
+    /// <param name = "_companyCons">container</param>
+    /// <returns>container</returns>
+    protected container getCompanySelectedId(container _companyCons)
+    {
+        container       localCompanyConIds;
+        int             i;
+        RefRecId        refCompany;
+        CompanyInfo     companyInfo;
+
+        localCompanyConIds = conNull();
+ 
+        for (i = 1; i <= conLen(_companyCons); i++)
+        {
+            refCompany = conPeek(_companyCons, i);
+
+            select firstOnly DataArea 
+                from companyInfo
+                where companyInfo.RecId == refCompany;
+ 
+            localCompanyConIds += [companyInfo.DataArea];
+        }
+
+        return localCompanyConIds;
+    }
+
+    /// <summary>
+    /// Convert RecId record to Name hierarchies Selected
+    /// </summary>
+    /// <param name = "_hierarchies">container</param>
+    /// <returns>container</returns>
+    protected container getHierarchiesSelected(container _hierarchies)
+    {
+        container       localHierarchies;
+        int             i;
+        RefRecId        refHierarchy;
+        OMHierarchyType oMHierarchyType;
+
+        localHierarchies = conNull();
+ 
+        for (i = 1; i <= conLen(_hierarchies); i++)
+        {
+            refHierarchy = conPeek(_hierarchies, i);
+
+            select firstOnly Name
+                from oMHierarchyType
+                where oMHierarchyType.RecId == refHierarchy;
+ 
+            localHierarchies += [oMHierarchyType.Name];
+        }
+
+        return localHierarchies;
+    }
+
+    public boolean init()
+    {
+        return true;
+    }
+
+    protected void new()
+    {
+        super();
+    }
+
+    public container pack()
+    {
+        //return [#CurrentVersion,#CurrentList];
+        return [#CurrentVersion,#CurrentList,queryCreatePayment.pack()];
+        
+    }
+
+    /// <summary>
+    ///    Contains the code that does the actual job of the class.
+    /// </summary>
+    public void run()
+    {
+        #OCCRetryCount
+        if (! this.validate())
+            throw error("");
+
+        try
+        {
+            bSLCustTopSplitReportDp = BSLCustVendTopSplitReportDp::constructByParm( CustVendACType::Cust
+                                                                                      ,dataTmp
+                                                                                      ,companyCon
+                                                                                      ,queryCreatePayment
+                                                                                      ,transDate
+                                                                                      ,orderByranking
+                                                                                      ,recordNumber
+                                                                                      ,periodOne
+                                                                                      ,intervalDaysOne
+                                                                                      ,periodTwo
+                                                                                      ,intervalDaysTwo);
+            bSLCustTopSplitReportDp.run();
+
+            this.callerForm();
+
+        }
+        catch (Exception::Deadlock)
+        {
+            retry;
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Caller form
+    /// </summary>
+    public void callerForm()
+    {
+        MenuFunction menuFunction;
+        Args        args;
+        ;
+
+        args = new Args();
+        args.record(dataTmp);
+        args.caller(this);
+
+        menuFunction = new MenuFunction(menuItemDisplayStr(BSLCustVendTop), MenuItemType::Display);
+        menuFunction.run(args);
+    }
+
+    public boolean runsImpersonated()
+    {
+        return true;
+    }
+
+    /// <summary>
+    /// Unpack query data
+    /// </summary>
+    /// <param name = "packedClass">packedClass</param>
+    /// <returns>boolean</returns>
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+        container packedQuery;
+        ;
+        switch (version)
+        {
+            case #CurrentVersion:
+                //[version,#CurrentList] = packedClass;
+                [version,#CurrentList,packedQuery] = packedClass;
+
+                if (packedQuery)
+                {
+                    queryCreatePayment = new QueryRun(packedQuery);
+                }
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Validate parameters
+    /// </summary>
+    /// <param name = "_calledFrom"></param>
+    /// <returns></returns>
+    public boolean validate(Object _calledFrom = null)
+    {
+        boolean ret;
+        ;
+
+        ret = true;
+
+        if (false)
+            return checkFailed("");
+
+        if (!transDate)
+        {
+            ret = checkFailed(strFmt("@BSL:PendingValue",extendedTypeId2pname(extendedTypeNum(TransDate))));
+        }
+
+        if (!intervalDaysOne)
+        {
+            ret = checkFailed(strFmt("@BSL:PendingValue","@BSL:PeriodOneGroup"));
+        }
+
+        if(periodOne != periodTwo)
+        {
+            ret = checkFailed("@BSL:PeriodError");
+        }
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Construct method
+    /// </summary>
+    /// <returns>BSLVendTopSplitRunBase</returns>
+    static BSLCustTopSplitRunBase construct()
+    {
+        return new BSLCustTopSplitRunBase();
+    }
+
+    // Here goes a description of the class
+    static ClassDescription description()
+    {
+        return "@BSL:RenkingCustReport";
+    }
+
+    /// <summary>
+    /// Main Method
+    /// </summary>
+    /// <param name = "args">Args</param>
+    static void main(Args args)
+    {
+        BSLCustTopSplitRunBase    tutorial_RunBase;
+    ;
+        tutorial_RunBase = BSLCustTopSplitRunBase::construct();
+
+        if (tutorial_RunBase.prompt())
+            tutorial_RunBase.runOperation();
+    }
+
+    protected boolean canRunInNewSession()
+    {
+        return false;
+    }
+
+    /// <summary>
+    /// Cancel the bath tab
+    /// </summary>
+    /// <param name = "_showBatchTab">boolean</param>
+    /// <returns>boolean</returns>
+    public boolean showBatchTab(boolean _showBatchTab = createBatchTab)
+    {
+        return false;
+    }
+
+}

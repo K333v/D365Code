@@ -1,0 +1,331 @@
+JSON:
+
+{
+    "contract": 
+    {
+        "Empresa": "3164f5ee-de98-ec11-b400-000d3ab01099",
+        "Encabezado": {
+            "AlmacenOrigen": "UBR1",
+            "AlmacenDestino": "Filial RJ",
+            "Observaciones": "Observaciones",
+            "DocRef": "0003",
+            "Transportista": "TRANSPORTADORA TESTE"
+        },
+        "Lineas": [
+            {
+                "NumLinea": 1,
+                "CodArticulo": "000429",
+                "NumLote": "RTYJ02",
+                "NumSerie": "",
+                "Cantidad": 0,
+                "CodCECO" : "C1005"
+            }    
+        ]
+    }
+}
+
+_____________________________________
+
+
+[DataContractAttribute]
+class UFTTransferOrderContract
+{
+    UFTAccountIdCRM                     accountCRM;
+    str                                 companyId;
+    UFTTransferOrderHeaderContract                                transferOrderHeaderList;
+    List                                transferOrderLinesList;
+
+   
+    /// </summary>
+    /// <param name="companyId"></param>
+    [DataMemberAttribute('Empresa')]
+    public str parmIdSociedadFO(str _accountCRM = accountCRM)
+    {
+        accountCRM = _accountCRM;
+        return accountCRM;
+    }
+
+    [DataMemberAttribute('Encabezado'),
+    AifCollectionType("transferOrderheaderList", Types::Class, classStr(UFTTransferOrderHeaderContract)),
+    AifCollectionType("return", Types::Class, classStr(UFTTransferOrderHeaderContract))]
+    public UFTTransferOrderHeaderContract parmHeaderList(UFTTransferOrderHeaderContract _transferOrderHeaderList = transferOrderHeaderList)
+    {
+        transferOrderHeaderList = _transferOrderHeaderList;
+        return transferOrderHeaderList;
+    }
+
+    [DataMemberAttribute('Lineas'),
+    AifCollectionType("transferOrderLinesList", Types::Class, classStr(UFTTransferOrderLineContract)),
+    AifCollectionType("return", Types::Class, classStr(UFTTransferOrderLineContract))]
+    public List parmLinesList(List _transferOrderLinesList = transferOrderLinesList)
+    {
+        transferOrderLinesList = _transferOrderLinesList;
+        return transferOrderLinesList;
+    }
+
+}
+_______________________________________________
+
+[DataContractAttribute]
+class UFTTransferOrderHeaderContract
+{
+    InventLocationIdFrom			locationIdFrom;
+    InventLocationIdTo				locationIdTo;
+    Str								observations;
+    Str								DocReference;
+    Str								transportista;
+
+    /// [UFTTransferOrderHeaderContract]
+    /// </summary>
+    /// <param name="locationIdFrom"></param>
+    [DataMemberAttribute('AlmacenOrigen')]
+    public InventLocationIdFrom parmLocationFrom(InventLocationIdFrom _locationIdFrom   = locationIdFrom)
+    {
+        locationIdFrom = _locationIdFrom;
+        return locationIdFrom;
+    }
+
+    /// [UFTTransferOrderHeaderContract]
+    /// </summary>
+    /// <param name="locationIdTo"></param>
+    [DataMemberAttribute('AlmacenDestino')]
+    public InventLocationIdTo parmLocationTo(InventLocationIdTo _locationIdTo   = locationIdTo)
+    {
+        locationIdTo = _locationIdTo;
+        return locationIdTo;
+    }
+
+    /// [UFTTransferOrderHeaderContract]
+    /// </summary>
+    /// <param name="observations"></param>
+    [DataMemberAttribute('Observaciones')]
+    public Str parmObservaciones(Str _observations   = observations)
+    {
+        observations = _observations;
+        return observations;
+    }
+
+    /// [UFTTransferOrderHeaderContract]
+    /// </summary>
+    /// <param name="DocReference"></param>
+    [DataMemberAttribute('DocRef')]
+    public Str parmDocRef(Str _DocReference   = DocReference)
+    {
+        DocReference = _DocReference;
+        return DocReference;
+    }
+
+    /// [UFTTransferOrderHeaderContract]
+    /// </summary>
+    /// <param name="Transportista"></param>
+    [DataMemberAttribute('Transportista')]
+    public Str parmTransportista(Str _transportista   = transportista)
+    {
+        transportista = _transportista;
+        return transportista;
+    }
+
+}
+
+____________________________________________
+
+[DataContractAttribute]
+class UFTTransferOrderLineContract
+{
+    LineNum                 lineNum;
+    ItemId                  itemId;
+    InventBatchId           inventBatchId;
+    InventSerialId          inventSerialId;
+    Qty                     inventQty;
+    str                     codCECO;
+
+
+
+    /// [UFTTransferOrderLineContract]
+    /// </summary>
+    /// <param name="lineNum"></param>
+    [DataMemberAttribute('NumLinea')]
+    public LineNum parmLineNum(LineNum _lineNum   = lineNum)
+    {
+        lineNum = _lineNum;
+        return lineNum;
+    }
+
+    /// [UFTTransferOrderLineContract]
+    /// </summary>
+    /// <param name="itemId"></param>
+    [DataMemberAttribute('CodArticulo')]
+    public ItemId parmItemId(ItemId _itemId   = itemId)
+    {
+        itemId = _itemId;
+        return itemId;
+    }
+
+    /// [UFTTransferOrderLineContract]
+    /// </summary>
+    /// <param name="inventBatchId"></param>
+    [DataMemberAttribute('NumLote')]
+    public InventBatchId parmInventBatchId(InventBatchId _inventBatchId   = inventBatchId)
+    {
+        inventBatchId = _inventBatchId;
+        return inventBatchId;
+    }
+
+    /// [UFTTransferOrderLineContract]
+    /// </summary>
+    /// <param name="inventSerialId"></param>
+    [DataMemberAttribute('NumSerie')]
+    public InventSerialId parmInventSerialId(InventSerialId _inventSerialId   = inventSerialId)
+    {
+        inventSerialId = _inventSerialId;
+        return inventSerialId;
+    }
+
+    /// [UFTTransferOrderLineContract]
+    /// </summary>
+    /// <param name="inventQty"></param>
+    [DataMemberAttribute('Cantidad')]
+    public Qty parmInventQty(Qty _inventQty   = inventQty)
+    {
+        inventQty = _inventQty;
+        return inventQty;
+    }
+
+    /// [UFTTransferOrderLineContract]
+    /// </summary>
+    /// <param name="codCECO"></param>
+    [DataMemberAttribute('CodCECO')]
+    public str parmCECO(str _codCECO   = codCECO)
+    {
+        codCECO = _codCECO;
+        return codCECO;
+    }
+
+}
+
+_____________________________________
+
+final class UFTTransferOrderCreateSenderIntegration
+{
+    UFTCompanyMapping                           companyMapping;
+
+
+    
+
+
+    [AifCollectionTypeAttribute('_request', Types::Class, classStr(UFTTransferOrderContract)),
+     AifCollectionTypeAttribute('return', Types::Class, classStr(UFTTransferOrderResponseServiceContract))]
+    public List CreateAndSendTransferOrderProcess(UFTTransferOrderContract  contract)
+    {
+        List                                        response = new List(Types::Class) ;
+        CompanyInfo                                 companyInfo;
+        ListEnumerator                              keysEnumerator,responseEnumerator;
+        System.Exception                            generalEx;
+        SysInfoLogEnumerator                        infoLogEnum;
+        SysInfologMessageStruct                     infoMessageStruct;
+        str                                         infoerror;
+        UFTTransferOrderResponseServiceContract     responseContract;
+        List                                        custTableList;
+        str                                         responseStr;
+        int                                         counterLine = 0;
+        boolean                                     ret;
+        InventTransferTable                         transferTable;
+        UFTCompanyMapping                           companyMap;
+
+        
+
+        ListEnumerator                              keysEnumLine;
+
+
+        if(contract)
+        {
+            companyMap = UFTCompanyMapping::findByExternalCompany(contract.parmIdSociedadFO());
+            companyInfo = companyInfo::findDataArea(companyMap.LegalEntityD365);
+
+                if(companyInfo)
+                {
+                    changecompany(companyInfo.DataArea)
+                    {
+
+                        try
+                        {
+                       
+                            transferTable = UFTProcessTransferOrderIntegration::processTransferOrderCreate(contract);
+
+
+                            if(transferTable.RecId)
+                            {
+                                responseContract = new UFTTransferOrderResponseServiceContract();
+                                responseContract.parmIdMessage(1);
+                                responseContract.parmMessage(strFmt("@UFINET_AP_BR:UFT8091IGN010", transferTable.UFTDocumentPhoenix,transferTable.TransferId));
+                                responseContract.parmStatusMessage(strFmt("true"));
+                                responseContract.parmTransferOrder(transferTable.TransferId);
+                                response.addEnd(responseContract);
+
+
+                                UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Processed,UFTIntegrationType::CreateTransferOrder,strFmt("@UFINET_AP_BR:UFT8091IGN010", transferTable.UFTDocumentPhoenix,transferTable.TransferId));
+
+                            }
+
+                        }
+                        catch (generalEx)
+                        {
+                            infoLogEnum = SysInfoLogEnumerator::newData(infolog.infologData());
+                            while(infoLogEnum.moveNext())
+                            {
+                                counterLine++;
+
+                                infoMessageStruct = SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                                infoerror += infoMessageStruct.message() + ' ';
+                            }
+                                responseContract = new UFTTransferOrderResponseServiceContract();
+                                responseContract.parmIdMessage(counterLine);
+                                responseContract.parmStatusMessage("false");
+                                responseContract.parmMessage(strFmt('@UFINET_AP_BR:UFT8091IGN009',infoerror, contract.parmHeaderList().parmDocRef()));
+                                responseContract.parmTransferOrder(transferTable.TransferId);
+                                response.addEnd(responseContract);
+
+                                
+
+                                UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::CreateTransferOrder,strFmt('@UFINET_AP_BR:UFT8091IGN009',infoerror, contract.parmHeaderList().parmDocRef()));
+
+                    
+                            ttsabort;
+                        }
+                    }
+
+                }
+            
+                else
+                {
+                    responseContract = new UFTTransferOrderResponseServiceContract();
+                    responseContract.parmIdMessage(counterLine+1);
+                    responseContract.parmStatusMessage("false");
+                    responseContract.parmMessage(strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeaderList().parmDocRef()));
+                    response.addEnd(responseContract);
+
+
+                    UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::CreateTransferOrder,strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeaderList().parmDocRef()));
+                }
+            
+        }         
+
+
+        return response;
+    }
+
+    public boolean validateCompany(UFTTransferOrderContract contract)
+    {
+        boolean ret;
+
+        companyMapping = UFTCompanyMapping::findByExternalCompany(contract.parmIdSociedadFO());
+
+        if(companyMapping.RecId)
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeaderList().parmDocRef()));
+        }
+          
+        return ret;
+    }
+
+}

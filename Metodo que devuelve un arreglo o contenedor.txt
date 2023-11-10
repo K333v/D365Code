@@ -1,0 +1,65 @@
+ /// <summary>
+    /// Get Hiring manager and Alternate worker from APPSPMHiringManagerTable
+    /// </summary>
+    /// <param name = "_caseDetailBase">CaseDetailBase</param>
+    /// <returns>Hiring manager and Alternate worker</returns>
+    public static container getHiringAndAlternateWorker(CaseDetailBase _caseDetailBase)
+    {
+        APPSPMHiringManagerTable    hiringManagerTable;
+        APPSPMEntryCardTable        entryCardTable = APPSPMEntryCardTable::findCaseRecId(_caseDetailBase.RecId);
+        OMOperatingUnit             operatingUnit  = OMOperatingUnit::find(_caseDetailBase.Department, OMOperatingUnitType::OMDepartment);
+        RefRecId                    hiringManagerWorker = 0;
+        RefRecId                    alternativeContactWorker = 0;
+            
+        if (entryCardTable.RefPointIdApproved)
+        {
+            // MatrixDependency Validation
+            if (!operatingUnit)
+            { 
+                while select FromGrade, ToGrade, HiringManagerWorker, AlternativeContactWorker 
+                    from hiringManagerTable index hint LineNumIdx
+                    where hiringManagerTable.MatrixDependency == _caseDetailBase.APPSPMDimensionValue
+                    && hiringManagerTable.LegalQuality == entryCardTable.LegalQualityApproved
+                    && hiringManagerTable.DependencyType == APPSPMDependencyType::MatrixDependency
+                    && hiringManagerTable.ValidType == APPSPMValidType::Degree
+                    && str2int(hiringManagerTable.FromGrade) <= str2int(entryCardTable.RefPointIdApproved)
+                    && hiringManagerTable.FromGrade
+                {
+                    if (str2int(hiringManagerTable.ToGrade) >= str2int(entryCardTable.RefPointIdApproved))
+                    {
+                        hiringManagerWorker      = hiringManagerTable.HiringManagerWorker;
+                        alternativeContactWorker = hiringManagerTable.AlternativeContactWorker;
+                        break;
+                    }
+                }
+           
+            }
+            else //Dependency Validation
+            { 
+                while select FromGrade, ToGrade, HiringManagerWorker, AlternativeContactWorker
+                    from hiringManagerTable index hint LineNumIdx
+                    where hiringManagerTable.LegalQuality == entryCardTable.LegalQualityApproved
+                    && hiringManagerTable.DependencyType == APPSPMDependencyType::Dependency
+                    && hiringManagerTable.ValidType == APPSPMValidType::Degree
+                    && str2int(hiringManagerTable.FromGrade) <= str2int(entryCardTable.RefPointIdApproved)
+                    && hiringManagerTable.FromGrade
+                {
+                    if (str2int(hiringManagerTable.ToGrade) >= str2int(entryCardTable.RefPointIdApproved))
+                    {
+                        hiringManagerWorker      = hiringManagerTable.HiringManagerWorker;
+                        alternativeContactWorker = hiringManagerTable.AlternativeContactWorker;
+                        break;
+                    }
+                }
+            }
+            
+        }
+        
+        return [hiringManagerWorker, alternativeContactWorker];
+    }
+
+
+________________
+
+//Get Hiring manager and Alternate worker
+        container   conValues = APPSPMProjectRecruitmentHelper::getHiringAndAlternateWorker(_caseDetailBase);

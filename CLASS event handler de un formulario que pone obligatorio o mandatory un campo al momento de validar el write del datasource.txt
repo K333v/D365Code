@@ -1,0 +1,26 @@
+ /// <summary>
+    /// Bug NN_Name field mandatory
+    /// </summary>
+    /// <param name="sender">FormDataSource</param>
+    /// <param name="e">FormDataSourceEventArgs</param>
+    [FormDataSourceEventHandler(formDataSourceStr(CaseDetail, CaseDetailBase), FormDataSourceEventType::ValidatingWrite)]
+    public static void CaseDetailBase_OnValidatingWrite(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormRun                     formRun = sender.formRun();
+        CaseDetailBase              caseDetailBase = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+        FormReferenceGroupControl   dirName = formRun.design().controlName(formControlStr(CaseDetail, DirPartyTable_Name));
+
+        if (APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP002HR))
+        {
+            if (caseDetailBase.NN)
+            {
+                dirName.allowEdit(false);
+                dirName.mandatory(false);
+            }
+            else
+            {
+                dirName.allowEdit(true);
+                dirName.mandatory(true);
+            }
+        }
+    }

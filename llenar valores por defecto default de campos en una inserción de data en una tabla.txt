@@ -1,0 +1,5 @@
+  vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,RemittanceLocation), purchTable,  null);
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,FixedDueDate), purchTable,  null);
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,ExchRate), purchTable,  null);
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,TransDate), purchTable,  null);
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,PaymMode), purchTable,  null);

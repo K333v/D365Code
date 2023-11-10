@@ -1,0 +1,25 @@
+ Object dialog()
+    {
+        FormBuildControl    formBuildControl;
+        DialogGroup         dialogGroup;
+
+        dialogRunBase = super();
+       
+        dialogRunBase.allowUpdateOnSelectCtrl(true);
+        dialogGroup = dialogRunBase.addGroup();
+
+        formBuildControl = dialogRunBase.formBuildDesign().control(dialogGroup.formBuildGroup().id());
+        workersCtrl = formBuildControl.addControl(FormControlType::String, identifierstr(HcmPersonnelNumberId));
+        workersCtrl.label("Trabajador");
+        
+        dflFromDate = dialogRunBase.addFieldValue(extendedTypeStr(FromDate), fromDate);         
+        dflToDate   = dialogRunBase.addFieldValue(extendedTypeStr(ToDate), toDate);
+   
+        //cleanup
+        workersCtrl.text('');
+        workers = conNull();
+        dflFromDate.value('');
+        dflToDate.value('');
+
+        return dialogRunBase;        
+    }

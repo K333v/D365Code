@@ -1,0 +1,25 @@
+/// <summary>
+/// 20230606 - WI20135_Bug3283 - KCL
+/// </summary>
+[ExtensionOf(tableStr(HrmParameters))]
+public final class APPSPMHRMParameters_Extension
+{
+    public boolean validateField(FieldId _fieldIdToCheck)
+    {
+        boolean ret = next validateField(_fieldIdToCheck);
+
+        switch(_fieldIdToCheck)
+        {
+            case fieldNum(HRMParameters, APPSPMAbsenceVigencyDays):
+                
+                if (ret && strlen(int2str(this.APPSPMAbsenceVigencyDays)) > 4)
+                {
+                    ret = checkFailed("@Appspm_b:ValidInteger4");
+                }
+                break;
+        }
+        
+        return ret;
+    }
+
+}

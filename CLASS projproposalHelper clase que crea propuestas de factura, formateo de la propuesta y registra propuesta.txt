@@ -1,0 +1,1258 @@
+//20220701 - UFT_PRY004_InvoiceProposal_Hilo2 - KCL
+class UFTProjProposalHelper
+{
+
+    /// <summary>
+    /// Create project fee journal
+    /// </summary>
+    /// <param name = "_salesTable">SalesTable</param>
+    public static void createProjFeeJournal(SalesTable  _salesTable)
+    {
+        UFTCreateProjFeeJournal createProjFeeJournal;
+        ProjJournalTable        journalTable;
+        SalesTable              salesTableUpd;
+
+        changecompany(_salesTable.DataAreaId)
+        {              
+            ttsbegin;
+            createProjFeeJournal = UFTCreateProjFeeJournal::construct();
+            journalTable = createProjFeeJournal.createJournal(_salesTable);
+            createProjFeeJournal.postJournal(journalTable);
+
+            salesTableUpd = SalesTable::find(_salesTable.SalesId, true);
+
+            if (salesTableUpd)
+            {
+                salesTableUpd.UFTProjFeeJournalId = journalTable.JournalId;
+                salesTableUpd.update();
+                info(strFmt("@UFINET_AP_DEV1:IPRY004AT2_080",  journalTable.JournalId));
+            }
+            ttscommit;
+        }
+
+    }
+
+    /// <summary>
+    /// Creating project invoice proposal
+    /// </summary>
+    /// <param name = "_salesTable">SalesTable</param>
+    /// <returns></returns>
+    public static ProjProposalJour createInvoiceProposal(SalesTable  _salesTable)
+    {
+        SalesTable          salesTableLocal;
+        ProjInvoiceChoose   invoiceChoose;
+        ProjRevenueTrans    revenueTrans;
+        ProjJournalTable    projournalTable;
+        ProjProposalJour    projProposalJourUpd;
+        ProjInvoiceChooseNormal projInvoiceChooseNormal;
+
+        //<APCH_UFT_G.PROY_013_CH_ModificacionIntegraciónFacturacion>
+        APDTEObsInvoiceTable apDTEObsInvoiceTable,
+                             apDTEObsInvoiceTableProj;
+        APDTERefInvoiceTable apDTERefInvoiceTable,
+                             APDTERefInvoiceTableProj;
+        APDTEBultosExport    apDTEBultosExport,
+                             apDTEBultosExportProj;
+        //</APCH_UFT_G.PROY_013_CH_ModificacionIntegraciónFacturacion>
+        container           transIdCon = conNull();   
+                 
+        SalesLine           salesLine;
+                
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+        //salesTableLocal = SalesTable::find(_salesTable.SalesId);
+        //projournalTable = ProjJournalTable::find(salesTableLocal.UFTProjFeeJournalId);
+        select firstonly SalesId, UFTProjFeeJournalId from salesTableLocal
+            where salesTableLocal.SalesId == _salesTable.SalesId;
+
+        select firstonly JournalId from projournalTable
+            where projournalTable.JournalId == salesTableLocal.UFTProjFeeJournalId;
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                        
+        if (projournalTable)
+        {
+            while select TransId, UFTSalesId from revenueTrans index hint TransIdx
+                where revenueTrans.UFTSalesId == salesTableLocal.SalesId
+            {
+                transIdCon += ProjTransType::Revenue;
+                transIdCon += revenueTrans.TransId;
+            }
+
+            if (transIdCon != conNull())
+            {
+                ttsbegin;
+                //20230605 - BUG performance - msepulveda - begin
+                invoiceChoose = ProjInvoiceChoose::psaNew_InvoiceChoose('', '', dateNull(), dateNull(), false, SalesUpdate::DeliverNow, '', dateNull(), false, false, false, true, false, false, false, false, null, false);
+               
+
+                projInvoiceChooseNormal = invoiceChoose as ProjInvoiceChooseNormal;
+
+                select count(RecId) from salesLine
+                    where salesLine.SalesId == _salesTable.SalesId;
+
+                if(salesLine.RecId != (conLen(transIdCon)/2))
+                {
+                    throw error(strFmt("@UFINET_AP_DEV1:CreateInvoicePerf_031,", conLen(transIdCon), salesLine.RecId));
+                }
+
+
+                projInvoiceChooseNormal.parmTransIdContainer(transIdCon);
+                projInvoiceChooseNormal.parmRangeTransId(true);
+                projInvoiceChooseNormal.parmSalesId(_salesTable.SalesId);
+                projInvoiceChooseNormal.run();
+                //20230605 - BUG performance - msepulveda - end
+                
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                select firstonly TransId from revenueTrans index hint TransIdx
+                    where revenueTrans.UFTSalesId == _salesTable.SalesId;
+               
+                ProjProposalRevenue    tprojProposalrevenue;
+
+                //select firstonly tprojProposalrevenue 
+                //    where tprojProposalrevenue.TransId == revenueTrans.TransId;
+
+                //projProposalJourUpd = ProjProposalJour::find(revenueTrans.proposalId(), true);
+                select forupdate firstonly projProposalJourUpd 
+                    index hint ProposalNumIdx
+                    exists join tprojProposalrevenue
+                    where tprojProposalrevenue.ProposalId == projProposalJourUpd.ProposalId
+                    && tprojProposalrevenue.TransId == revenueTrans.TransId;
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+                if (projProposalJourUpd)
+                {
+                    projProposalJourUpd.UFTSalesId     = _salesTable.SalesId;
+                    projProposalJourUpd.PostingProfile = _salesTable.PostingProfile;
+                    //Modify exchange rate for invoicing
+                    Ledger  ledger = Ledger::findByLegalEntity(CompanyInfo::find().RecId);
+
+                    if (projProposalJourUpd.UFTSalesId && (projProposalJourUpd.CurrencyId != ledger.AccountingCurrency))
+                    {
+                        projProposalJourUpd.exchRate = _salesTable.exchRate();
+                    }                         
+
+                    //<APCH_UFT_G.PROY_013_CH_ModificacionIntegraciónFacturacion>
+                    projProposalJourUpd.APPhysicalPlaceId = _salesTable.UFTPhysicalPlaceIdCHL;
+                    projProposalJourUpd.APDocuTypeInvoice = _salesTable.UFTDocuTypeCHL;
+                    projProposalJourUpd.APCreditNoteType  = _salesTable.UFTCreditNoteType;
+
+                    //Datos de expotación OV
+                    apDTEObsInvoiceTable     = APDTEObsInvoiceTable::find(_salesTable.TableId, _salesTable.RecId);
+                    //Buscar si ya existe algun registro de datos de exportación
+                    apDTEObsInvoiceTableProj = APDTEObsInvoiceTable::find(projProposalJourUpd.TableId, projProposalJourUpd.RecId);
+
+
+                    //Pasar referencias del documento
+                    while select apDTERefInvoiceTable
+                            where apDTERefInvoiceTable.RefRecId == _salesTable.RecId
+                                && apDTERefInvoiceTable.RefTableId == _salesTable.TableId
+                    {
+                        APDTERefInvoiceTableProj.clear();
+                        APDTERefInvoiceTableProj.InitValue();
+                        APDTERefInvoiceTableProj.RefRecId   = projProposalJourUpd.RecId;
+                        APDTERefInvoiceTableProj.RefTableId = projProposalJourUpd.TableId;
+                        APDTERefInvoiceTableProj.NroLinRef  = apDTERefInvoiceTable.NroLinRef;
+                        APDTERefInvoiceTableProj.TpoDocRef  = apDTERefInvoiceTable.TpoDocRef;
+                        APDTERefInvoiceTableProj.FolioRef   = apDTERefInvoiceTable.FolioRef;
+                        APDTERefInvoiceTableProj.FchRef     = apDTERefInvoiceTable.FchRef;
+                        APDTERefInvoiceTableProj.RazonRef   = apDTERefInvoiceTable.RazonRef;
+                        APDTERefInvoiceTableProj.insert();
+                    }
+
+                    //Pasar Datos de exportación
+                    if(!apDTEObsInvoiceTableProj.RecId)
+                    {
+                        apDTEObsInvoiceTableProj.clear();
+                        apDTEObsInvoiceTableProj.initValue();
+                        apDTEObsInvoiceTableProj.RefTableId       = projProposalJourUpd.TableId;
+                        apDTEObsInvoiceTableProj.RefRecId         = projProposalJourUpd.RecId;
+                        apDTEObsInvoiceTableProj.Observation      = apDTEObsInvoiceTable.Observation;
+                        apDTEObsInvoiceTableProj.CarrierName      = apDTEObsInvoiceTable.CarrierName;
+                        apDTEObsInvoiceTableProj.Patente          = apDTEObsInvoiceTable.Patente;
+                        apDTEObsInvoiceTableProj.RUTChofer        = apDTEObsInvoiceTable.RUTChofer;
+                        apDTEObsInvoiceTableProj.CodModVenta      = apDTEObsInvoiceTable.CodModVenta;
+                        apDTEObsInvoiceTableProj.CodClauVenta     = apDTEObsInvoiceTable.CodClauVenta;
+                        apDTEObsInvoiceTableProj.TotClauVenta     = apDTEObsInvoiceTable.TotClauVenta;
+                        apDTEObsInvoiceTableProj.CodViaTransp     = apDTEObsInvoiceTable.CodViaTransp;
+                        apDTEObsInvoiceTableProj.NombreTransp     = apDTEObsInvoiceTable.NombreTransp;
+                        apDTEObsInvoiceTableProj.RUTCiaTransp     = apDTEObsInvoiceTable.RUTCiaTransp;
+                        apDTEObsInvoiceTableProj.NomCiaTransp     = apDTEObsInvoiceTable.NomCiaTransp;
+                        apDTEObsInvoiceTableProj.IdAdicTransp     = apDTEObsInvoiceTable.IdAdicTransp;
+                        apDTEObsInvoiceTableProj.Booking          = apDTEObsInvoiceTable.Booking;
+                        apDTEObsInvoiceTableProj.Operador         = apDTEObsInvoiceTable.Operador;
+                        apDTEObsInvoiceTableProj.CodPtoEmbarque   = apDTEObsInvoiceTable.CodPtoEmbarque;
+                        apDTEObsInvoiceTableProj.IdAdicPtoEmb     = apDTEObsInvoiceTable.IdAdicPtoEmb;
+                        apDTEObsInvoiceTableProj.CodPtoDesemb     = apDTEObsInvoiceTable.CodPtoDesemb;
+                        apDTEObsInvoiceTableProj.IdAdicPtoDesemb  = apDTEObsInvoiceTable.IdAdicPtoDesemb;
+                        apDTEObsInvoiceTableProj.Tara             = apDTEObsInvoiceTable.Tara;
+                        apDTEObsInvoiceTableProj.CodUnidMedTara   = apDTEObsInvoiceTable.CodUnidMedTara;
+                        apDTEObsInvoiceTableProj.PesoBruto        = apDTEObsInvoiceTable.PesoBruto;
+                        apDTEObsInvoiceTableProj.CodUnidPesoBruto = apDTEObsInvoiceTable.CodUnidPesoBruto;
+                        apDTEObsInvoiceTableProj.PesoNeto         = apDTEObsInvoiceTable.PesoNeto;
+                        apDTEObsInvoiceTableProj.CodUnidPesoNeto  = apDTEObsInvoiceTable.CodUnidPesoNeto;
+                        apDTEObsInvoiceTableProj.TotItems         = apDTEObsInvoiceTable.TotItems;
+                        apDTEObsInvoiceTableProj.MntFlete         = apDTEObsInvoiceTable.MntFlete;
+                        apDTEObsInvoiceTableProj.MntSeguro        = apDTEObsInvoiceTable.MntSeguro;
+                        apDTEObsInvoiceTableProj.insert();
+                    }
+                    
+                    //If existe Datos adicionales DTE
+                    if(apDTEObsInvoiceTable.RecId)
+                    {
+                        while select apDTEBultosExport
+                            where apDTEBultosExport.RefRecId == apDTEObsInvoiceTable.RecId
+                        {
+                            apDTEBultosExportProj.clear();
+                            apDTEBultosExportProj.InitValue();
+                            apDTEBultosExportProj.RefRecid     = apDTEObsInvoiceTableProj.RecId;
+                            apDTEBultosExportProj.LineNum      = apDTEBultosExport.LineNum;
+                            apDTEBultosExportProj.CodTpoBultos = apDTEBultosExport.CodTpoBultos;
+                            apDTEBultosExportProj.CantBultos   = apDTEBultosExport.CantBultos;
+                            apDTEBultosExportProj.Marcas       = apDTEBultosExport.Marcas;
+                            apDTEBultosExportProj.IdContainer  = apDTEBultosExport.IdContainer;
+                            apDTEBultosExportProj.Sello        = apDTEBultosExport.Sello;
+                            apDTEBultosExportProj.EmisorSello  = apDTEBultosExport.EmisorSello;
+                            apDTEBultosExportProj.Insert();
+                        }
+                    }
+                    //</APCH_UFT_G.PROY_013_CH_ModificacionIntegraciónFacturacion>
+
+                    projProposalJourUpd.update();
+                    info(strFmt("@UFINET_AP_DEV1:IPRY004AT2_081", projProposalJourUpd.ProposalId));
+                }
+                ttscommit;
+            }
+        }                          
+        
+        return projProposalJourUpd;
+    }
+
+    /// <summary>
+    /// Formating invoice proposal
+    /// </summary>
+    /// <param name = "_projProposalJour">ProjProposalJour</param>
+    public static void createFormatProposal(ProjProposalJour  _projProposalJour)
+    {
+        ProjProposalRevenue         projProposalRevenue;
+        ProjRevenueTrans            projRevenueTrans, projRevenueTransLocal;
+        PSAProjInvoiceDetailLine    pSAProjInvoiceDetailLine, projDetailLine;
+        PSAProjInvoiceDetailTrans   projDetailTrans;
+        SalesTable                  salesTableLocal;
+        SalesLine                   salesLineLocal;
+        UFTInvoicingGroups          invoicingGroup;
+        ProjProposalId              proposalId;
+        int                         cont;
+        List                        listTxt = new List(Types::String);
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+        RecordInsertList            invoiceDetailLineList = new RecordInsertList(tableNum(PSAProjInvoiceDetailLine));         
+        ProjCategory                projectCategory;
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+        ProjCategoryId              lastProjCategoryId;
+        Name                        nameCategory;
+        LogisticsAddressCityName    lastCityName;
+        Description                 descriptionCity;
+        ItemId                      lastItemId;
+        Name                        itemName;
+        InventTable                 inventTable;
+
+        #ISOCountryRegionCodes
+
+        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+        boolean                     copyInvoiceConcept = ProjParameters::find().UFTAllowCopyInvoiceConcept;
+        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+
+        if (!_projProposalJour)
+            return;
+
+        cont = 0;
+        proposalId = _projProposalJour.ProposalId;
+        //Header - Format invoice proposal
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+            //salesTableLocal = SalesTable::find(_projProposalJour.UFTSalesId);
+            //invoicingGroup  = UFTInvoicingGroups::find(salesTableLocal.UFTInvoicingGroup, salesTableLocal.CustAccount);
+        //select firstonly UFTInvoicingGroup, CustAccount from salesTableLocal
+         //   where salesTableLocal.SalesId == _projProposalJour.UFTSalesId;
+
+        select firstonly  GroupingInvoiceLines from invoicingGroup 
+            index hint InvoicingGroupCustAccountIdx
+            exists join salesTableLocal
+            where invoicingGroup.InvoicingGroup == salesTableLocal.UFTInvoicingGroup
+            && invoicingGroup.CustAccount == salesTableLocal.CustAccount;
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+        //20220908 - BUG 7146 - KCL - Start
+        if (!invoicingGroup)
+            return;
+        //20220908 - BUG 7146 - KCL - End
+           
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoCO]) &&
+            invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::CategoryMunicipality)
+        {
+            nameCategory = '';
+            descriptionCity = '';
+            lastProjCategoryId = '';
+            lastCityName = '';
+
+            while select projProposalRevenue group by salesLineLocal.UFTProjCategoryId, salesLineLocal.UFTAddressCity
+            join TransId, UFTSalesId from projRevenueTrans
+            join UFTProjCategoryId, UFTAddressCity from salesLineLocal
+                where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                projProposalRevenue.ProposalId == proposalId &&
+                salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+            {
+                cont++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+
+                if(salesLineLocal.UFTProjCategoryId != lastProjCategoryId)
+                {
+                    select firstonly Name from projectCategory
+                        where projectCategory.CategoryId == salesLineLocal.UFTProjCategoryId;
+
+                    nameCategory = projectCategory.Name;
+                    
+                }
+
+                if(salesLineLocal.UFTAddressCity != lastCityName)
+                {
+                    descriptionCity =  LogisticsAddressCity::find(salesLineLocal.UFTAddressCity).Description;
+                }
+
+                pSAProjInvoiceDetailLine.Txt             = nameCategory + " " + descriptionCity;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                if (copyInvoiceConcept)
+                    pSAProjInvoiceDetailLine.Txt             = pSAProjInvoiceDetailLine.Txt + " " + SalesTable::find(projRevenueTrans.UFTSalesId).UFTInvoicingConcept;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+
+                //pSAProjInvoiceDetailLine.Txt             = ProjCategory::find(salesLineLocal.UFTProjCategoryId).Name + " " + LogisticsAddressCity::find(salesLineLocal.UFTAddressCity).Description;
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                invoiceDetailLineList.add(pSAProjInvoiceDetailLine);
+                //pSAProjInvoiceDetailLine.insert();
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                //save Txt
+                listTxt.addStart(pSAProjInvoiceDetailLine.Txt);
+
+                lastProjCategoryId = salesLineLocal.UFTProjCategoryId;
+                lastCityName = salesLineLocal.UFTAddressCity;
+
+
+            }
+        }
+        else if (invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::ServiceType)
+        {
+            lastItemId= '';
+
+            while select projProposalRevenue group by salesLineLocal.ItemId, salesLineLocal.Name
+            join TransId, UFTSalesId from projRevenueTrans
+            join ItemId from salesLineLocal
+                where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                projProposalRevenue.ProposalId == proposalId &&
+                salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+            {
+                cont++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+
+                pSAProjInvoiceDetailLine.Txt             = salesLineLocal.Name; //InventTable::find(salesLineLocal.ItemId).itemName();
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                if (copyInvoiceConcept)
+                    pSAProjInvoiceDetailLine.Txt             = pSAProjInvoiceDetailLine.Txt + " " + SalesTable::find(projRevenueTrans.UFTSalesId).UFTInvoicingConcept;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                invoiceDetailLineList.add(pSAProjInvoiceDetailLine);
+                //pSAProjInvoiceDetailLine.insert();
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                //save Txt
+                listTxt.addStart(pSAProjInvoiceDetailLine.Txt);
+            }
+        }
+        else if (invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::Service)
+        {
+            while select projProposalRevenue group by salesLineLocal.UFTAdminCode
+            join TransId, UFTSalesId from projRevenueTrans
+            join UFTAdminCode from salesLineLocal
+                where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                projProposalRevenue.ProposalId == proposalId &&
+                salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+            {
+                cont++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+                pSAProjInvoiceDetailLine.Txt             = salesLineLocal.UFTAdminCode;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                if (copyInvoiceConcept)
+                    pSAProjInvoiceDetailLine.Txt             = pSAProjInvoiceDetailLine.Txt + " " + SalesTable::find(projRevenueTrans.UFTSalesId).UFTInvoicingConcept;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                invoiceDetailLineList.add(pSAProjInvoiceDetailLine);
+                //pSAProjInvoiceDetailLine.insert();
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                //save Txt
+                listTxt.addStart(pSAProjInvoiceDetailLine.Txt);
+            }
+        }//20221011 - UFT_IPRY004_CC_GroupingByCategoryFormat - KCL - Start
+        else if (invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::Category)
+        {
+            while select projProposalRevenue group by salesLineLocal.UFTProjCategoryId
+                where projProposalRevenue.ProposalId == proposalId
+            join TransId, UFTSalesId from projRevenueTrans
+                where projRevenueTrans.TransId == projProposalRevenue.TransId
+            join UFTProjCategoryId from salesLineLocal
+                where salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+            {
+                cont++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                select firstonly Name from projectCategory
+                    where projectCategory.CategoryId == salesLineLocal.UFTProjCategoryId;
+                        
+                pSAProjInvoiceDetailLine.Txt             = projectCategory.Name;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                if (copyInvoiceConcept)
+                    pSAProjInvoiceDetailLine.Txt             = pSAProjInvoiceDetailLine.Txt + " " + SalesTable::find(projRevenueTrans.UFTSalesId).UFTInvoicingConcept;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                //pSAProjInvoiceDetailLine.Txt             = ProjCategory::find(salesLineLocal.UFTProjCategoryId).Name;
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                invoiceDetailLineList.add(pSAProjInvoiceDetailLine);
+                //pSAProjInvoiceDetailLine.insert();
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                //save Txt
+                listTxt.addStart(pSAProjInvoiceDetailLine.Txt);
+            }
+        }
+        //UFT_7535_InterfazAjusteGlosas_ALT 21-12-2022 Start
+        else if(invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::None)
+        {
+            while select projProposalRevenue
+                join TransId, UFTSalesId,RecId from projRevenueTrans
+                join UFTProjCategoryId,Name from salesLineLocal
+                    where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                    projProposalRevenue.ProposalId == proposalId &&
+                    salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                    salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+            {
+                cont++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+                
+                if(ProjParameters::find().UFT_CopyConceptText)
+                {
+                    pSAProjInvoiceDetailLine.Txt             = salesLineLocal.Name;
+                }
+                else
+                {
+                    pSAProjInvoiceDetailLine.Txt             = ProjCategory::find(salesLineLocal.UFTProjCategoryId).Name;
+                }
+                
+                pSAProjInvoiceDetailLine.UFTTransId = projRevenueTrans.TransId;
+                pSAProjInvoiceDetailLine.LineAmount = projRevenueTrans.salesPrice();
+
+                //20221206 - Merge msepulveda - begin
+                invoiceDetailLineList.add(pSAProjInvoiceDetailLine);
+                //20221206 - Merge msepulveda - end
+                //save Txt
+                //listTxt.addStart(pSAProjInvoiceDetailLine.Txt);
+                            
+            }
+            
+        }
+        //UFT_7535_InterfazAjusteGlosas_ALT 21-12-2022 End
+
+
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+        invoiceDetailLineList.insertDatabase();
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+        //20221011 - UFT_IPRY004_CC_GroupingByCategoryFormat - KCL - End
+
+        //UFT_7535_InterfazAjusteGlosas_ALT 21-12-2022 Start
+        if(listTxt.empty() && invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::None)
+        {
+            UFTProjProposalHelper::setLinesGroupNone(proposalId);
+        }
+        //UFT_7535_InterfazAjusteGlosas_ALT 21-12-2022 end
+
+        //Selected transactions - Format invoice proposal          
+        ListIterator    iteratorTxt = new ListIterator(listTxt);         
+       
+        while (iteratorTxt.more())
+        {
+            str     txt = iteratorTxt.value();
+            Amount  sumAmount = 0;
+            
+            cont = 0;
+
+            PSAProjInvoiceDetailTrans tDetailTrans;
+            PSAProjInvoiceDetailLine  tDetailLine;
+            ProjRevenueTrans          tRevenueTrans;
+            //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+            RecordInsertList          tDetailTransList = new RecordInsertList(tableNum(PSAProjInvoiceDetailTrans));
+            //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+            
+            lastProjCategoryId = '';
+            lastCityName = '';
+            nameCategory = '';
+            descriptionCity = '';
+
+            while select tRevenueTrans
+                join TransId, ProposalId from projProposalRevenue
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                join SalesId, InventTransId, UFTProjCategoryId, ItemId, UFTAddressCity, UFTAdminCode, Name
+                from salesLineLocal //join salesLineLocal
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                where tRevenueTrans.TransId == projProposalRevenue.TransId
+                && projProposalRevenue.ProposalId == proposalId
+                && salesLineLocal.SalesId == tRevenueTrans.UFTSalesId
+                && salesLineLocal.InventTransId == tRevenueTrans.UFTSalesTransId
+            {                             
+                str     txtLine = "";
+
+                select firstonly forupdate tDetailLine
+                    where tDetailLine.Txt == txt
+                    && tDetailLine.ProposalId == proposalId;
+
+                switch (invoicingGroup.GroupingInvoiceLines)
+                {
+                    case UFTGroupingInvoiceLines::CategoryMunicipality:
+                        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+
+                        if(salesLineLocal.UFTProjCategoryId != lastProjCategoryId)
+                        {
+                            select firstonly Name from projectCategory
+                                where projectCategory.CategoryId == salesLineLocal.UFTProjCategoryId;
+
+                            nameCategory = projectCategory.Name;
+                    
+                        }
+                        
+                        if(salesLineLocal.UFTAddressCity != lastCityName)
+                        {
+                            descriptionCity =  LogisticsAddressCity::find(salesLineLocal.UFTAddressCity).Description;
+                        }
+
+                        txtLine = nameCategory + " " + descriptionCity;
+                        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                        if (copyInvoiceConcept)
+                            txtLine = txtLine + " " + SalesTable::find(salesLineLocal.SalesId).UFTInvoicingConcept;
+                        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                        //txtLine = ProjCategory::find(salesLineLocal.UFTProjCategoryId).Name + " " + LogisticsAddressCity::find(salesLineLocal.UFTAddressCity).Description;
+                        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+                        lastProjCategoryId = salesLineLocal.UFTProjCategoryId;
+                        lastCityName = salesLineLocal.UFTAddressCity;
+
+                        break;
+
+                    case UFTGroupingInvoiceLines::ServiceType:
+                        txtLine = salesLineLocal.Name ; //InventTable::find(salesLineLocal.ItemId).itemName();
+                        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                        if (copyInvoiceConcept)
+                            txtLine = txtLine + " " + SalesTable::find(salesLineLocal.SalesId).UFTInvoicingConcept;
+                        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                        break;
+
+                    case UFTGroupingInvoiceLines::Service:
+                        txtLine = salesLineLocal.UFTAdminCode;
+                        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                        if (copyInvoiceConcept)
+                            txtLine = txtLine + " " + SalesTable::find(salesLineLocal.SalesId).UFTInvoicingConcept;
+                        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                        break;
+                    //20221011 - UFT_IPRY004_CC_GroupingByCategoryFormat - KCL - Start
+                    case UFTGroupingInvoiceLines::Category:
+                        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+
+                        if(salesLineLocal.UFTProjCategoryId != lastProjCategoryId)
+                        {
+                            select firstonly Name from projectCategory
+                                where projectCategory.CategoryId == salesLineLocal.UFTProjCategoryId;
+
+                            nameCategory = projectCategory.Name;
+                    
+                        }
+                                                
+                        txtLine = nameCategory;
+                        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                        if (copyInvoiceConcept)
+                            txtLine = txtLine + " " + SalesTable::find(salesLineLocal.SalesId).UFTInvoicingConcept;
+                        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                        //txtLine = ProjCategory::find(salesLineLocal.UFTProjCategoryId).Name;
+                        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+                        lastProjCategoryId = salesLineLocal.UFTProjCategoryId;
+
+                        break;
+                    //20221011 - UFT_IPRY004_CC_GroupingByCategoryFormat - KCL - End
+                }
+               
+                if (tDetailLine && (txtLine == txt))
+                {
+                    cont++;
+                    tDetailTrans.ProposalId   = proposalId;
+                    //20220908 - BUG 7146 - KCL - Start
+                    tDetailTrans.LineNum      = tDetailLine.LineNum;
+                    //tDetailTrans.LineNum      = cont;
+                    //20220908 - BUG 7146 - KCL - End
+                    tDetailTrans.RefTableId   = tRevenueTrans.TableId;
+                    tDetailTrans.RefRecId     = tRevenueTrans.RecId;
+                    tDetailTrans.TransId      = tRevenueTrans.TransId;
+                    tDetailTrans.RefLineRecId = tDetailLine.RecId;
+                    //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                    tDetailTransList.add(tDetailTrans);
+                    //tDetailTrans.insert();
+                    //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+                    sumAmount += tRevenueTrans.salesPrice();
+                }
+            }
+            //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+            tDetailTransList.insertDatabase();
+            //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+            if (tDetailLine && sumAmount)
+            {
+                ttsbegin;
+                tDetailLine.selectForUpdate(true);
+                tDetailLine.LineAmount = sumAmount;
+                tDetailLine.update();
+                ttscommit;
+            }
+
+            iteratorTxt.next();
+        }
+         
+    }
+
+    /// <summary>
+    /// 20230531 - Performmance improvement - msepulveda
+    /// </summary>
+    public static void createFormatProposalV2(ProjProposalJour  _projProposalJour,
+                                              SalesTable        _salesTable = null
+                                              )
+    {
+        ProjProposalRevenue         projProposalRevenue;
+        ProjRevenueTrans            projRevenueTrans, projRevenueTransLocal;
+        PSAProjInvoiceDetailLine    pSAProjInvoiceDetailLine, projDetailLine;
+        PSAProjInvoiceDetailTrans   psaProjInvoiceDetailTrans;
+        SalesTable                  salesTableLocal;
+        SalesLine                   salesLineLocal, salesLineGroup;
+        UFTInvoicingGroups          invoicingGroup;
+        ProjProposalId              proposalId;
+        int                         cont;
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+        RecordInsertList            invoiceDetailLineList = new RecordInsertList(tableNum(PSAProjInvoiceDetailLine));
+        ProjCategory                projectCategory;
+        //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+        RecordInsertList            tDetailTransList = new RecordInsertList(tableNum(PSAProjInvoiceDetailTrans));
+
+        Name                        nameCategory;
+        Name                        itemName;
+        InventTable                 inventTable;
+
+        UFTCreateFormatProposalTask     createFormatProposalTask;
+        UFTPostingInvoiceProposalTask   postingInvoiceProposalTask;
+        BatchInfo                       processBatchInfo;
+
+        ProjCategoryId              lastProjCategoryId;        
+        LogisticsAddressCityName    lastCityName;
+        Description                 descriptionCity;
+        ItemId                      lastItemId;
+        str                         txt = '';
+
+        Amount                      sumAmount = 0;
+
+        #ISOCountryRegionCodes
+
+        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+        boolean                     copyInvoiceConcept = ProjParameters::find().UFTAllowCopyInvoiceConcept;
+        //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End       
+           
+        cont = 0;
+
+        proposalId = _projProposalJour.ProposalId;
+        
+        
+        if(!_salesTable)
+        {
+            _salesTable = SalesTable::find(_projProposalJour.UFTSalesId);
+
+        }
+
+        select firstonly  GroupingInvoiceLines, ManualPosting from invoicingGroup
+            index hint InvoicingGroupCustAccountIdx           
+            where invoicingGroup.InvoicingGroup == _salesTable.UFTInvoicingGroup
+            && invoicingGroup.CustAccount == _salesTable.CustAccount;
+                  
+               
+        if (!invoicingGroup)
+        { 
+            //20230623 - BUG 8135 - msepulveda - begin
+            return;
+            //20230623 - BUG 8135 - msepulveda - end
+        }
+        
+           
+           
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoCO]) &&
+            invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::CategoryMunicipality)
+        {
+            nameCategory = '';
+            descriptionCity = '';
+            lastProjCategoryId = '';
+            lastCityName = '';
+            
+            while select salesLineGroup
+                group by UFTProjCategoryId, UFTAddressCity
+            join UFTSalesId from projRevenueTrans
+                where salesLineGroup.SalesId == projRevenueTrans.UFTSalesId &&
+                salesLineGroup.InventTransId == projRevenueTrans.UFTSalesTransId
+            join TransId from projProposalRevenue
+                index TransIdIdx
+                where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                projProposalRevenue.ProposalId == proposalId
+            {
+                cont++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+
+                if(salesLineGroup.UFTProjCategoryId != lastProjCategoryId)
+                {
+                    select firstonly Name from projectCategory
+                        where projectCategory.CategoryId == salesLineGroup.UFTProjCategoryId;
+
+                    nameCategory = projectCategory.Name;
+                    
+                }
+
+                if(salesLineGroup.UFTAddressCity != lastCityName)
+                {
+                    descriptionCity =  LogisticsAddressCity::find(salesLineGroup.UFTAddressCity).Description;
+                }                      
+                
+               
+                txt = nameCategory + " " + descriptionCity;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                if (copyInvoiceConcept)
+                    txt = txt + " " + SalesTable::find(projRevenueTrans.UFTSalesId).UFTInvoicingConcept;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                pSAProjInvoiceDetailLine.Txt  = txt;               
+                pSAProjInvoiceDetailLine.insert();
+
+                lastProjCategoryId = salesLineGroup.UFTProjCategoryId;
+                lastCityName = salesLineGroup.UFTAddressCity;
+
+                sumAmount = 0;
+
+                while select UFTProjCategoryId, UFTAddressCity from salesLineLocal
+                    where salesLineLocal.UFTProjCategoryId == salesLineGroup.UFTProjCategoryId
+                    &&  salesLineLocal.UFTAddressCity == salesLineGroup.UFTAddressCity
+                join TableId, RecId, TransId from projRevenueTrans
+                    where salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                    salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+                join TransId from projProposalRevenue
+                    index TransIdIdx
+                    where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                    projProposalRevenue.ProposalId == proposalId
+                {
+                    //contTrans ++;
+                    psaProjInvoiceDetailTrans.clear();
+                    psaProjInvoiceDetailTrans.ProposalId   = proposalId;
+                
+                    psaProjInvoiceDetailTrans.LineNum      = pSAProjInvoiceDetailLine.LineNum;
+                
+                    psaProjInvoiceDetailTrans.RefTableId   = projRevenueTrans.TableId;
+                    psaProjInvoiceDetailTrans.RefRecId     = projRevenueTrans.RecId;
+                    psaProjInvoiceDetailTrans.TransId      = projRevenueTrans.TransId;
+                    psaProjInvoiceDetailTrans.RefLineRecId = pSAProjInvoiceDetailLine.RecId;
+                
+                    tDetailTransList.add(psaProjInvoiceDetailTrans);
+                
+                    sumAmount += projRevenueTrans.salesPrice();
+
+                }
+
+                tDetailTransList.insertDatabase();
+
+                select firstonly forupdate pSAProjInvoiceDetailLine
+                    where pSAProjInvoiceDetailLine.Txt == txt
+                    && pSAProjInvoiceDetailLine.ProposalId == proposalId;
+
+                if(pSAProjInvoiceDetailLine)
+                {
+                    pSAProjInvoiceDetailLine.LineAmount = sumAmount;
+                    pSAProjInvoiceDetailLine.doUpdate();
+                }
+                    
+
+            }
+        }
+        else if (invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::ServiceType)
+        {
+            while select salesLineGroup
+                group by ItemId, Name
+            join UFTSalesId from projRevenueTrans
+                where salesLineGroup.SalesId == projRevenueTrans.UFTSalesId &&
+                salesLineGroup.InventTransId == projRevenueTrans.UFTSalesTransId
+            join TransId from projProposalRevenue
+                index TransIdIdx
+                where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                projProposalRevenue.ProposalId == proposalId
+            {
+                cont ++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+
+                txt =  salesLineGroup.Name;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                if (copyInvoiceConcept)
+                    txt = txt + " " + SalesTable::find(projRevenueTrans.UFTSalesId).UFTInvoicingConcept;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                pSAProjInvoiceDetailLine.Txt             =  txt;
+                pSAProjInvoiceDetailLine.insert();
+
+                sumAmount = 0;
+
+                while select ItemId, Name from salesLineLocal
+                    where salesLineLocal.ItemId == salesLineGroup.ItemId
+                    &&  salesLineLocal.Name == salesLineGroup.Name
+                join TableId, RecId, TransId from projRevenueTrans
+                    where salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                    salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+                join TransId from projProposalRevenue
+                    index TransIdIdx
+                    where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                    projProposalRevenue.ProposalId == proposalId
+                {
+                    //contTrans ++;
+                    psaProjInvoiceDetailTrans.clear();
+                    psaProjInvoiceDetailTrans.ProposalId   = proposalId;
+                
+                    psaProjInvoiceDetailTrans.LineNum      = pSAProjInvoiceDetailLine.LineNum;
+                
+                    psaProjInvoiceDetailTrans.RefTableId   = projRevenueTrans.TableId;
+                    psaProjInvoiceDetailTrans.RefRecId     = projRevenueTrans.RecId;
+                    psaProjInvoiceDetailTrans.TransId      = projRevenueTrans.TransId;
+                    psaProjInvoiceDetailTrans.RefLineRecId = pSAProjInvoiceDetailLine.RecId;
+                
+                    tDetailTransList.add(psaProjInvoiceDetailTrans);
+                
+                    sumAmount += projRevenueTrans.salesPrice();
+
+                }
+
+                tDetailTransList.insertDatabase();
+
+                select firstonly forupdate pSAProjInvoiceDetailLine
+                    where pSAProjInvoiceDetailLine.Txt == txt
+                    && pSAProjInvoiceDetailLine.ProposalId == proposalId;
+
+                if(pSAProjInvoiceDetailLine)
+                {
+                    pSAProjInvoiceDetailLine.LineAmount = sumAmount;
+                    pSAProjInvoiceDetailLine.doUpdate();
+                }  
+            }
+            
+        }
+        else if (invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::Service)
+        {
+            while select salesLineGroup
+                group by UFTAdminCode
+            join UFTSalesId from projRevenueTrans
+                where salesLineGroup.SalesId == projRevenueTrans.UFTSalesId &&
+                salesLineGroup.InventTransId == projRevenueTrans.UFTSalesTransId
+            join TransId from projProposalRevenue
+                index TransIdIdx
+                where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                projProposalRevenue.ProposalId == proposalId
+            {
+                cont++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+                txt =  salesLineGroup.UFTAdminCode;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                if (copyInvoiceConcept)
+                    txt = txt + " " + SalesTable::find(projRevenueTrans.UFTSalesId).UFTInvoicingConcept;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                pSAProjInvoiceDetailLine.Txt             =  txt;
+                pSAProjInvoiceDetailLine.insert();
+
+                sumAmount = 0;
+
+                while select UFTAdminCode from salesLineLocal
+                    where salesLineLocal.UFTAdminCode == salesLineGroup.UFTAdminCode
+                join TableId, RecId, TransId from projRevenueTrans
+                    where salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                    salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+                join TransId from projProposalRevenue
+                    index TransIdIdx
+                    where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                    projProposalRevenue.ProposalId == proposalId
+                {
+                    //contTrans ++;
+                    psaProjInvoiceDetailTrans.clear();
+                    psaProjInvoiceDetailTrans.ProposalId   = proposalId;
+                
+                    psaProjInvoiceDetailTrans.LineNum      = pSAProjInvoiceDetailLine.LineNum;
+                
+                    psaProjInvoiceDetailTrans.RefTableId   = projRevenueTrans.TableId;
+                    psaProjInvoiceDetailTrans.RefRecId     = projRevenueTrans.RecId;
+                    psaProjInvoiceDetailTrans.TransId      = projRevenueTrans.TransId;
+                    psaProjInvoiceDetailTrans.RefLineRecId = pSAProjInvoiceDetailLine.RecId;
+                
+                    tDetailTransList.add(psaProjInvoiceDetailTrans);
+                
+                    sumAmount += projRevenueTrans.salesPrice();
+
+                }
+
+                tDetailTransList.insertDatabase();
+
+                select firstonly forupdate pSAProjInvoiceDetailLine
+                    where pSAProjInvoiceDetailLine.Txt == txt
+                    && pSAProjInvoiceDetailLine.ProposalId == proposalId;
+
+                if(pSAProjInvoiceDetailLine)
+                {
+                    pSAProjInvoiceDetailLine.LineAmount = sumAmount;
+                    pSAProjInvoiceDetailLine.doUpdate();
+                }
+            }
+        }
+        //20221011 - UFT_IPRY004_CC_GroupingByCategoryFormat - KCL - Start
+        else if (invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::Category)
+        {
+            nameCategory = '';
+            lastProjCategoryId = '';
+
+            while select salesLineGroup
+                group by UFTProjCategoryId
+            join UFTSalesId from projRevenueTrans
+                where salesLineGroup.SalesId == projRevenueTrans.UFTSalesId &&
+                salesLineGroup.InventTransId == projRevenueTrans.UFTSalesTransId
+            join TransId from projProposalRevenue
+                index TransIdIdx
+                where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                projProposalRevenue.ProposalId == proposalId
+            {
+                cont++;
+
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+
+                if(salesLineGroup.UFTProjCategoryId != lastProjCategoryId)
+                {
+                    select firstonly Name from projectCategory
+                        where projectCategory.CategoryId == salesLineGroup.UFTProjCategoryId;
+
+                    nameCategory = projectCategory.Name;
+                    
+                }
+
+                txt =  nameCategory;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - Start
+                if (copyInvoiceConcept)
+                    txt = txt + " " + SalesTable::find(projRevenueTrans.UFTSalesId).UFTInvoicingConcept;
+                //20230904 - UFT_WI8236_ IPRY004A_CC5 - KCL - End
+                pSAProjInvoiceDetailLine.Txt             =  txt;
+                pSAProjInvoiceDetailLine.insert();
+
+                lastProjCategoryId = salesLineGroup.UFTProjCategoryId;
+
+                sumAmount = 0;
+
+                while select UFTProjCategoryId from salesLineLocal
+                    where salesLineLocal.UFTProjCategoryId == salesLineGroup.UFTProjCategoryId
+                join TableId, RecId, TransId from projRevenueTrans
+                    where salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                    salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+                join TransId from projProposalRevenue
+                    index TransIdIdx
+                    where projRevenueTrans.TransId == projProposalRevenue.TransId &&
+                    projProposalRevenue.ProposalId == proposalId
+                {
+                    //contTrans ++;
+                    psaProjInvoiceDetailTrans.clear();
+                    psaProjInvoiceDetailTrans.ProposalId   = proposalId;
+                
+                    psaProjInvoiceDetailTrans.LineNum      = pSAProjInvoiceDetailLine.LineNum;
+                
+                    psaProjInvoiceDetailTrans.RefTableId   = projRevenueTrans.TableId;
+                    psaProjInvoiceDetailTrans.RefRecId     = projRevenueTrans.RecId;
+                    psaProjInvoiceDetailTrans.TransId      = projRevenueTrans.TransId;
+                    psaProjInvoiceDetailTrans.RefLineRecId = pSAProjInvoiceDetailLine.RecId;
+                
+                    tDetailTransList.add(psaProjInvoiceDetailTrans);
+                
+                    sumAmount += projRevenueTrans.salesPrice();
+
+                }
+
+                tDetailTransList.insertDatabase();
+
+                select firstonly forupdate pSAProjInvoiceDetailLine
+                    where pSAProjInvoiceDetailLine.Txt == txt
+                    && pSAProjInvoiceDetailLine.ProposalId == proposalId;
+
+                if(pSAProjInvoiceDetailLine)
+                {
+                    pSAProjInvoiceDetailLine.LineAmount = sumAmount;
+                    pSAProjInvoiceDetailLine.doUpdate();
+                }
+            }
+        }
+        /*
+        //UFT_7535_InterfazAjusteGlosas_ALT 21-12-2022 Start
+        else if(invoicingGroup.GroupingInvoiceLines == UFTGroupingInvoiceLines::None)
+        {
+            //RecordInsertList            invoiceDetailLineList = new RecordInsertList(tableNum(PSAProjInvoiceDetailLine));
+            ProjParameters              projParameters = ProjParameters::find();
+
+            while select RecId from projProposalRevenue
+                index ProposalIdx
+                where projProposalRevenue.ProposalId == proposalId
+                join TransId, UFTSalesId, TableId, RecId from projRevenueTrans
+                index TransIdx
+                where projRevenueTrans.TransId == projProposalRevenue.TransId
+                join UFTProjCategoryId,Name from salesLineLocal
+                index SalesLineIdx
+                where salesLineLocal.SalesId == projRevenueTrans.UFTSalesId &&
+                    salesLineLocal.InventTransId == projRevenueTrans.UFTSalesTransId
+            {
+                cont++;
+                pSAProjInvoiceDetailLine.clear();
+                pSAProjInvoiceDetailLine.LineNum         = cont;
+                pSAProjInvoiceDetailLine.ProposalId      = proposalId;
+                pSAProjInvoiceDetailLine.InvoiceGrouping = PSAProjInvoiceDetailGrouping::Summary;
+                
+                if(projParameters.UFT_CopyConceptText)
+                {
+                    pSAProjInvoiceDetailLine.Txt             = salesLineLocal.Name;
+                }
+                else
+                {
+                    select firstonly Name from projectCategory
+                        where projectCategory.CategoryId == salesLineLocal.UFTProjCategoryId;
+
+                    pSAProjInvoiceDetailLine.Txt             = projectCategory.Name;
+                }
+                
+                pSAProjInvoiceDetailLine.UFTTransId = projRevenueTrans.TransId;
+                pSAProjInvoiceDetailLine.LineAmount = projRevenueTrans.salesPrice();
+                invoiceDetailLineList.add(pSAProjInvoiceDetailLine);
+
+                psaProjInvoiceDetailTrans.clear();
+                psaProjInvoiceDetailTrans.ProposalId   = proposalId;
+                
+                psaProjInvoiceDetailTrans.LineNum      = pSAProjInvoiceDetailLine.LineNum;
+                
+                psaProjInvoiceDetailTrans.RefTableId   = projRevenueTrans.TableId;
+                psaProjInvoiceDetailTrans.RefRecId     = projRevenueTrans.RecId;
+                psaProjInvoiceDetailTrans.TransId      = projRevenueTrans.TransId;
+                psaProjInvoiceDetailTrans.RefLineRecId = pSAProjInvoiceDetailLine.RecId;
+                
+                tDetailTransList.add(psaProjInvoiceDetailTrans);
+                            
+            }
+
+
+            invoiceDetailLineList.insertDatabase();
+            tDetailTransList.insertDatabase();
+
+                           
+        }
+        //UFT_7535_InterfazAjusteGlosas_ALT 21-12-2022 End
+        */
+    }
+
+    // <summary>
+    /// UFT_7535_InterfazAjusteGlosas_ALT 21-12-2022
+    /// </summary>
+    /// <param name = "_projProposalId"></param>
+    /// <param name = "tRevenueTrans"></param>
+    /// <param name = "tDetailLine"></param>
+    /// <returns></returns>
+    public static void setLinesGroupNone(ProjProposalId _projProposalId)
+    {
+        PSAProjInvoiceDetailTrans tDetailTrans;
+        PSAProjInvoiceDetailLine  tDetailLine;
+        ProjRevenueTrans          tRevenueTrans;
+        SalesLine                 salesLineLocal;
+        ProjProposalRevenue       projProposalRevenue;
+        RecordInsertList          tDetailTransList = new RecordInsertList(tableNum(PSAProjInvoiceDetailTrans));
+          
+        while select tRevenueTrans
+                join TransId, ProposalId from projProposalRevenue
+        join SalesId, InventTransId, UFTProjCategoryId, ItemId, UFTAddressCity, UFTAdminCode, Name
+                from salesLineLocal
+        where tRevenueTrans.TransId                 == projProposalRevenue.TransId
+                && projProposalRevenue.ProposalId   == _projProposalId
+                && salesLineLocal.SalesId           == tRevenueTrans.UFTSalesId
+                && salesLineLocal.InventTransId     == tRevenueTrans.UFTSalesTransId
+        {
+            select firstonly tDetailLine
+                where tDetailLine.ProposalId == _projProposalId
+                   && tDetailLine.UFTTransId == tRevenueTrans.TransId;
+
+            if (tDetailLine)
+            {
+                tDetailTrans.ProposalId   = _projProposalId;
+                tDetailTrans.LineNum      = tDetailLine.LineNum;
+                tDetailTrans.RefTableId   = tRevenueTrans.TableId;
+                tDetailTrans.RefRecId     = tRevenueTrans.RecId;
+                tDetailTrans.TransId      = tRevenueTrans.TransId;
+                tDetailTrans.RefLineRecId = tDetailLine.RecId;
+            
+                tDetailTransList.add(tDetailTrans);
+            }
+        }
+
+        
+        tDetailTransList.insertDatabase();
+                
+    }
+
+    /// <summary>
+    /// Posting project invoice proposal
+    /// </summary>
+    /// <param name = "_projProposalJour">ProjProposalJour</param>
+    public static void postingInvoiceProposal(ProjProposalJour  _projProposalJour)
+    {
+        ProjProposalJour    projProposalJour = ProjProposalJour::find(_projProposalJour.ProposalId, true);          
+        ProjFormLetter      projFormLetter;
+        SalesTable          salesTableLocal;
+
+        if (!_projProposalJour.ProposalId)
+            return;
+    
+        if (projProposalJour && UFTProjProposalHelper::validateProposalSO(_projProposalJour.ProposalId))
+        {
+            ttsbegin;
+            //for approving invoice proposals
+            projProposalJour.LineProperty = ProjLinePropertyCode::Canceled;
+            projProposalJour.update();
+            
+            //for posting invoice proposals
+            projFormLetter = projFormLetter::construct(DocumentStatus::ProjectInvoice);
+
+            //hpn
+            //inicio
+            projFormLetter.parmProjProposalJour(_projProposalJour);
+            //fin
+
+            projFormLetter.createParmLine(projProposalJour);            
+            projFormLetter.run();
+
+            ProjProposalJour    proposalJour = ProjProposalJour::find(projProposalJour.ProposalId);
+
+            info(strFmt("@UFINET_AP_DEV1:IPRY004AT2_082", proposalJour.ProposalId, proposalJour.ProjInvoiceId));
+
+            //update DocumentNumber
+            //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+            select firstonly forupdate UFTDocumentNum, UFTInvoicingStatus, SalesId from salesTableLocal
+                where salesTableLocal.SalesId == projProposalJour.UFTSalesId;
+            //salesTableLocal = SalesTable::find(projProposalJour.UFTSalesId, true);
+            //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+
+            if (salesTableLocal)
+            {
+                salesTableLocal.UFTDocumentNum = proposalJour.ProjInvoiceId;
+                salesTableLocal.UFTInvoicingStatus = UFTInvoicingStatus::Posted;
+                salesTableLocal.doUpdate();
+            }              
+                                         
+            if (proposalJour.ProjInvoiceId)
+            {
+                //Creating project advances IRU
+                UFTProjectAdvancesIRU::initFromInvoiceProject(proposalJour);
+            }                   
+                         
+            ttscommit;
+        }
+        else
+        {
+            throw error(strFmt("@UFINET_AP_DEV1:IPRY004AT2_083"));
+        }
+       
+    }
+
+    /// <summary>
+    /// Validate  Qty of project proposal transactions with linked Sales Order
+    /// </summary>
+    /// <param name = "_proposalId">ProjProposalId</param>
+    /// <returns>True or false</returns>
+    public static boolean validateProposalSO(ProjProposalId _proposalId)
+    {
+        SalesLine               salesLineLocal;
+        ProjProposalRevenue     proposalRevenueLocal;
+        SalesId                 salesId = ProjProposalJour::find(_proposalId).UFTSalesId;
+        boolean                 ret = true;
+
+        if (salesId)
+        {                 
+            select count(RecId) from salesLineLocal
+                where salesLineLocal.SalesId == salesId;
+
+            select count(RecId) from proposalRevenueLocal
+                where proposalRevenueLocal.ProposalId == _proposalId;
+
+            if (salesLineLocal.RecId != proposalRevenueLocal.RecId)
+            {
+                ret = checkFailed(strFmt("@UFINET_AP:IPRY004_077", _proposalId));
+
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                SalesTable  salesTableLocal;
+
+                select UFTErrorDescription, UFTInvoicingStatus, SalesId from salesTableLocal
+                    where salesTableLocal.SalesId == salesId;
+                //SalesTable  salesTableLocal = SalesTable::find(salesId, true);
+                //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End                
+                if (salesTableLocal)
+                {
+                    ttsbegin;
+                    //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - Start
+                    salesTableLocal.selectForUpdate(true);
+                    //20221109 - UFT_PerformanceProjInvoiceProposal - KCL - End
+                    salesTableLocal.UFTErrorDescription = strFmt("@UFINET_AP:IPRY004_077", _proposalId);
+                    salesTableLocal.UFTInvoicingStatus  = UFTInvoicingStatus::NoPosted;
+                    salesTableLocal.doUpdate();
+                    ttscommit;
+                }
+
+            }
+
+        }
+
+        return ret;
+    }
+
+}

@@ -1,0 +1,768 @@
+      
+/// <summary>
+/// Eventhandler class for <c>LedgerJournalEngine_VendPayment</c>form
+/// </summary>
+/// <remarks>
+/// KSJ
+/// </remarks>
+class IHSLedgerJournalEngine_VendPaymentEventHandler
+{
+
+          
+    #ISOCountryRegionCodes
+        
+    /// <summary>
+    /// Active event for the <c>LedgerJournalTable</c> datasource in LedgerJournalTable form
+    /// </summary>
+    /// <param name="sender">
+    /// form datasource
+    /// </param>
+    /// <param name="e">
+    /// form datasource events args
+    /// </param>
+    [FormDataSourceEventHandler(formDataSourceStr(LedgerJournalTable, LedgerJournalTable), FormDataSourceEventType::Activated),
+     SuppressBPWarning('BPParameterNotUsed', "@IHSSIS:IHS485")]
+    public static void LedgerJournalTable_OnActivated(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormControl editMenuBtn = sender.formRun().design().controlName(identifierStr(JournalLines_Edit));
+        LedgerJournalTable  ledgerJournalTable = sender.cursor() as LedgerJournalTable;
+        if(ledgerJournalTable.WorkflowApprovalStatus == LedgerJournalWFApprovalStatus::Approved
+            && (ledgerJournalTable.IHSKyribaIntegrationStatus == IHSKyribaIntegrationStatus::Transferred 
+                && !isSystemAdministrator()) //<SIS_TFS11957_KyribaResubmit/> WB 2017-11-07
+            && ledgerJournalTable.JournalType == LedgerJournalType::Payment)
+        {
+            editMenuBtn.enabled(false);
+        }
+        else
+        {
+            editMenuBtn.enabled(true);
+        }
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormEventHandler(formStr(LedgerJournalTransVendPaym), FormEventType::Initialized),
+     SuppressBPWarning('BPParameterNotUsed', "@IHSSIS:IHS485")]
+    public static void LedgerJournalTransVendPaym_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        FormStringControl  paymMode1 = sender.design().controlName(identifierStr(LedgerJournalTrans_PaymMode1));
+        paymMode1.visible(false);
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(LedgerJournalTransVendPaym, LedgerJournalTrans_PaymMode2), FormControlEventType::Lookup)]
+    public static void LedgerJournalTrans_PaymMode2_OnLookup(FormControl sender, FormControlEventArgs e)
+    {
+        LedgerJournalTrans  ledgerJournalTrans = sender.formRun().dataSource().cursor();
+        NoYes               forKyriba = LedgerJournalName::find(ledgerJournalTrans.ledgerJournalTable().JournalName).IHSForKyriba;
+        
+        if(forKyriba)
+        {
+            if (ledgerJournalTrans.AccountType == LedgerJournalACType::Ledger)
+            {
+                Args                args;
+                CompanyId           company;
+                FormRun             formRun;
+                FormDataSource      vendPaymModeTableDS;
+                FormStringControl   stringControl = sender;
+                
+                company = ledgerJournalTrans.Company;
+
+                if (company == '')
+                {
+                    company = curext();
+                }
+
+                changecompany(company)
+                {
+                    args = new Args();
+                    args.name(formStr(VendPaymModeTableLookup));
+                    args.lookupField(fieldNum(VendPaymModeTable, PaymMode));
+                    args.lookupValue(stringControl.text());
+                    args.caller(stringControl);
+
+                    formRun = classfactory.formRunClass(args);
+                    formRun.init();
+                    vendPaymModeTableDS = formRun.dataSource();
+                    vendPaymModeTableDS.query().dataSourceTable(tablenum(VendPaymModeTable)).addRange(fieldNum(VendPaymModeTable,IHSForKyriba)).value(queryValue(NoYes::Yes));
+                    stringControl.performFormLookup(formRun);
+                }
+            }
+            else
+            {
+                SysTableLookup sysTableLookup = SysTableLookup::newParameters(tablenum(VendPaymModeTable), sender);
+                Query query = new Query();
+
+                sysTableLookup.addLookupfield(fieldnum(VendPaymModeTable, PaymMode), true);
+                sysTableLookup.addLookupfield(fieldnum(VendPaymModeTable, Name));
+        
+                QueryBuildDataSource qbds = query.addDataSource(tablenum(VendPaymModeTable));
+                qbds.addRange(fieldNum(VendPaymModeTable,IHSForKyriba)).value(queryValue(NoYes::Yes));
+                sysTableLookup.parmQuery(query);
+
+                sysTableLookup.performFormLookup();
+
+               
+            }
+            FormControlCancelableSuperEventArgs ce = e as FormControlCancelableSuperEventArgs;
+            //cancel super() to prevent error.
+            ce.CancelSuperCall();
+        }
+    }
+
+    /// <summary>
+    /// Activated event for the <c>LedgerJournalTrans</c> datasource in LedgerJournalTransVendPaym form
+    /// </summary>
+    /// <param name="sender">
+    /// form datasource
+    /// </param>
+    /// <param name="e">
+    /// form datasource events args
+    /// </param>
+    [FormDataSourceEventHandler(formDataSourceStr(LedgerJournalTransVendPaym, LedgerJournalTrans), FormDataSourceEventType::Activated),
+     SuppressBPWarning('BPParameterNotUsed', "@IHSSIS:IHS485")]
+    public static void LedgerJournalTrans_OnActivated(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormDataSource  ledgerJournalTransDS = sender as FormDataSource;
+        FormControl debitControl = sender.formRun().design().controlName(identifierStr(LedgerJournalTrans_AmountCurDebit));
+        FormControl creditControl = sender.formRun().design().controlName(identifierStr(LedgerJournalTrans_AmountCurCredit));
+        
+        if (!SysCountryRegionCode::isLegalEntityInCountryRegion([#isoBR]))
+        {
+            ledgerJournalTransDS.object(fieldNum(LedgerJournalTrans,AmountCurCredit)).allowEdit(false);
+            ledgerJournalTransDS.object(fieldNum(LedgerJournalTrans,AmountCurDebit)).allowEdit(false);
+            debitControl.allowEdit(false);
+            creditControl.allowEdit(false);
+        }
+    }
+
+    /// <summary>
+    /// Construct the class
+    /// </summary>
+    /// <returns></returns>
+    public static IHSLedgerJournalEngine_VendPaymentEventHandler construct()
+    {
+        return new IHSLedgerJournalEngine_VendPaymentEventHandler();
+    }
+
+    /// <summary>
+    /// Post event handler for <c>accountNumLookup</c> method
+    /// </summary>
+    /// <param name="args">
+    /// args for the events
+    /// </param>
+    [PostHandlerFor(classStr(LedgerJournalEngine_VendPayment), methodStr(LedgerJournalEngine_VendPayment, accountNumLookup))]
+    public static void LedgerJournalEngine_VendPayment_Post_accountNumLookup(XppPrePostArgs args)
+    {
+        FormControl             formControl = args.getArg('_formControl');
+        LedgerJournalTrans      ledgerJournalTrans;
+        ;
+        ledgerJournalTrans = formControl.formRun().dataSource().cursor();
+        if(ledgerJournalTrans.AccountType == LedgerJournalACType::Vend)
+        {
+            IHSLedgerJournalEngine_VendPaymentEventHandler::lookupVendor(formControl,
+                                                                          ledgerJournalTrans.PaymMode,
+                                                                          ledgerJournalTrans.Company);
+        }
+        if(ledgerJournalTrans.AccountType == LedgerJournalACType::Bank)
+        {
+            IHSLedgerJournalEngine_VendPaymentEventHandler::lookupBankAccount(formControl,
+                                                                          ledgerJournalTrans.PaymMode,
+                                                                          ledgerJournalTrans.Company);
+        }
+        
+    }
+
+    /// <summary>
+    /// Pre event handler for <c>accountNumLookup</c> method
+    /// </summary>
+    /// <param name="args">
+    /// args for the events
+    /// </param>
+    [PreHandlerFor(classStr(LedgerJournalEngine_VendPayment), methodStr(LedgerJournalEngine_VendPayment, accountNumLookup))]
+    public static void LedgerJournalEngine_VendPayment_Pre_accountNumLookup(XppPrePostArgs args)
+    {
+        LedgerJournalTrans  parmLedgerJournalTrans = args.getArg('_ledgerJournalTrans');
+        LedgerJournalTrans  ledgerJournalTrans;
+        ;
+        if(parmLedgerJournalTrans.AccountType == LedgerJournalACType::Vend
+            || parmLedgerJournalTrans.AccountType == LedgerJournalACType::Bank)
+        {
+            ledgerJournalTrans.clear();
+            args.setArg('_ledgerJournalTrans',ledgerJournalTrans);
+        }
+
+        
+    }
+
+    /// <summary>
+    /// Post event handler for <c>offsetAccountNumLookUp</c> method
+    /// </summary>
+    /// <param name="args">
+    /// args for the events
+    /// </param>
+    [PreHandlerFor(classStr(LedgerJournalEngine), methodStr(LedgerJournalEngine, offsetAccountNumLookUp))]
+    public static void LedgerJournalEngine_Pre_offsetAccountNumLookUp(XppPrePostArgs args)
+    {
+        LedgerJournalTrans  parmLedgerJournalTrans = args.getArg('_ledgerJournalTrans');
+        LedgerJournalTrans  ledgerJournalTrans;
+        ;
+        //<SIS> SIS_TFS12624_Method of payment validation
+        if(ledgerJournalTrans.ledgerJournalTable().JournalType == LedgerJournalType::Payment)
+        {
+            if(parmLedgerJournalTrans.OffsetAccountType == LedgerJournalACType::Vend
+                || parmLedgerJournalTrans.OffsetAccountType == LedgerJournalACType::Bank)
+            {
+                ledgerJournalTrans.clear();
+                args.setArg('_ledgerJournalTrans',ledgerJournalTrans);
+            }
+        }
+        //</SIS> SIS_TFS12624_Method of payment validation
+    }
+
+    /// <summary>
+    /// Pre event handler for <c>offsetAccountNumLookUp</c> method
+    /// </summary>
+    /// <param name="args">
+    /// args for the events
+    /// </param>
+    [PostHandlerFor(classStr(LedgerJournalEngine), methodStr(LedgerJournalEngine, offsetAccountNumLookUp))]
+    public static void LedgerJournalEngine_Post_offsetAccountNumLookUp(XppPrePostArgs args)
+    {
+        FormControl             formControl = args.getArg('_formControl');
+        LedgerJournalTrans      ledgerJournalTrans;
+        ;
+
+        //<SIS> SIS_TFS12624_Method of payment validation
+        if(ledgerJournalTrans.ledgerJournalTable().JournalType == LedgerJournalType::Payment)
+        {
+            ledgerJournalTrans = formControl.formRun().dataSource().cursor();
+            if(ledgerJournalTrans.OffsetAccountType == LedgerJournalACType::Vend)
+            {
+                IHSLedgerJournalEngine_VendPaymentEventHandler::lookupVendor(formControl,
+                                                                              ledgerJournalTrans.PaymMode,
+                                                                              ledgerJournalTrans.OffsetCompany);
+            }
+       
+            if(ledgerJournalTrans.OffsetAccountType == LedgerJournalACType::Bank)
+            {
+                IHSLedgerJournalEngine_VendPaymentEventHandler::lookupBankAccount(formControl,
+                                                                              ledgerJournalTrans.PaymMode,
+                                                                              ledgerJournalTrans.OffsetCompany);
+            }
+        }
+        // </SIS>
+    }
+
+    /// <summary>
+    /// Initialized event for the <c>LedgerJournalTransVendPaym</c> form
+    /// </summary>
+    /// <param name="sender"> 
+    /// form datasource 
+    /// </param>
+    /// <param name="e">
+    /// form datasource events args
+    /// </param>
+    [FormDataSourceEventHandler(formDataSourceStr(LedgerJournalTransVendPaym, LedgerJournalTrans), FormDataSourceEventType::Initialized),
+     SuppressBPWarning('BPParameterNotUsed', "@IHSSIS:IHS485")]
+    public static void LedgerJournalTrans_OnInitialized(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        var overrides = IHSLedgerJournalEngine_VendPaymentEventHandler::construct();
+        sender.object(fieldNum(LedgerJournalTrans, LedgerDimension)).registerOverrideMethod(methodStr(FormDataObject, validate),
+            methodStr(IHSLedgerJournalEngine_VendPaymentEventHandler, ledgerDimension_OnValidate), overrides);
+        sender.object(fieldNum(LedgerJournalTrans, OffsetLedgerDimension)).registerOverrideMethod(methodStr(FormDataObject, validate),
+            methodStr(IHSLedgerJournalEngine_VendPaymentEventHandler, offsetLedgerDimension_OnValidate), overrides);
+
+    }
+
+    /// <summary>
+    /// looks up for vendor based on the required conditions
+    /// </summary>
+    /// <param name = "_ctrl">
+    /// Form control
+    /// </param>
+    /// <param name = "_paymMode">
+    /// mode of payment
+    /// </param>
+    /// <param name = "_company">
+    /// company Id
+    /// </param>
+    static void lookupVendor(FormControl  _ctrl,
+                             PaymMode    _paymMode,
+                             CompanyId    _company = curext())
+    {
+        SegmentedEntryControl segmentedEntryControl;
+        FormStringControl   formStringControl;
+        Args        args;
+        CompanyId   companyId;
+        FormRun     formRun;
+        FormDataSource  vendTableDS;
+        IHSVendPaymModeVendGroupValidationTable ihsVendPaymModeVendGroupValidationTable;
+        container   conVendGroup;
+        
+        // The following block is needed for the case that intercompany transactions is disabled and someone passes
+        // in an empty string. Ideally one would remove the "curext()" defaulting from the parameter list, but this
+        // code was added as part of a bug fix, and did not have the scope or need of changing the interface.
+        if (!_company)
+        {
+            companyId = curext();
+        }
+        else
+        {
+            companyId = _company;
+            if (! xDataArea::exist(companyId))
+            {
+                throw error(strFmt("@SYS10666",companyId));
+            }
+        }
+        
+        changecompany(companyId)
+        {
+            args = new Args();
+            args.name(formStr(VendTableLookup));
+            args.caller(_ctrl);
+            args.lookupField(fieldNum(VendTable, AccountNum));
+            
+            if (_ctrl is FormStringControl)
+            {
+                formStringControl = _ctrl as FormStringControl;
+                args.lookupValue(formStringControl.text());
+            }
+            else if (_ctrl is SegmentedEntryControl)
+            {
+                segmentedEntryControl = _ctrl as SegmentedEntryControl;
+                args.lookupValue(segmentedEntryControl.valueStr());
+            }
+            else
+            {
+                throw error(Error::wrongUseOfFunction(funcName()));
+            }
+            conVendGroup = conNull();
+            // <SIS_TFS12562_KyribaDraftPayment> WB 2018/02/27
+            /*
+            while select ihsVendPaymModeVendGroupValidationTable
+                where ihsVendPaymModeVendGroupValidationTable.PaymMode == _paymMode
+                && ihsVendPaymModeVendGroupValidationTable.Enabled == NoYes::Yes
+            {
+                conVendGroup += queryValue(ihsVendPaymModeVendGroupValidationTable.VendGroup);
+            }
+            formRun = classfactory.formRunClass(args);
+            formRun.init();
+            vendTableDS = formRun.dataSource();
+            if(conVendGroup != conNull())
+            {
+                vendTableDS.query().dataSourceTable(tablenum(VendTable)).addRange(fieldNum(VendTable,VendGroup)).value(con2Str(conVendGroup));
+            }
+            else
+            {
+                vendTableDS.query().dataSourceTable(tablenum(VendTable)).addRange(fieldNum(VendTable,VendGroup)).value(SysQuery::valueEmptyString());
+            }
+            */
+            VendTable               vendTableFilter;
+            IHSTableGroup           tableGroup = IHSTableGroup::Table;
+            QueryBuildDataSource    vendPaymDs;
+            IHSVendPaymModeFilter   vendPaymModeFilterTmp;
+
+            formRun = classfactory.formRunClass(args);
+            formRun.init();
+            vendTableDS = formRun.dataSource();
+
+            ttsbegin;
+
+            delete_from vendPaymModeFilterTmp;
+
+            // populate temp table for filter.
+            insert_recordset vendPaymModeFilterTmp(AccountCode, Num)
+                select tableGroup, AccountNum from vendTableFilter
+                join ihsVendPaymModeVendGroupValidationTable
+                    where ihsVendPaymModeVendGroupValidationTable.PaymMode == _paymMode
+                        && ihsVendPaymModeVendGroupValidationTable.Enabled == NoYes::Yes
+                        && ihsVendPaymModeVendGroupValidationTable.AccountCode == IHSTableGroup::GroupId
+                        && vendTableFilter.VendGroup == ihsVendPaymModeVendGroupValidationTable.Num;
+
+            insert_recordset vendPaymModeFilterTmp(AccountCode, Num)
+                select tableGroup, Num from ihsVendPaymModeVendGroupValidationTable
+                    where ihsVendPaymModeVendGroupValidationTable.PaymMode == _paymMode
+                        && ihsVendPaymModeVendGroupValidationTable.Enabled == NoYes::Yes
+                        && ihsVendPaymModeVendGroupValidationTable.AccountCode == IHSTableGroup::Table;
+            ttscommit;
+
+            select firstonly vendPaymModeFilterTmp;
+
+            if (vendPaymModeFilterTmp)
+            {
+                vendPaymDs = vendTableDS.query().dataSourceTable(tablenum(VendTable)).addDataSource(vendPaymModeFilterTmp);
+                vendPaymDs.fetchMode(JoinMode::ExistsJoin);
+                vendPaymDs.relations(false);
+                vendPaymDs.addLink(fieldNum(VendTable, AccountNum),fieldNum(IHSVendPaymModeFilter, Num));
+            }
+            else
+            {
+                vendPaymDs = vendTableDS.query().dataSourceTable(tablenum(IHSVendPaymModeFilter));
+
+                if (vendPaymDs)
+                {
+                    vendPaymDs.enabled(false);
+                }
+            }            
+
+            // </SIS_TFS12562_KyribaDraftPayment> WB 2018/02/27
+           
+
+            if (_ctrl is FormStringControl)
+            {
+                formStringControl = _ctrl as FormStringControl;
+                formStringControl.performFormLookup(formRun);
+            }
+            else if (_ctrl is SegmentedEntryControl)
+            {
+                segmentedEntryControl = _ctrl as SegmentedEntryControl;
+                segmentedEntryControl.performFormLookup(formRun);
+            }
+            else
+            {
+                throw error(Error::wrongUseOfFunction(funcName()));
+            }
+        }
+    }
+
+    /// <summary>
+    /// looks up for bank account based on the required conditions
+    /// </summary>
+    /// <param name = "_ctrl">
+    /// Form control
+    /// </param>
+    /// <param name = "_paymMode">
+    /// mode of payment
+    /// </param>
+    /// <param name = "_company">
+    /// company Id
+    /// </param>
+    public client static void lookupBankAccount(
+        FormControl         _formControl,
+        PaymMode            _paymMode,
+        CompanyId           _companyId = curext())
+    {
+        SegmentedEntryControl segmentedEntryControl;
+        FormStringControl   formStringControl;
+        Args        args;
+        CompanyId   companyId;
+        FormRun     formRun;
+        FormDataSource  bankTableDS;
+        container   conBankAccountId;
+        IHSVendPaymModeBankAccValidationTable   ihsVendPaymModeBankAccValidationTable;
+       
+        // The following block is needed for the case that intercompany transactions is disabled and someone passes
+        // in an empty string. Ideally one would remove the "curext()" defaulting from the paramter list, but this
+        // code was added as part of a bug fix, and did not have the scope or need of changing the interface.
+        if (!_companyId)
+        {
+            companyId = curext();
+        }
+        else
+        {
+            companyId = _companyId;
+            if (! xDataArea::exist(companyId))
+            {
+                throw error(strFmt("@SYS10666", companyId));
+            }
+        }
+
+        changecompany(companyId)
+        {
+            args = new Args();
+            args.name(formStr(BankAccountTableLookup));
+            args.caller(_formControl);
+            args.lookupField(fieldNum(BankAccountTableLookup, AccountID));
+            if (_formControl is FormStringControl)
+            {
+                formStringControl = _formControl as FormStringControl;
+                args.lookupValue(formStringControl.text());
+            }
+            else if (_formControl is SegmentedEntryControl)
+            {
+                segmentedEntryControl = _formControl as SegmentedEntryControl;
+                args.lookupValue(segmentedEntryControl.valueStr());
+            }
+            else
+            {
+                throw error(Error::wrongUseOfFunction(funcName()));
+            }
+            conBankAccountId = conNull();
+            while select ihsVendPaymModeBankAccValidationTable
+                where ihsVendPaymModeBankAccValidationTable.PaymMode == _paymMode
+                && ihsVendPaymModeBankAccValidationTable.Enabled == NoYes::Yes
+            {
+                conBankAccountId += queryValue(ihsVendPaymModeBankAccValidationTable.BankAccountId);
+            }
+            formRun = classfactory.formRunClass(args);
+            formRun.init();
+            bankTableDS = formRun.dataSource();
+            if(conBankAccountId != conNull())
+            {
+                bankTableDS.query().dataSourceTable(tablenum(BankAccountTableLookup)).addRange(fieldNum(BankAccountTableLookup,AccountID)).value(con2Str(conBankAccountId));
+            }
+            else
+            {
+                bankTableDS.query().dataSourceTable(tablenum(BankAccountTableLookup)).addRange(fieldNum(BankAccountTableLookup,AccountID)).value(SysQuery::valueEmptyString());
+            }
+            if (_formControl is FormStringControl)
+            {
+                formStringControl = _formControl as FormStringControl;
+                formStringControl.performFormLookup(formRun);
+            }
+            else if (_formControl is SegmentedEntryControl)
+            {
+                segmentedEntryControl = _formControl as SegmentedEntryControl;
+                segmentedEntryControl.performFormLookup(formRun);
+            }
+            else
+            {
+                throw error(Error::wrongUseOfFunction(funcName()));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Event for Field ledger dimension validate method
+    /// </summary>
+    /// <param name = "_targetField">
+    /// ledger dimension field Id
+    /// </param>
+    /// <returns>
+    /// returns boolean value pass or failed
+    /// </returns>
+    public boolean  ledgerDimension_OnValidate(FormDataObject _targetField)
+    {
+        boolean ret = _targetField.validate();
+        LedgerJournalTrans  ledgerJournalTrans = _targetField.datasource().cursor();
+        IHSLedgerJournalEngine_VendPaymentEventHandler ihsVendPaymentEventHandlers = IHSLedgerJournalEngine_VendPaymentEventHandler::construct();
+
+        if(ret)
+        {
+            if(ledgerJournalTrans.ledgerJournalTable().JournalType == LedgerJournalType::Payment)
+            {
+                Switch(ledgerJournalTrans.AccountType)
+                {
+                    case LedgerJournalACType::Vend :
+                        ret = ihsVendPaymentEventHandlers.validateVendor(LedgerDynamicAccountHelper::getAccountNumberFromDynamicAccount(ledgerJournalTrans.LedgerDimension),
+                                                                    ledgerJournalTrans.PaymMode,
+                                                                    ledgerJournalTrans.Company);
+
+                                
+                        break;
+                    case LedgerJournalACType::Bank :
+                        ret = ihsVendPaymentEventHandlers.validateBankAccount(LedgerDynamicAccountHelper::getAccountNumberFromDynamicAccount(ledgerJournalTrans.LedgerDimension),
+                                                                    ledgerJournalTrans.PaymMode,
+                                                                    ledgerJournalTrans.Company);
+
+                                
+                        break;
+                    default                        : 
+                        break;
+
+                }
+            }
+        }
+        return ret;
+    }
+
+    /// <summary>
+    /// Event for Field offset ledger dimension validate method
+    /// </summary>
+    /// <param name = "_targetField">
+    /// offset ledger dimension field Id
+    /// </param>
+    /// <returns>
+    /// returns boolean value pass or failed
+    /// </returns>
+    public boolean  offsetLedgerDimension_OnValidate(FormDataObject _targetField)
+    {
+        boolean ret = _targetField.validate();
+        LedgerJournalTrans  ledgerJournalTrans = _targetField.datasource().cursor();
+        IHSLedgerJournalEngine_VendPaymentEventHandler ihsVendPaymentEventHandlers = IHSLedgerJournalEngine_VendPaymentEventHandler::construct();
+
+        if(ret)
+        {
+            if(ledgerJournalTrans.ledgerJournalTable().JournalType == LedgerJournalType::Payment)
+            {
+                Switch(ledgerJournalTrans.OffsetAccountType)
+                {
+                    case LedgerJournalACType::Vend :
+                        ret = ihsVendPaymentEventHandlers.validateVendor(LedgerDynamicAccountHelper::getAccountNumberFromDynamicAccount(ledgerJournalTrans.OffsetLedgerDimension),
+                                                                    ledgerJournalTrans.PaymMode,
+                                                                    ledgerJournalTrans.OffsetCompany);
+
+                        break;
+                    case LedgerJournalACType::Bank :
+                        ret = ihsVendPaymentEventHandlers.validateBankAccount(LedgerDynamicAccountHelper::getAccountNumberFromDynamicAccount(ledgerJournalTrans.OffsetLedgerDimension),
+                                                                    ledgerJournalTrans.PaymMode,
+                                                                    ledgerJournalTrans.OffsetCompany);
+                        break;
+                    default                        : 
+                        break;
+
+                }
+            }
+        }
+        return ret;
+    }
+
+    /// <summary>
+    /// Validates vendor account
+    /// </summary>
+    /// <param name = "_vendAccount">
+    /// vendor account Id 
+    /// </param>
+    /// <param name = "_paymMode">
+    /// mode of payment
+    /// </param>
+    /// <param name = "_company">
+    /// company Id
+    /// </param>
+    /// <returns>
+    /// returns boolean value pass or failed
+    /// </returns>
+    private boolean validateVendor(
+        VendAccount _vendAccount,
+        PaymMode     _paymMode,
+        SelectableDataArea      _company = curext())
+    {
+        
+        IHSVendPaymModeVendGroupValidationTable ihsVendPaymModeVendGroupValidationTable;
+        VendTable           vendTable;
+        boolean             ret = true;
+        CompanyId           companyId;
+        TableId             tableId;
+        FieldId             fieldId;
+        
+        #LedgerJournalFaults
+        ;
+        // The following block is needed for the case that intercompany transactions is disabled and someone passes
+        // in an empty string. Ideally one would remove the "curext()" defaulting from the paramter list, but this
+        // code was added as part of a bug fix, and did not have the scope or need of changing the interface.
+        if (!_company)
+        {
+            companyId = curext();
+        }
+        else
+        {
+            companyId = _company;
+            if (! xDataArea::exist(companyId))
+            {
+                // We have to stop processing because the company is invalid.  It is not
+                // possible to continue.
+                tableId = tableNum(LedgerJournalTrans);
+                fieldId = fieldNum(LedgerJournalTrans, Company);
+                AifFault::checkFailedLogFault(strFmt("@SYS10666", companyId), #CompanyAccountDoesNotExist);
+                throw AifFault::faultList("@SYS98197", #ValidationFailed);
+            }
+            
+        }
+        changecompany(_company)
+        {
+            vendTable = VendTable::find(_vendAccount);
+            // <SIS_TFS12562_KyribaDraftPayment> WB 2018/02/27
+            /*
+            select firstonly ihsVendPaymModeVendGroupValidationTable
+                where ihsVendPaymModeVendGroupValidationTable.PaymMode == _paymMode
+                && ihsVendPaymModeVendGroupValidationTable.VendGroup == vendTable.VendGroup
+                && ihsVendPaymModeVendGroupValidationTable.Enabled == NoYes::Yes;
+            */
+            select firstonly ihsVendPaymModeVendGroupValidationTable
+                where ihsVendPaymModeVendGroupValidationTable.PaymMode == _paymMode
+                && ihsVendPaymModeVendGroupValidationTable.Num == vendTable.VendGroup
+                && ihsVendPaymModeVendGroupValidationTable.Enabled == NoYes::Yes
+                && ihsVendPaymModeVendGroupValidationTable.AccountCode == IHSTableGroup::GroupId;
+
+            if (!ihsVendPaymModeVendGroupValidationTable)
+            {
+                select firstonly ihsVendPaymModeVendGroupValidationTable
+                where ihsVendPaymModeVendGroupValidationTable.PaymMode == _paymMode
+                && ihsVendPaymModeVendGroupValidationTable.Num == _vendAccount
+                && ihsVendPaymModeVendGroupValidationTable.Enabled == NoYes::Yes
+                && ihsVendPaymModeVendGroupValidationTable.AccountCode == IHSTableGroup::Table;
+            }
+            // </SIS_TFS12562_KyribaDraftPayment> WB 2018/02/27
+            if(!ihsVendPaymModeVendGroupValidationTable)
+            {
+                ret = checkFailed(strFmt("@IHS:KyribaVendorError",_vendAccount,vendTable.VendGroup));
+            }
+        }
+        return ret;
+    }
+
+    /// <summary>
+    /// Validates bank account
+    /// </summary>
+    /// <param name = "_bankAccountId">
+    /// bank account Id
+    /// </param>
+    /// <param name = "_paymMode">
+    /// mode of payment
+    /// </param>
+    /// <param name = "_company">
+    /// company Id
+    /// </param>
+    /// <returns>
+    /// returns boolean value pass or failed
+    /// </returns>
+    private boolean validateBankAccount(
+        BankAccountID _bankAccountId,
+        PaymMode     _paymMode,
+        SelectableDataArea      _company = curext())
+    {
+        
+        IHSVendPaymModeBankAccValidationTable   ihsVendPaymModeBankAccValidationTable;
+        BankAccountTable                        bankAccountTable;
+        boolean                                 ret = true;
+        CompanyId   companyId;
+        TableId     tableId;
+        FieldId     fieldId;
+        
+        #LedgerJournalFaults
+        ;
+        // The following block is needed for the case that intercompany transactions is disabled and someone passes
+        // in an empty string. Ideally one would remove the "curext()" defaulting from the paramter list, but this
+        // code was added as part of a bug fix, and did not have the scope or need of changing the interface.
+        if (!_company)
+        {
+            companyId = curext();
+        }
+        else
+        {
+            companyId = _company;
+            if (! xDataArea::exist(companyId))
+            {
+                // We have to stop processing because the company is invalid.  It is not
+                // possible to continue.
+                tableId = tableNum(LedgerJournalTrans);
+                fieldId = fieldNum(LedgerJournalTrans, Company);
+                AifFault::checkFailedLogFault(strFmt("@SYS10666", companyId), #CompanyAccountDoesNotExist);
+                throw AifFault::faultList("@SYS98197", #ValidationFailed);
+            }
+            
+        }
+        changecompany(_company)
+        {
+            bankAccountTable = BankAccountTable::find(_bankAccountId);
+            select firstonly ihsVendPaymModeBankAccValidationTable
+                    where ihsVendPaymModeBankAccValidationTable.PaymMode == _paymMode
+                    && ihsVendPaymModeBankAccValidationTable.BankAccountId == bankAccountTable.AccountID
+                    && ihsVendPaymModeBankAccValidationTable.Enabled == NoYes::Yes;
+            if(!ihsVendPaymModeBankAccValidationTable)
+            {
+                ret = checkFailed(strFmt("@IHS:KyribaBankError",_bankAccountId));
+            }
+        }
+        return ret;
+    }
+
+}

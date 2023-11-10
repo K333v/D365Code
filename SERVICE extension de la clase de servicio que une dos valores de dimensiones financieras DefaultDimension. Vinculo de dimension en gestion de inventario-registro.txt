@@ -1,0 +1,99 @@
+/// <summary>
+/// 20230419 - UFT_BR_PurchOrderService_CC04 - KCL
+/// </summary>
+[ExtensionOf(classStr(UFTPurchOrderService))]
+final class UFTPurchOrderService_BR_Extension
+{
+    #ISOCountryRegionCodes
+    
+
+    /// <summary>
+    /// Modify header purchase order
+    /// </summary>
+    /// <param name = "_purchTable">PurchTable</param>
+    /// <param name = "_headerContract">UFTPurchaseOrderHeaderContract</param>
+    /// <returns>PurchTable</returns>
+    protected PurchTable ModifyHeader(PurchTable _purchTable, UFTPurchaseOrderHeaderContract _headerContract)
+    {
+        PurchTable  purchTableLocal = next ModifyHeader(_purchTable, _headerContract);
+
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoBR]) && purchTableLocal)
+        {
+            this.populateFieldsBR(purchTableLocal, _headerContract);
+        }
+
+        return purchTableLocal;
+    }
+
+    /// <summary>
+    /// Modify fields in header purchase order
+    /// </summary>
+    /// <param name = "_headerContract">UFTPurchaseOrderHeaderContract</param>
+    /// <returns>PurchTable</returns>
+    protected PurchTable createHeader(UFTPurchaseOrderHeaderContract _headerContract)
+    {
+        PurchTable  purchTableLocal  = next createHeader(_headerContract);
+       
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoBR]) && purchTableLocal)
+        {  
+            this.populateFieldsBR(purchTableLocal, _headerContract);           
+        }
+
+        return purchTableLocal;
+    }
+
+    /// <summary>
+    ///  Validates inventLocationId field in header
+    /// </summary>
+    /// <param name = "_headerContract">UFTPurchaseOrderHeaderContract</param>
+    /// <param name = "_actionPurchaseOrder">ActionPurchaseOrder</param>
+    /// <returns>True or false</returns>
+    protected boolean validateDataHeader(UFTPurchaseOrderHeaderContract _headerContract, str _actionPurchaseOrder)
+    {
+        boolean ret = next validateDataHeader(_headerContract, _actionPurchaseOrder);
+
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoBR]) && ret)
+        {
+            InventLocation  inventLocation = InventLocation::find(_headerContract.parmInventLocationId());
+            
+            if (!inventLocation)
+            {
+                ret = checkFailed(strFmt("@UFINET_AP_BR:ValidLocation", _headerContract.parmInventLocationId()));
+            }
+        }
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Fill in InventSiteId, DefaultDimension fields in header purchase order
+    /// </summary>
+    /// <param name = "_purchTable">PurchTable</param>
+    /// <param name = "_contract">UFTPurchaseOrderHeaderContract</param>
+    protected void populateFieldsBR(PurchTable  _purchTable, UFTPurchaseOrderHeaderContract  _contract)
+    {
+        PurchTable                          purchTableUpd = PurchTable::find(_purchTable.PurchId, true);
+        Name                                establishmentDim = InventParameters::find().siteDimensionAttribute().Name;
+        DimensionDefault                    defaultDimension;
+        InventLocation                      inventLocation = InventLocation::find(_contract.parmInventLocationId());
+        InventSite                          inventSite = InventSite::find(inventLocation.InventSiteId);
+
+        if (purchTableUpd && establishmentDim)
+        {
+            defaultDimension = purchTableUpd.DefaultDimension;
+          
+            defaultDimension = LedgerDimensionDefaultFacade::serviceMergeDefaultDimensions(defaultDimension, inventSite.DefaultDimension);
+            
+            if (defaultDimension)
+            {
+                ttsbegin;
+                purchTableUpd.InventLocationId = inventLocation.InventLocationId;
+                purchTableUpd.InventSiteId     = inventLocation.InventSiteId;
+                purchTableUpd.DefaultDimension = defaultDimension;
+                purchTableUpd.update();
+                ttscommit;
+            }
+        }
+    }
+
+}

@@ -1,0 +1,203 @@
+ [Control("Date")]
+    class EndDate
+    {
+        public boolean modified()
+        {
+            boolean ret = super();
+
+            if (EndDate.dateValue() < StartDate.dateValue())
+            {
+                StartDate.dateValue(EndDate.dateValue());
+            }
+            else if (EndDate.dateValue() > nextYr(StartDate.dateValue()))
+            {
+                EndDate.dateValue(nextYr(StartDate.dateValue()));
+            }
+
+            element.updateDetailsGrid();
+            element.updateBalanceGrid();
+
+            return ret;
+        }
+}
+
+______________________________________________________
+
+ /// <summary>
+    /// Updates the <c>LeaveRequestDetailTmp</c> grid based on
+    /// start date, end date, default leave type and multiple types selections.
+    /// </summary>
+    /// <param name = "_clearUnmodifiedRecords">
+    /// A boolean value to indicate whether to remove unmodified entry records.
+    /// </param>
+    public void updateDetailsGrid(boolean _clearUnmodifiedRecords = false)
+    {
+        if (this.validateHeaderValues())
+        {
+            element.enableDetailsGrid(true);
+
+            if (_clearUnmodifiedRecords)
+            {
+                while select LeaveRequestDetailTmp
+                {
+                    if (LeaveRequestDetailTmp.offsetAmount() == 0)
+                    {
+                        LeaveRequestDetailTmp.delete();
+                    }
+                }
+            }
+
+            boolean defaultFromCalendar =
+                HcmFeatureStateProvider::isFeatureEnabled(LeaveNano20W1UpdateTimeOffFeature::instance()) ? !isUpdatingTimeOff : true;
+
+            LeaveRequestDetailTmp updatedDetails = LeaveRequestDetailTmp::createDetails(
+                LeaveRequest,
+                StartDate.dateValue(),
+                EndDate.dateValue(),
+                LeaveType.value(),
+                LeaveRequestDetailTmp,
+                defaultFromCalendar);
+            
+            if (isLeaveCrossCompanyFeatureEnabled)
+            {
+                LeaveRequestDetailTmp_ds.company(this.getLeaveTypeDataAreaId());
+                LeaveRequestDetailTmp_ds.crossCompanyAutoQuery(true);
+            }
+
+            LeaveRequestDetailTmp.setTmpData(updatedDetails);
+            LeaveRequestDetailTmp_ds.executeQuery();
+        }
+        else
+        {
+            element.enableDetailsGrid(false);
+        }
+    }
+
+
+____________________________________________________
+ [Hookable(False)]
+    public static LeaveRequestDetailTmp createDetails(
+        LeaveRequest _request,
+        LeaveDate _startDate,
+        LeaveDate _endDate,
+        LeaveTypeRecId _defaultLeaveType,
+        LeaveRequestDetailTmp _enteredDetails = null,
+        boolean _defaultFromCalendar = true)
+    {
+        LeaveRequestDetailTmp datesToInsert;
+        Map defaultRequestAmounts;
+        LeaveType type = LeaveType::findLeaveTypeByCrossCompanyFeature(_defaultLeaveType);
+
+        changecompany (type.DataAreaId)
+        {
+            LeaveTypeRecId leaveTypeRecId = HcmFeatureStateProvider::isFeatureEnabled(LeaveNano20W1UnitDefinedOnLeaveTypeFeature::instance()) ? _defaultLeaveType : 0;
+
+            defaultRequestAmounts = LeaveRequestAmountHelper::calculateDefaultRequestAmounts(
+                _request.Worker,
+                _startDate,
+                _endDate,
+                false,
+                leaveTypeRecId);
+
+            MapEnumerator defaultRequestAmountsEnumerator = defaultRequestAmounts.getEnumerator();
+
+            // Insert records with default leave type for the given dates
+            while (defaultRequestAmountsEnumerator.moveNext())
+            {
+                LeaveDate requestDate = defaultRequestAmountsEnumerator.currentKey();
+                LeaveRequestAmount defaultLeaveRequestAmount = defaultRequestAmountsEnumerator.currentValue();
+
+                select firstonly RecId from _enteredDetails
+                    where
+                        _enteredDetails.Amount
+                        && _enteredDetails.LeaveDate == requestDate;
+
+                boolean existingRequestDetailOnSameDate = _enteredDetails.RecId != 0;
+
+                if (!_defaultFromCalendar || existingRequestDetailOnSameDate)
+                {
+                    defaultLeaveRequestAmount = 0.0;
+                }
+
+                datesToInsert.clear();
+                datesToInsert.LeaveTypeId = type.Type;
+                datesToInsert.LeaveTypeDataAreaId = type.DataAreaId;
+                datesToInsert.LeaveDate = requestDate;
+                datesToInsert.DayOfWeek = datesToInsert.dayOfWeekStr();
+                datesToInsert.Amount = defaultLeaveRequestAmount;
+                datesToInsert.LeaveTypeRecId = leaveTypeRecId;
+
+                datesToInsert.insert();
+            }
+
+            // Retrieve existing amounts in bank
+            LeaveRequestCalendar requestCalendar;
+            LeaveType requestType;
+
+            update_recordset datesToInsert
+            setting Amount = requestCalendar.Amount,
+                ExistingAmount = requestCalendar.Amount,
+                ExistingLeaveType = requestCalendar.LeaveType,
+                HalfDayDefinition = requestCalendar.HalfDayDefinition,
+                ExistingHalfDayDefinition = requestCalendar.HalfDayDefinition
+            join requestType
+                where requestType.Type == datesToInsert.LeaveTypeId
+                    && requestType.DataAreaId == datesToInsert.LeaveTypeDataAreaId
+            join requestCalendar
+                where requestCalendar.LeaveDate == datesToInsert.LeaveDate
+                    && requestCalendar.LeaveType == requestType.RecId
+                    && requestCalendar.Worker == _request.Worker;
+
+            // Override amounts with entered amounts
+            update_recordset datesToInsert
+            setting Amount = _enteredDetails.Amount,
+                LeaveTypeId = _enteredDetails.LeaveTypeId,
+                LeaveTypeDataAreaId = _enteredDetails.LeaveTypeDataAreaId,
+                HalfDayDefinition = _enteredDetails.HalfDayDefinition,
+                LeaveTypeRecId = _enteredDetails.LeaveTypeRecId
+            join _enteredDetails
+                where datesToInsert.LeaveDate == _enteredDetails.LeaveDate
+                    && datesToInsert.LeaveTypeId == _enteredDetails.LeaveTypeId
+                    && datesToInsert.LeaveTypeDataAreaId == _enteredDetails.LeaveTypeDataAreaId;
+
+            LeaveRequestDetailTmp otherTypeDetails = LeaveRequestDetailTmp::createDetailsForOtherTypes(
+                _request,
+                _startDate,
+                _endDate,
+                _defaultLeaveType,
+                _enteredDetails);
+
+            insert_recordset datesToInsert(LeaveDate, LeaveTypeDataAreaId, LeaveTypeId, DayOfWeek, Amount, HalfDayDefinition, ExistingAmount, ExistingLeaveType, ExistingHalfDayDefinition)
+            select LeaveDate, LeaveTypeDataAreaId, LeaveTypeId, DayOfWeek, Amount, HalfDayDefinition, ExistingAmount, ExistingLeaveType, ExistingHalfDayDefinition
+            from otherTypeDetails;
+
+            return datesToInsert;
+        }
+    }
+
+_____________________
+
+ private void updateBalanceGrid()
+    {
+        LeaveDate requestEndDate = EndDate.dateValue();
+
+        if (requestEndDate && lastAccrualRequestDate < requestEndDate)
+        {
+            LeaveBankTransaction::forecastBalances(topicWorker, requestEndDate, bankTransactionTemporaryDatabaseLink);
+
+            lastAccrualRequestDate = requestEndDate;
+        }
+
+        LeaveTmpForecastedRequestBalance updatedBalances;
+        updatedBalances.populateTable(
+            requestEndDate,
+            topicWorker,
+            bankTransactionTemporaryDatabaseLink);
+
+        LeaveTmpForecastedRequestBalance.setTmpData(updatedBalances);
+        LeaveTmpForecastedRequestBalance_ds.executeQuery();
+
+        LeaveTmpForecastedRequestBalance_ForecastedBalance.label(
+            strFmt("@Leave:AvailableBalanceDateTemplated", date2StrUsr(requestEndDate)));
+    }
+

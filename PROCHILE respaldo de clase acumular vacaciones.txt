@@ -1,0 +1,486 @@
+/// <summary>
+/// 20230323 - AP_CAGF007_VacationAccumulation - KCL
+/// Accumulate vacation process
+/// </summary>
+class APPSPMAccumulateVacationProcess extends RunBaseBatch
+{
+    Dialog                      dialogRunBase;
+
+    container                   workers;
+    SysLookupMultiSelectCtrl    workerMultiSelect;
+    DialogField                 dflWorker;
+    FormBuildStringControl      workersCtrl;
+
+    FromDate                    fromDate;
+    DialogField                 dflFromDate;
+
+    ToDate                      toDate;
+    DialogField                 dflToDate;
+             
+    #define.CurrentVersion(1)
+    #localMacro.CurrentList
+        workers,
+        fromDate,
+        toDate
+    #endMacro
+
+    
+    /// <summary>
+    /// Class method that is executed directly from a menu option.
+    /// </summary>
+    /// <param name = "_args">Args</param>
+    public static void main(Args _args)
+    {
+        APPSPMAccumulateVacationProcess vacationProcess = new APPSPMAccumulateVacationProcess();
+       
+        if (vacationProcess.prompt())
+        {
+            vacationProcess.run();
+            info("Proceso ejecutado exitosamente.");
+        }
+    }
+
+    /// <summary>
+    /// Returns an object that contains the methods that are described by the <c>RunBaseDialogable</c>
+    /// interface.
+    /// </summary>
+    /// <returns>
+    /// An object that contains the methods that are described by the <c>RunBaseDialogable</c> interface.
+    /// </returns>
+    /// <remarks>
+    /// A dialog box can be either built by using the <c>Dialog</c> class or by using a class that is
+    /// created in the Application Object Tree (AOT).
+    /// </remarks>
+    Object dialog()
+    {
+        FormBuildControl    formBuildControl;
+        DialogGroup         dialogGroup;
+
+        dialogRunBase = super();
+       
+        dialogRunBase.allowUpdateOnSelectCtrl(true);
+        dialogGroup = dialogRunBase.addGroup();
+
+        formBuildControl = dialogRunBase.formBuildDesign().control(dialogGroup.formBuildGroup().id());
+        workersCtrl = formBuildControl.addControl(FormControlType::String, identifierstr(HcmPersonnelNumberId));
+        workersCtrl.label("Trabajador");
+        
+        dflFromDate = dialogRunBase.addFieldValue(extendedTypeStr(FromDate), fromDate);         
+        dflToDate   = dialogRunBase.addFieldValue(extendedTypeStr(ToDate), toDate);
+   
+        //cleanup
+        workersCtrl.text('');
+        workers = conNull();
+        dflFromDate.value('');
+        dflToDate.value('');
+
+        return dialogRunBase;        
+    }
+
+    /// <summary>
+    /// Stores the value entered by users into local variables.
+    /// </summary>
+    /// <returns>
+    /// True if the values were stored successfully; otherwise false.
+    /// </returns>
+    boolean getFromDialog()
+    {
+        workers  = workerMultiSelect.get();
+        fromDate = dflFromDate.value();
+        toDate   = dflToDate.value();
+
+        return super();
+    }
+
+    static APPSPMAccumulateVacationProcess construct()
+    {
+        return new APPSPMAccumulateVacationProcess();
+    }
+
+    // Here goes a description of the class
+    static ClassDescription description()
+    {
+        return "Acumular vacaciones";
+    }
+
+    /// <summary>
+    /// Contains the code that does the actual job of the class.
+    /// </summary>
+    public void run()
+    {
+        System.Exception            ex;
+        SysInfoLogEnumerator        infoLogEnum;
+        SysInfologMessageStruct     infoMessageStruct;
+
+        try
+        {
+            ttsbegin;
+            this.processAccumVacation();
+            ttscommit;
+        }
+        catch (Exception::Error)
+        {
+            infoLogEnum = SysInfoLogEnumerator::newData(infolog.infologData());
+            
+            while(infoLogEnum.moveNext())
+            {
+                infoMessageStruct = SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                error(infoMessageStruct.message());
+            }
+            throw error("Error en el proceso");
+        }
+        catch (Exception::CLRError)
+        {
+            ex = ClrInterop::getLastException();
+            
+            if (ex != null)
+            {
+                ex = ex.get_InnerException();
+               
+                if (ex != null)
+                {
+                    throw error(ex.ToString());
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    ///    Indicates whether the class is shown in the list of <c>Journal</c> types.
+    /// </summary>
+    /// <returns>
+    ///    true if the class is shown in the list of <c>Journal</c> types; otherwise, false.
+    /// </returns>
+    /// <remarks>
+    ///    A class that can be used in a batch journal is a class where the same parameters can be used
+    ///    repeatedly. The dialog box can be shown and the parameters can be changed, but parameters of some
+    ///    classes might build on data that is only valid for a short time. Running a class two times with the
+    ///    same parameters is not always possible. If the <c>RunBaseBatch.canGoBatch</c> method is false, this
+    ///    method will not have any effect.
+    /// </remarks>
+    public boolean canGoBatchJournal()
+    {
+        return true;
+    }
+
+    public void dialogPostRun(DialogRunbase dialog)
+    {
+        super(dialog);
+        this.initWorkerDialogField();
+    }
+
+    public boolean init()
+    {
+        return true;
+    }
+
+    protected void new()
+    {
+        super();
+    }
+
+     public boolean runsImpersonated()
+    {
+        return true;
+    }
+
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+        ;
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version, #CurrentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    public container pack()
+    {
+        return [#CurrentVersion, #CurrentList];
+    }
+
+    /// <summary>
+    /// Gets the dialog fields from binding information.
+    /// </summary>
+    private void initWorkerDialogField()
+    {
+        FormRun                 formRun;
+        FormStringControl       fsCtrlWorker;
+        Query                   q;
+        QueryBuildDataSource    qbds, qbds2;
+ 
+        q    = new Query();
+        qbds = q.addDataSource(tablenum(HcmWorker));   
+        qbds.addSelectionField(fieldNum(HcmWorker, PersonnelNumber));
+
+        qbds2 = qbds.addDataSource(Tablenum(DirPerson));
+        qbds2.addLink(fieldnum(HcmWorker, Person),fieldnum(DirPerson, RecId));
+        qbds2.joinMode(JoinMode::InnerJoin);
+        qbds2.addSelectionField(fieldNum(DirPerson, Name)); 
+       
+        formRun = dialogRunBase.dialogForm().formRun();
+ 
+        if (formRun)
+        {
+            fsCtrlWorker = formRun.design().control(workersCtrl.id());
+            workerMultiSelect = SysLookupMultiSelectCtrl::constructWithQuery(formRun, fsCtrlWorker, q);
+            workerMultiSelect.set([this.workerIdsToRecIds(workers), workers]);
+        }
+    }
+
+    public container workerIdsToRecIds(container _workerIds)
+    {
+        HcmWorker               worker;
+        HcmPersonnelNumberId    personnelNumId;
+        container               workersCon;
+        int                     i;
+ 
+        workersCon = conNull();
+ 
+        for (i = 1; i <= conLen(_workerIds); i++)
+        {
+            personnelNumId = conPeek(_workerIds, i);
+ 
+            select firstOnly RecId from worker
+                where worker.PersonnelNumber == personnelNumId;
+ 
+            workersCon += [worker.RecId];
+        }
+ 
+        return workersCon;
+    }
+
+    public container workerRecIdsToIDs(container _workerRecIds)
+    {
+        HcmWorker       worker;
+        RecId           workerRecId;
+        container       workerIds;
+        int             i;
+ 
+        workerIds = conNull();
+ 
+        for (i = 1; i <= conLen(_workerRecIds); i++)
+        {
+            workerRecId = conPeek(_workerRecIds, i);
+            
+            select firstOnly PersonnelNumber from worker
+                where worker.RecId == workerRecId;
+ 
+            workerIds += [worker.PersonnelNumber];
+        }
+ 
+        return workerIds;
+    }
+
+    /// <summary>
+    /// Validate the dates
+    /// </summary>
+    /// <param name = "calledFrom">Object</param>
+    /// <returns>True or false</returns>
+    public boolean validate(Object calledFrom = null)
+    {
+        boolean ret;
+    
+        ret = super(calledFrom);
+
+        if (fromDate > toDate && toDate)
+        {
+            ret = checkFailed("@SYS104511");
+        }
+    
+        return ret;
+    }
+
+    /// <summary>
+    /// Main process that accumulate vacations
+    /// </summary>
+    public void processAccumVacation()
+    {
+        HcmWorkerRecId      workerRecId;
+        int                 i;
+        Amount              availableDays;
+
+        HcmWorker           workerTable;
+        LeaveRequest        leaveRequests, leaveRequestUpd;
+        LeaveType           leaveTypes;
+        LeaveTypeReasonCode leaveReasonCode;
+        HcmReasonCode       reasonCode;
+
+        
+        if (workers == conNull())
+        {
+            while select workerTable
+                join leaveRequests index hint RequestIdIdx
+                where leaveRequests.Worker == workerTable.RecId
+                && leaveRequests.Status == LeaveRequestApprovalStatus::Completed
+                && leaveRequests.APPSPMAccumAmount
+            {  
+                if (leaveRequests.getStartDate() == fromDate && leaveRequests.getEndDate() == toDate)
+                {
+                    select firstonly leaveTypes index hint TypeIdx
+                        join leaveReasonCode
+                        join reasonCode
+                        where leaveTypes.Type == leaveRequests.getLeaveType()
+                        && leaveTypes.APPSPMAccumulation
+                        && leaveReasonCode.Type == leaveTypes.RecId
+                        && reasonCode.RecId == leaveReasonCode.ReasonCode
+                        && reasonCode.IsAbsenceApplicable
+                        && reasonCode.APPSPMAccumVacation;
+
+                    if (leaveTypes && leaveReasonCode)
+                    {
+                        LeaveBankTransaction        bankTransaction;
+                            
+                        select firstonly forupdate bankTransaction
+                            where bankTransaction.Worker == workerTable.RecId
+                            && bankTransaction.LeaveType == leaveTypes.RecId
+                            && bankTransaction.TransactionType == LeaveTransactionType::Grant
+                            && bankTransaction.LeavePlan;
+
+                        if (bankTransaction)
+                        {
+                            ttsbegin;
+                            bankTransaction.Amount += leaveRequests.APPSPMAccumAmount;
+                            bankTransaction.update();
+                            ttscommit;
+                        }
+
+                        leaveRequestUpd = LeaveRequest::find(leaveRequests.RecId, true);
+                            
+                        if (leaveRequestUpd)
+                        {
+                            ttsbegin;
+                            leaveRequestUpd.APPSPMAccumAmount = 0;
+                            leaveRequestUpd.doUpdate();
+                            ttscommit;
+                        }
+                    }
+
+                }
+            }
+        }
+        else
+        {
+            for (i=1; i <= conLen(workers); i++)
+            {
+                workerRecId = conPeek(workers, i);
+
+                while select leaveRequests index hint RequestIdIdx
+                    where leaveRequests.Worker == workerRecId
+                    && leaveRequests.Status == LeaveRequestApprovalStatus::Completed
+                    && leaveRequests.APPSPMAccumAmount
+                {
+                    if (leaveRequests.getStartDate() == fromDate && leaveRequests.getEndDate() == toDate)
+                    {
+                        select firstonly leaveTypes index hint TypeIdx
+                            join leaveReasonCode
+                            join reasonCode
+                            where leaveTypes.Type == leaveRequests.getLeaveType()
+                            && leaveTypes.APPSPMAccumulation
+                            && leaveReasonCode.Type == leaveTypes.RecId
+                            && reasonCode.RecId == leaveReasonCode.ReasonCode
+                            && reasonCode.IsAbsenceApplicable
+                            && reasonCode.APPSPMAccumVacation;
+
+                        if (leaveTypes && leaveReasonCode)
+                        {
+                            LeaveBankTransaction        bankTransaction;
+                            
+                            select firstonly forupdate bankTransaction
+                                where bankTransaction.Worker == workerRecId
+                                && bankTransaction.LeaveType == leaveTypes.RecId
+                                && bankTransaction.TransactionType == LeaveTransactionType::Grant
+                                && bankTransaction.LeavePlan;
+
+                            if (bankTransaction)
+                            {
+                                ttsbegin;
+                                bankTransaction.Amount +=  leaveRequests.APPSPMAccumAmount;
+                                bankTransaction.update();
+                                ttscommit;
+                            }
+
+                            leaveRequestUpd = LeaveRequest::find(leaveRequests.RecId, true);
+                            
+                            if (leaveRequestUpd)
+                            {
+                                ttsbegin;
+                                leaveRequestUpd.APPSPMAccumAmount = 0;
+                                leaveRequestUpd.doUpdate();
+                                ttscommit;
+                            }                            
+                        }
+                    }
+                    
+                }               
+            }
+        }
+    }
+
+    /// <summary>
+    /// Obtener días disponibles del formulario solicitar permiso
+    /// </summary>
+    /// <param name = "_workerRecId"></param>
+    /// <param name = "_leaveTypes"></param>
+    /// <returns></returns>
+    public Amount getAvailableDays(HcmWorkerRecId  _workerRecId, LeaveType  _leaveTypes, LeaveRequest  _leaveRequests)
+    {
+        LeaveBankTransaction        bankTransaction;
+        LeaveEnrollmentByTypeView   enrollmentByType;
+        LeaveBankTransaction        bankTransactionAmountByType;
+        Amount                      availableDays;
+
+        select firstonly bankTransaction
+            where bankTransaction.Worker == _workerRecId
+            && bankTransaction.LeaveType == _leaveTypes.RecId;
+
+        //KCL
+        //_leaveTypes.LeaveAmountUnit  == LeaveAmountUnit::Days
+        LeaveBankTransaction    bankTransactionTemporaryDatabaseLink;
+
+        bankTransactionTemporaryDatabaseLink.setTempDB();
+        //Add 100 days
+        LeaveBankTransaction::APPSPMcopyFromRealToTemp(_workerRecId, bankTransactionTemporaryDatabaseLink);
+
+        //LeaveRequestProcessor requestProcessor = LeaveRequestProcessor::newRequestToProcess(_leaveRequests);
+        //requestProcessor.insertBankTransactionsForOtherPendingRequests(bankTransactionTemporaryDatabaseLink);
+        //Add 2.42 days
+        APPSPMLeaveRequestProcessor requestProcessor = APPSPMLeaveRequestProcessor::newRequestToProcess(_leaveRequests);
+        requestProcessor.insertBankTransactionsForOtherPendingRequests(bankTransactionTemporaryDatabaseLink);
+
+        //LeaveBankTransaction::forecastBalances(_workerRecId, toDate, bankTransactionTemporaryDatabaseLink);
+        LeaveBankTransaction::APPSPMforecastBalances(_workerRecId, toDate, bankTransactionTemporaryDatabaseLink);
+
+        bankTransactionAmountByType.setTempDB();
+        bankTransactionAmountByType.linkPhysicalTableInstance(bankTransactionTemporaryDatabaseLink);
+        //KCL
+        
+        while select crosscompany Type, TypeId
+            from enrollmentByType
+                group by Type, TypeId
+                where enrollmentByType.Worker == _workerRecId
+            outer join sum(Amount) from bankTransactionAmountByType
+                where bankTransactionAmountByType.LeaveType == enrollmentByType.Type
+                    && bankTransactionAmountByType.Worker == _workerRecId
+                    && bankTransactionAmountByType.TransactionDate <= toDate
+        {
+            availableDays += bankTransactionAmountByType.Amount;
+            //KCL
+            //this.ForecastedBalance = _bankTransactionAmountByType.Amount + scheduledAmount;
+            //LeaveAmountSigned scheduledAmount = LeaveBankTransaction::getScheduledTransactionAmountForAccrualPeriod(_workerRecId,
+            //                                                                                                        enrollmentByType.Type,
+            //                                                                                                        toDate,
+            //                                                                                                        _bankTransactionTemporaryDatabaseLink);
+            //KCL
+        }           
+
+        return availableDays;
+    }
+
+}

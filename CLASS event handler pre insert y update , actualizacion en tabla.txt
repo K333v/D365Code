@@ -1,0 +1,34 @@
+class APPSPMLeaveRequest_EventHandler
+{
+    /// <summary>
+    /// Fill in APPSPMAccumAmount field
+    /// </summary>
+    /// <param name="args">XppPrePostArgs</param>
+    [PreHandlerFor(tableStr(LeaveRequest), tableMethodStr(LeaveRequest, insert))]
+    public static void LeaveRequest_Pre_insert(XppPrePostArgs args)
+    {
+        LeaveRequest    request = args.getThis();
+
+        if (!APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP004HR))
+        {
+            request.APPSPMAccumAmount = request.getTotalAmount();
+        }
+    }
+
+    /// <summary>
+    /// Fill in APPSPMAccumAmount field
+    /// </summary>
+    /// <param name="sender">Common</param>
+    /// <param name="e">DataEventArgs</param>
+    [DataEventHandler(tableStr(LeaveRequest), DataEventType::Updating)]
+    public static void LeaveRequest_onUpdating(Common sender, DataEventArgs e)
+    {
+        LeaveRequest    request = sender as LeaveRequest;
+        
+        if (request.Status == LeaveRequestApprovalStatus::Completed)
+        {
+            request.APPSPMAccumAmount = request.getEndDate() - request.getStartDate() + 1;
+        }
+    } 
+   
+}

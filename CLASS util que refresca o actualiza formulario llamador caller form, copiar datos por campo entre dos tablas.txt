@@ -1,0 +1,59 @@
+BSLUtilClass::copyDataByField(sourceRefAddDocumentData,newRefAddDocumentData); // dos tablas
+________________________________________________________________
+
+/// <summary>
+/// Global method class
+/// </summary>
+class BSLUtilClass
+{
+    /// <summary>
+    /// Refresh caller form
+    /// </summary>
+    /// <param name = "formRun">FormRun</param>
+    public static void refreshCallerForm(FormRun      formRun)
+    {
+        #Task
+
+        if(formRun)
+        {
+            formRun.task(#taskRefresh);
+        }
+    }
+
+    /// <summary>
+    /// Coppy all data by field Id
+    /// </summary>
+    /// <param name = "commonSource">Common</param>
+    /// <param name = "commonTarget">Common</param>
+    public static void copyDataByField(Common      commonSource, Common  commonTarget)
+    {
+        SysDictTable dictTable;
+        SysDictField dictField;
+        FieldName    fieldNameSource
+                    ,fieldNameTarget;
+        FieldId     fieldIdTarget, fieldId;
+        ;
+
+        dictTable   = new SysDictTable(commonSource.TableId);
+        fieldId     = dictTable.fieldNext(0);
+
+        while (fieldId)
+        {
+            dictField = dictTable.fieldObject(fieldId);
+
+            if (dictField.isSql() && !dictField.isSystem())
+            {
+                fieldNameSource = fieldId2Name(commonSource.TableId, fieldId);
+                fieldIdTarget   = fieldName2Id(commonTarget.TableId,fieldNameSource);
+
+                if(fieldIdTarget)
+                {
+                    commonTarget.(fieldIdTarget) = commonSource.(fieldId);
+                }
+            }
+
+            fieldId = dictTable.fieldNext(fieldId);
+        }
+    }
+
+}

@@ -1,0 +1,234 @@
+/// <summary>
+/// Class used to run the batch job
+/// </summary>
+/// Developed by KCL dated 15-Aug-2023 CQC_7760_ValuedFixedAssetsReport
+class CQCAssetTableAcquiredController extends SysOperationServiceController
+{
+    /// <summary>
+    /// Main logic to run this class
+    /// </summary>
+    /// <param name = "_args">Passing args</param>
+    public static void main(Args _args)
+    {
+        CQCAssetTableAcquiredController    controller;
+        CQCAssetTableAcquiredContract      contract;
+
+        controller = new CQCAssetTableAcquiredController();
+        controller.parmDialogCaption("Activos Fijos Adquiridos CERMAQ 2");
+        controller.parmLoadFromSysLastValue(false);
+        contract = controller.getDataContractObject();
+        controller.startOperation();
+    }
+
+    /// <summary>
+    /// Mapping the service class to run the batch job
+    /// </summary>
+    protected void new()
+    {
+        super(classStr(CQCAssetTableAcquiredService), methodStr(CQCAssetTableAcquiredService, run), SysOperationExecutionMode::Synchronous);
+    }
+
+}
+____________________________________________
+
+[DataContractAttribute]
+class CQCAssetTableAcquiredContract
+{
+    FromDate    fromDate;
+    ToDate      toDate;
+
+
+    [DataMemberAttribute]
+    public FromDate parmFromDate(FromDate _fromDate = fromDate)
+    {
+        fromDate = _fromDate;
+
+        return fromDate;
+    }
+
+    [DataMemberAttribute]
+    public ToDate parmToDate(ToDate _toDate = toDate)
+    {
+        toDate = _toDate;
+
+        return toDate;
+    }
+
+}
+_____________________________________________________
+
+/// <summary>
+/// Class used to populate report using batch
+/// </summary>
+/// Developed by KCL dated 15-Aug-2023 CQC_7760_ValuedFixedAssetsReport
+class CQCAssetTableAcquiredService extends SysOperationServiceBase
+{
+    CQCAssetTableAcquiredSet  assetTableAcquiredTmp;
+
+    date                      inputDate;
+    int                       noOfMonthsBetweenYears;
+
+       /// <summary>
+    /// Main logic to run the batch job
+    /// </summary>
+    /// <param name = "_contract">Parameter Contract</param>
+    public void run(CQCAssetTableAcquiredContract _contract)
+    {    
+        Query           q = this.createQuery(_contract.parmFromDate(), _contract.parmToDate());
+        QueryRun        queryRun;
+        AssetBook       assetBookLocal;
+        AssetTable      assetTableLocal;
+
+        try
+        {
+            ttsbegin;
+            q.allowCrossCompany(true);
+
+            queryRun = new QueryRun(q);
+             
+            inputDate = dateStartYr(_contract.parmToDate());
+            noOfMonthsBetweenYears = intvNo(_contract.parmToDate(), inputDate, intvScale::YearMonth) + 1;
+
+            while (queryRun.next())
+            {
+                assetBookLocal  = queryRun.get(tableNum(AssetBook));
+                assetTableLocal = queryRun.get(tableNum(AssetTable));
+
+                //Populate records
+                this.insertTmp(assetBookLocal, assetTableLocal,  _contract.parmToDate());
+            }
+
+            ttscommit;
+
+            info("Completed");
+        }
+        catch (Exception::Error)
+        {
+            error(strFmt("Error"));
+        }
+        catch (Exception::Warning)
+        {
+            warning(strFmt("Warning"));
+            CLRInterop::getLastException();
+        }
+        
+    }
+
+    public Query createQuery(FromDate   _fromDate, ToDate   _toDate, boolean    _mainAsset = false)
+    {
+        Query                   query = new Query(queryStr(CQCAssetTableNotAcquiredListPage));
+        QueryBuilddataSource    qbdsAssetTable, qbdsAssetBook;
+       
+        qbdsAssetBook = SysQuery::findOrCreateDataSource(query, tableNum(AssetBook));
+
+        if (_fromDate && _toDate)
+        {
+            qbdsAssetBook = SysQuery::findOrCreateDataSource(query, tableNum(AssetBook));
+            qbdsAssetBook.addRange(fieldnum(AssetBook, AcquisitionDate)).value(SysQuery::range(_fromDate, _toDate));
+        }
+
+        //if (AssetBookId.valueStr())
+        //{
+        //    qbdsAssetBook.addRange(fieldnum(AssetBook, BookId)).value(queryValue(AssetBookId.valueStr()));
+        //}
+
+        //if (AssetGroup.valueStr() != '')
+        //{
+        //    qbdsAssetBook.addRange(fieldnum(AssetBook, AssetGroup)).value(queryValue(AssetGroup.valueStr()));
+        //}
+
+        //if (MainAssetId.valueStr() != '')
+        //{
+        //    if (!_mainAsset)
+        //    {
+        //        qbdsAssetTable = SysQuery::findOrCreateDataSource(query, tableNum(AssetTable));
+        //        qbdsAssetTable.addRange(fieldnum(AssetTable, MainAssetId)).value(MainAssetId.valueStr());
+        //    }
+        //    else
+        //    {
+        //        qbdsAssetTable = SysQuery::findOrCreateDataSource(query, tableNum(AssetTable));
+        //        qbdsAssetTable.addRange(fieldnum(AssetTable, AssetId)).value(MainAssetId.valueStr());
+        //    }
+        //}
+
+        qbdsAssetBook.addOrderByField(fieldNum(AssetBook, AssetId));
+        qbdsAssetBook.addOrderByField(fieldNum(AssetBook, BookId));
+
+        return query;
+    }
+
+    /// <summary>
+    /// Insert records in temporal table
+    /// </summary>
+    /// <param name = "_assetbook">AssetBook</param>
+    /// <param name = "_assetTable">AssetTable</param>
+    /// <param name = "_toDate">ToDate</param>
+    /// <param name = "_reportCurrency">boolean</param>
+    public void insertTmp(AssetBook  _assetbook, AssetTable  _assetTable, ToDate  _toDate, boolean  _reportCurrency = false)
+    {
+        AssetSumCalcType    calcCurrency;
+
+        if (_reportCurrency)
+        {
+            calcCurrency = AssetSumCalcType::Reporting;
+        }
+        else
+        {
+            calcCurrency = AssetSumCalcType::MST;
+        }
+
+        changecompany(_assetbook.DataAreaId)
+        {
+            assetTableAcquiredTmp.clear();
+            assetTableAcquiredTmp.AssetBookId            = _assetbook.BookId;
+            assetTableAcquiredTmp.AssetId                = _assetTable.AssetId;
+            assetTableAcquiredTmp.AssetGroup             = _assetTable.AssetGroup;
+            assetTableAcquiredTmp.AssetType              = _assetTable.AssetType;
+            assetTableAcquiredTmp.CurrentOperationsTax   = AssetBookTable::find(_assetbook.BookId).CurrentOperationsTax;
+            assetTableAcquiredTmp.Name                   = _assetTable.Name;
+            assetTableAcquiredTmp.AcquisitionDate        = _assetbook.AcquisitionDate;
+            assetTableAcquiredTmp.Location               = _assetTable.Location;
+            assetTableAcquiredTmp.WorkerResponsible      = _assetTable.WorkerResponsible;
+            assetTableAcquiredTmp.LegalEntityDataAreaId  = _assetTable.DataAreaId;
+            assetTableAcquiredTmp.Status                 = _assetbook.Status;
+      
+            CQCAssetTransReasonRefView  reasonRefView;
+
+            select Reason, Reason from reasonRefView
+                order by TransDate
+                where reasonRefView.AssetId == _assetBook.AssetId
+                && reasonRefView.BookId == _assetBook.BookId
+                && reasonRefView.AssetGroup == _assetBook.AssetGroup
+                && reasonRefView.DataAreaId1 == _assetBook.DataAreaId
+                && reasonRefView.ReasonRefRecId > 0;
+       
+            assetTableAcquiredTmp.ReasonCode             = reasonRefView.Reason;
+            assetTableAcquiredTmp.ReasonComment          = reasonRefView.ReasonComment;
+            assetTableAcquiredTmp.MaintenanceInfo2       = _assetTable.MaintenanceInfo2;
+            assetTableAcquiredTmp.Quantity               = _assetTable.Quantity;
+            assetTableAcquiredTmp.SerialNum              = _assetTable.SerialNum;
+            assetTableAcquiredTmp.DimensionProjectsValue = AssetBook::getDimensionProjectsValue(_assetBook);
+            assetTableAcquiredTmp.FixedAssetAccount      = AssetBook::getFixedAssetAccount(_assetBook);
+            assetTableAcquiredTmp.FixedAssetAccumDepAccount = AssetBook::getFixedAssetAccumDepAcc(_assetBook);
+            assetTableAcquiredTmp.FixedAssetDeprExpeAccount = AssetBook::getFixedAssetDeprExpeAcc(_assetBook);
+            assetTableAcquiredTmp.AccountName            = AssetBook::getAccountName(_assetBook);
+            assetTableAcquiredTmp.MaintenanceInfo3       = _assetTable.MaintenanceInfo3;
+            assetTableAcquiredTmp.DimensionCCValue       = AssetBook::getDimensionCCValue(_assetBook);
+            assetTableAcquiredTmp.DimensionCCDescription = AssetBook::getDimensionCCDescription(_assetBook);
+            assetTableAcquiredTmp.LocationMemo           = _assetTable.LocationMemo;
+            assetTableAcquiredTmp.TechInfo1              = _assetTable.TechInfo1;
+            assetTableAcquiredTmp.HistoricalValueUSD     = AssetBook::getHistoricalValueUSD(_assetBook, _reportCurrency);
+            assetTableAcquiredTmp.AustralLawCredit       = AssetBook::getAustralLawCredit(_assetBook, _toDate, calcCurrency);
+            assetTableAcquiredTmp.LifeTime               = _assetbook.LifeTime;
+            assetTableAcquiredTmp.MonthsDepreciation     = noOfMonthsBetweenYears;
+            assetTableAcquiredTmp.DepreciationExercise   = AssetBook::getDepreciationExercise(_assetBook, _toDate, calcCurrency);
+            assetTableAcquiredTmp.ScrapValue             = _assetbook.ScrapValue;
+            assetTableAcquiredTmp.LifeTimeRest           = _assetbook.LifeTimeRest;
+            assetTableAcquiredTmp.GrossValueIFRSUSD      = AssetBook::getGrossValueIFRSUSD(_assetBook, _reportCurrency);
+            assetTableAcquiredTmp.DepreciationCurrentMonthUSD = AssetBook::getDepreciationCurrentMonthUSD(_assetBook, _toDate, calcCurrency);
+            assetTableAcquiredTmp.AccumulatedDepreciationUSD  = AssetBook::getAccumulatedDepreciationUSD(_assetBook, _toDate, calcCurrency);
+            assetTableAcquiredTmp.insert();
+        }
+    }
+
+}

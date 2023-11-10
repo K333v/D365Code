@@ -1,0 +1,581 @@
+/// <summary>
+/// Register costs associated to revenues
+/// </summary>
+public class UFTCostsRegistration extends RunBase
+{
+    UFTAccountingSetups         accountingSetups;
+    UFTAveragePeriodRate        averagePeriodRate;
+    UFTAccountingSetupsRecId    cumulativeId;
+    FiscalCalendarRecId         fiscalCalendar;
+    FiscalCalendarYearRecId     fiscalCalendarYear;
+    FiscalCalendarPeriodRecId   fiscalCalendarPeriod;
+
+    #define.CurrentVersion(1)
+    #localmacro.CurrentList
+        cumulativeId,
+        fiscalCalendar,
+        averagePeriodRate
+    #endmacro
+
+    /// <summary>
+    /// Generates dialog form for costs register process
+    /// </summary>
+    /// <returns> Dialog with parameters </returns>
+    public Object dialog()
+    {
+        Args     args = new  Args();
+        FormRun  costsRegister;
+
+        args.name(formStr(UFTCostsRegistration));
+        args.caller(this);
+
+        costsRegister = classfactory.formRunClass(args);
+        costsRegister.init();
+
+        return costsRegister;
+    }
+
+    /// <summary>
+    /// Parm to save CumulativeId value
+    /// </summary>
+    /// <param name = "_cumulativeId"> A <c>UFTAccountingSetupsRecId</c> value to insert </param>
+    /// <returns> A <c>UFTAccountingSetupsRecId</c> record </returns>
+    public UFTAccountingSetupsRecId parmCumulativeId(UFTAccountingSetupsRecId _cumulativeId = cumulativeId)
+    {
+        cumulativeId = _cumulativeId;
+
+        return cumulativeId;
+    }
+
+    /// <summary>
+    /// Parm to save FiscalCalendar value
+    /// </summary>
+    /// <param name = "_fiscalCalendar"> A <c>FiscalCalendarRecId</c> value to insert </param>
+    /// <returns> A <c>FiscalCalendarRecId</c> record </returns>
+    public FiscalCalendarRecId parmFiscalCalendar(FiscalCalendarRecId _fiscalCalendar = fiscalCalendar)
+    {
+        fiscalCalendar = _fiscalCalendar;
+
+        return fiscalCalendar;
+    }
+
+    /// <summary>
+    /// Parm to save FiscalCalendarYear value
+    /// </summary>
+    /// <param name = "_fiscalCalendarYear"> A <c>FiscalCalendarYearRecId</c> value to insert </param>
+    /// <returns> A <c>FiscalCalendarYearRecId</c> record </returns>
+    public FiscalCalendarYearRecId parmFiscalCalendarYear(FiscalCalendarYearRecId _fiscalCalendarYear = fiscalCalendarYear)
+    {
+        fiscalCalendarYear = _fiscalCalendarYear;
+
+        return fiscalCalendarYear;
+    }
+
+    /// <summary>
+    /// Parm to save FiscalCalendarPeriod
+    /// </summary>
+    /// <param name = "_fiscalCalendarPeriod"> A <c>FiscalCalendarPeriodRecId</c> value to insert </param>
+    /// <returns> A <c>FiscalCalendarPeriodRecId</c> record </returns>
+    public FiscalCalendarPeriodRecId parmFiscalCalendarPeriod(FiscalCalendarPeriodRecId _fiscalCalendarPeriod = fiscalCalendarPeriod)
+    {
+        fiscalCalendarPeriod = _fiscalCalendarPeriod;
+
+        return fiscalCalendarPeriod;
+    }
+
+    /// <summary>
+    /// Process to register costs associated to revenue
+    /// </summary>
+    public void run()
+    {
+        Args    args;
+        FormRun costsRevenueDetails;
+
+        #OCCRetryCount
+
+        try
+        {
+            this.getCurrentValues();
+
+            args = new Args();
+            args.name(formstr(UFTCostsRevenueDetails));
+            args.caller(this);
+            costsRevenueDetails = classfactory.formRunClass(args);
+            costsRevenueDetails.init();
+            costsRevenueDetails.run();
+            costsRevenueDetails.wait();
+        }
+        catch (Exception::Deadlock)
+        {
+            if (xSession::currentRetryCount() >= #RetryNum)
+            {
+                throw Exception::Deadlock;
+            }
+            else
+            {
+                retry;
+            }
+        }
+        catch (Exception::UpdateConflict)
+        {
+            if (appl.ttsLevel() == 0)
+            {
+                if (xSession::currentRetryCount() >= #RetryNum)
+                {
+                    throw Exception::UpdateConflictNotRecovered;
+                }
+                else
+                {
+                    retry;
+                }
+            }
+            else
+            {
+                throw Exception::UpdateConflict;
+            }
+        }
+        catch (Exception::Error)
+        {
+            throw Exception::Error;
+        }
+    }
+
+    /// <summary>
+    /// Get current values for <c>UFTAccountingSetups</c> and <c>UFTAccrualProjections</c> tables
+    /// </summary>
+    public void getCurrentValues()
+    {
+        accountingSetups  = UFTAccountingSetups::find(cumulativeId);
+        averagePeriodRate = UFTAveragePeriodRate::find(cumulativeId, fiscalCalendar, fiscalCalendarYear, fiscalCalendarPeriod);
+    }
+
+    /// <summary>
+    /// Get accumulated value to post
+    /// </summary>
+    /// <param name = "_averagePeriodRate"> <c>UFTAveragePeriodRate</c> record to find </param>
+    /// <returns> Accumulated value to post </returns>
+    public UFTRealValues getAccumulatedValue(UFTAveragePeriodRate _averagePeriodRate)
+    {
+        UFTAccrualProjectionsTotals accrualProjectionsTotals;
+        UFTRealValues               accumulatedValue;
+        int                         monthOfYear;
+
+        accrualProjectionsTotals = UFTAccrualProjectionsTotals::findByName(_averagePeriodRate.CumulativeIdName, _averagePeriodRate.FiscalCalendarYearName);
+        monthOfYear              = mthOfYr(_averagePeriodRate.StartDate);
+
+        switch(monthOfYear)
+        {
+            case 1:
+                accumulatedValue = accrualProjectionsTotals.January;
+                break;
+
+            case 2:
+                accumulatedValue = accrualProjectionsTotals.February;
+                break;
+
+            case 3:
+                accumulatedValue = accrualProjectionsTotals.March;
+                break;
+
+            case 4:
+                accumulatedValue = accrualProjectionsTotals.April;
+                break;
+
+            case 5:
+                accumulatedValue = accrualProjectionsTotals.May;
+                break;
+
+            case 6:
+                accumulatedValue = accrualProjectionsTotals.June;
+                break;
+
+            case 7:
+                accumulatedValue = accrualProjectionsTotals.July;
+                break;
+
+            case 8:
+                accumulatedValue = accrualProjectionsTotals.August;
+                break;
+
+            case 9:
+                accumulatedValue = accrualProjectionsTotals.September;
+                break;
+
+            case 10:
+                accumulatedValue = accrualProjectionsTotals.October;
+                break;
+
+            case 11:
+                accumulatedValue = accrualProjectionsTotals.November;
+                break;
+
+            case 12:
+                accumulatedValue = accrualProjectionsTotals.December;
+                break;
+        }
+
+        return accumulatedValue;
+    }
+
+    /// <summary>
+    /// Get LedgerDimension value for MainAccount
+    /// </summary>
+    /// <param name = "_mainAccountNum"> MainAccount to find LedgerDimension </param>
+    /// <returns> LedgerDimension value </returns>
+    public DimensionDynamicAccount getLedgerDimension(MainAccountNum _mainAccountNum)
+    {
+        DimensionDynamicAccount ledgerDimension;
+        LedgerDimensionAccount  ledgerDimensionAccount;
+        DimensionDefault        dimensionDefault;
+        MainAccount             mainAccount = MainAccount::findByMainAccountId(_mainAccountNum);
+
+        dimensionDefault       = MainAccountLegalEntity::findByMainAccountLegalEntity(mainAccount.RecId, CompanyInfo::current()).DefaultDimension;
+        ledgerDimensionAccount = LedgerDefaultAccountHelper::getDefaultAccountFromMainAccountId(_mainAccountNum);
+        ledgerDimension        = LedgerDimensionFacade::serviceCreateLedgerDimension(ledgerDimensionAccount, dimensionDefault);
+
+        return ledgerDimension;
+    }
+
+    /// <summary>
+    /// Set data on <c>UFTCostsRevenueDetails</c> temporary table
+    /// </summary>
+    /// <returns> A <c>UFTCostsRevenueDetails</c> table record </returns>
+    public UFTCostsRevenueDetails insertTempTable()
+    {
+        UFTCostsRevenueDetails  costsRevenueDetails;
+        JournalDescription      journalName = accountingSetups.VoucherDescription;
+        UFTRealValues           accumulatedValue = this.getAccumulatedValue(averagePeriodRate);
+
+        if (accountingSetups.Credit &&
+            averagePeriodRate.CommissionAmount)
+        {
+            costsRevenueDetails.clear();
+            costsRevenueDetails.initFromUFTAveragePeriodRate(averagePeriodRate);
+            costsRevenueDetails.Txt             = journalName;
+            costsRevenueDetails.AmountCur       = -averagePeriodRate.CommissionAmount;
+            costsRevenueDetails.VoucherNum      = 1;
+            costsRevenueDetails.AccountType     = LedgerJournalACType::Ledger;
+            costsRevenueDetails.LedgerDimension = this.getLedgerDimension(accountingSetups.Credit);
+            costsRevenueDetails.insert();
+        }
+
+        if (accountingSetups.Debit &&
+            averagePeriodRate.CommissionAmount)
+        {
+            costsRevenueDetails.clear();
+            costsRevenueDetails.initFromUFTAveragePeriodRate(averagePeriodRate);
+            costsRevenueDetails.Txt             = journalName;
+            costsRevenueDetails.AmountCur       = averagePeriodRate.CommissionAmount;
+            costsRevenueDetails.VoucherNum      = 1;
+            costsRevenueDetails.AccountType     = LedgerJournalACType::Ledger;
+            costsRevenueDetails.LedgerDimension = this.getLedgerDimension(accountingSetups.Debit);
+            costsRevenueDetails.insert();
+        }
+
+        if (accountingSetups.Credit &&
+            accumulatedValue)
+        {
+            costsRevenueDetails.clear();
+            costsRevenueDetails.initFromUFTAveragePeriodRate(averagePeriodRate);
+            costsRevenueDetails.Txt             = journalName;
+            costsRevenueDetails.AmountCur       = accumulatedValue;
+            costsRevenueDetails.VoucherNum      = 2;
+            costsRevenueDetails.AccountType     = LedgerJournalACType::Ledger;
+            costsRevenueDetails.LedgerDimension = this.getLedgerDimension(accountingSetups.Credit);
+            costsRevenueDetails.insert();
+        }
+
+        if (accountingSetups.Debit &&
+            accumulatedValue)
+        {
+            costsRevenueDetails.clear();
+            costsRevenueDetails.initFromUFTAveragePeriodRate(averagePeriodRate);
+            costsRevenueDetails.Txt             = journalName;
+            costsRevenueDetails.AmountCur       = -accumulatedValue;
+            costsRevenueDetails.VoucherNum      = 2;
+            costsRevenueDetails.AccountType     = LedgerJournalACType::Ledger;
+            costsRevenueDetails.LedgerDimension = this.getLedgerDimension(accountingSetups.Debit);
+            costsRevenueDetails.insert();
+        }
+
+        return costsRevenueDetails;
+    }
+
+    /// <summary>
+    /// Validate values especified
+    /// </summary>
+    /// <param name = "_calledFrom"> Caller object </param>
+    /// <returns> True if is correct, otherwise false </returns>
+    public boolean validate(Object _calledFrom = null)
+    {
+        UFTAveragePeriodRate    averagePeriodRateCheck;
+        boolean                 ret;
+        
+        ret = super();
+
+        if (ret &&
+            !UFTAveragePeriodRate::exist(this.parmCumulativeId(), this.parmFiscalCalendar(), this.parmFiscalCalendarYear(), this.parmFiscalCalendarPeriod()))
+        {
+            FiscalYearName  fiscalYearName = FiscalCalendarYear::find(this.parmFiscalCalendarYear()).Name;
+            PeriodName      periodName = FiscalCalendarPeriod::find(this.parmFiscalCalendarPeriod()).Name;
+
+            ret = checkFailed(strFmt("@UFINET_AP:RCAR_029", periodName, fiscalYearName, tablePName(UFTAveragePeriodRate)));
+        }
+
+        if (ret && 
+            UFTAveragePeriodRate::isCostsPosted(this.parmCumulativeId(), this.parmFiscalCalendar(), this.parmFiscalCalendarYear(), this.parmFiscalCalendarPeriod()))
+        {
+            FiscalYearName  fiscalYearName = FiscalCalendarYear::find(this.parmFiscalCalendarYear()).Name;
+            PeriodName      periodName = FiscalCalendarPeriod::find(this.parmFiscalCalendarPeriod()).Name;
+
+            ret = checkFailed(strFmt("@UFINET_AP:RCAR_025", periodName, fiscalYearName));
+        }
+
+        averagePeriodRateCheck = UFTAveragePeriodRate::find(this.parmCumulativeId(), this.parmFiscalCalendar(), this.parmFiscalCalendarYear(), this.parmFiscalCalendarPeriod());
+
+        if (averagePeriodRateCheck.UFTAveragePeriodRate != 0)
+        {
+            if (ret &&
+                !UFTAveragePeriodRate::isLastCostsPosted(this.parmCumulativeId(), this.parmFiscalCalendar(), this.parmFiscalCalendarYear(), this.parmFiscalCalendarPeriod()))
+            {
+                UFTAveragePeriodRate averagePeriodRateLast = UFTAveragePeriodRate::findByRecId(averagePeriodRateCheck.UFTAveragePeriodRate);
+
+                ret = checkFailed(strFmt("@UFINET_AP:RCAR_027", averagePeriodRateLast.FiscalCalendarPeriodName, averagePeriodRateLast.FiscalCalendarYearName));
+            }
+        }
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Get class description
+    /// </summary>
+    /// <returns> Class name </returns>
+    public static ClassDescription description()
+    {
+        return "@UFINET_AP:RCAR_024";
+    }
+
+    /// <summary>
+    /// Lookup <c>FiscalCalendarYear</c> table according to FiscalCalendar value
+    /// </summary>
+    /// <param name = "_ctrl"> Current control to execute lookup </param>
+    /// <param name = "_fiscalCalendar"> <c>FiscalCalendar</c> table record </param>
+    public static void lookupFiscalCalendarYear(FormReferenceControl    _ctrl, 
+                                                FiscalCalendarRecId     _fiscalCalendar)
+    {
+        Query                   query = new Query();
+        QueryBuildDataSource    qbdsFiscalCalendarYear;
+        SysReferenceTableLookup sysTableLookup;
+ 
+        qbdsFiscalCalendarYear = query.addDataSource(tableNum(FiscalCalendarYear));
+        qbdsFiscalCalendarYear.addRange(fieldNum(FiscalCalendarYear, FiscalCalendar)).value(queryValue(_fiscalCalendar));
+
+        sysTableLookup = SysReferenceTableLookup::newParameters(tableNum(FiscalCalendarYear), _ctrl);
+        sysTableLookup.addLookupfield(fieldNum(FiscalCalendarYear, Name));
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+    /// <summary>
+    /// Lookup <c>FiscalCalendarPeriod</c> table according to FiscalCalendar and FiscalCalendarYear value
+    /// </summary>
+    /// <param name = "_ctrl"> Current control to execute lookup </param>
+    /// <param name = "_fiscalCalendar"> A <c>FiscalCalendar</c> table record </param>
+    /// <param name = "_fiscalCalendarYear"> A <c>FiscalCalendarYear</c> table record </param>
+    public static void lookupFiscalCalendarPeriod(FormReferenceControl      _ctrl, 
+                                                  FiscalCalendarRecId       _fiscalCalendar,
+                                                  FiscalCalendarYearRecId   _fiscalCalendarYear)
+    {
+        Query                   query = new Query();
+        QueryBuildDataSource    qbdsFiscalCalendarPeriod;
+        SysReferenceTableLookup sysTableLookup;
+ 
+        qbdsFiscalCalendarPeriod = query.addDataSource(tableNum(FiscalCalendarPeriod));
+        qbdsFiscalCalendarPeriod.addRange(fieldNum(FiscalCalendarPeriod, FiscalCalendar)).value(queryValue(_fiscalCalendar));
+        qbdsFiscalCalendarPeriod.addRange(fieldNum(FiscalCalendarPeriod, FiscalCalendarYear)).value(queryValue(_fiscalCalendarYear));
+
+        sysTableLookup = SysReferenceTableLookup::newParameters(tableNum(FiscalCalendarPeriod), _ctrl);
+        sysTableLookup.addLookupfield(fieldNum(FiscalCalendarPeriod, Name));
+        sysTableLookup.addLookupfield(fieldNum(FiscalCalendarPeriod, EndDate));
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+    /// <summary>
+    /// Executes the process when call the option
+    /// </summary>
+    /// <param name = "args"> Args from caller </param>
+    static void main(Args args)
+    {
+        UFTCostsRegistration  costsRegistration = new UFTCostsRegistration();
+
+        if (costsRegistration.prompt())
+        {
+            costsRegistration.run();
+        }
+    }
+
+    /// <summary>
+    /// Method necessary to execute process
+    /// </summary>
+    /// <returns> True if could run in new session, otherwise false </returns>
+    protected boolean canRunInNewSession()
+    {
+        return false;
+    }
+
+    /// <summary>
+    /// Set variables to be packed
+    /// </summary>
+    /// <returns> Packed variables </returns>
+    public container pack()
+    {
+        return [#CurrentVersion, #CurrentList];
+    }
+
+    /// <summary>
+    /// Get the variables packed
+    /// </summary>
+    /// <param name = "packedClass"> Variables packed </param>
+    /// <returns> True if process unpack it is ok, otherwise false </returns>
+    public boolean unpack(container packedClass)
+    {
+        Version version = RunBase::getVersion(packedClass);
+
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version, #CurrentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+}
+
+_____________________________
+
+FORMULARIO UFTCOSTSREGISTRATION:
+
+[Form]
+public class UFTCostsRegistration extends FormRun
+{
+    UFTCostsRegistration    costsRegistration;
+    FiscalCalendarRecId     fiscalCalendar;
+
+    public void closeOk()
+    {
+        if (costsRegistration.validate())
+        {
+            super();
+        }
+    }
+
+    public void init()
+    {
+        if (!LedgerParameters::find().UFTCommissionAccrual)
+        {
+            throw error(strFmt("@UFINET_AP:RCAR_033", fieldPName(LedgerParameters, UFTCommissionAccrual)));
+        }
+
+        super();
+
+        if (!element.args() || !element.args().caller())
+        {
+            throw error(strfmt("@SYS22862", element.name()));
+        }
+
+        if (!(classidget(element.args().caller()) == classidget(costsRegistration)))
+        {
+            throw error(strfmt("@SYS22456", element.name(), classId2Name(classidget(costsRegistration))));
+        }
+
+        costsRegistration = element.args().caller();
+
+        this.design().caption(UFTCostsRegistration::description());
+
+        fiscalCalendar = Ledger::findByLegalEntity(CompanyInfo::find().RecId).FiscalCalendar;
+        costsRegistration.parmFiscalCalendar(fiscalCalendar);
+    }
+
+    [Control("ReferenceGroup")]
+    class CumulativeId
+    {
+        /// <summary>
+        /// Set CumulativeId value in class
+        /// </summary>
+        /// <returns> True if is correct, otherwise false </returns>
+        public boolean modified()
+        {
+            boolean ret;
+    
+            ret = super();
+
+            costsRegistration.parmCumulativeId(cumulativeId.value());
+    
+            return ret;
+        }
+
+    }
+
+    [Control("ReferenceGroup")]
+    class FiscalCalendarYear
+    {
+        /// <summary>
+        /// Lookup <c>FiscalCalendarYear</c> table
+        /// </summary>
+        public void lookup()
+        {
+            UFTCostsRegistration::lookupFiscalCalendarYear(this, costsRegistration.parmFiscalCalendar());
+        }
+
+        /// <summary>
+        /// Set FiscalCalendarYear value in class
+        /// </summary>
+        /// <returns> True if is correct, otherwise false </returns>
+        public boolean modified()
+        {
+            boolean ret;
+        
+            ret = super();
+
+            costsRegistration.parmFiscalCalendarYear(fiscalCalendarYear.value());
+        
+            return ret;
+        }
+
+    }
+
+    [Control("ReferenceGroup")]
+    class FiscalCalendarPeriod
+    {
+        /// <summary>
+        /// Lookup <c>FiscalCalendarPeriod</c> table
+        /// </summary>
+        public void lookup()
+        {
+            UFTCostsRegistration::lookupFiscalCalendarPeriod(this, costsRegistration.parmFiscalCalendar(), costsRegistration.parmFiscalCalendarYear());
+        }
+
+        /// <summary>
+        /// Set FiscalCalendarPeriod value in class
+        /// </summary>
+        /// <returns> True if is correct, otherwise false </returns>
+        public boolean modified()
+        {
+            boolean ret;
+        
+            ret = super();
+
+            costsRegistration.parmFiscalCalendarPeriod(fiscalCalendarPeriod.value());
+        
+            return ret;
+        }
+
+    }
+
+}

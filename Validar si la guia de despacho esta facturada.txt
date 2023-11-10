@@ -1,0 +1,22 @@
+select firstOnly vendPackingSlipJourHes
+            where vendPackingSlipJourHes.InvoiceAccount == dteReceivedXML.AccountNum
+                join vendPackingSlipVersion 
+                    where vendPackingSlipVersion.VendPackingSlipJour == vendPackingSlipJourHes.RecId &&
+                          vendPackingSlipVersion.InternalPackingSlipId == dteReceivedXML.InternalHES
+                            join vendPackingSlipTrans
+                            where vendPackingSlipTrans.VendPackingSlipJour == vendPackingSlipJourHes.RecId &&
+                                  vendPackingSlipTrans.Qty != 0;
+
+
+
+select firstOnly inventTrans  where inventTrans.InvoiceId != ""
+                            join vendPackingSlipTrans 
+                            where inventTrans.PackingSlipId == vendPackingSlipTrans.PackingSlipId &&
+                                  vendPackingSlipTrans.VendPackingSlipJour == vendPackingSlipJourHes.RecId
+                                    join inventtransOrigin
+                                    where vendPackingSlipTrans.InventTransId == inventtransOrigin.InventTransId &&
+                                          inventtransOrigin.RecId  == inventTrans.InventTransOrigin;
+    
+                                if(inventTrans && inventTrans.InvoiceId != dteReceivedXML.InvoiceId)
+                                {
+                                //Guia ya facturada

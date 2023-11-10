@@ -1,0 +1,23 @@
+[Control("String")]
+    class Comment
+    {
+        /// <summary>
+        /// Update datasource table once the approval comment is modified when workflow in review.
+        /// </summary>
+        /// <returns>
+        /// true if the contents have been modified; otherwise, false.
+        /// </returns>
+        public boolean modified()
+        {
+            boolean ret = super();
+
+            if (ret)
+            {
+                VendInvoiceInfoTable localVendInvoiceInfoTable = vendInvoiceInfoTable_ds.cursor();
+                localVendInvoiceInfoTable.VarianceComment = this.text();
+            }
+
+            return ret;
+        }
+
+    }

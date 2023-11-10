@@ -1,0 +1,128 @@
+/// <summary>
+/// 20221219 - AP_ESI_002_AutoCreationProjectRecruitment_EXT - KCL
+/// </summary>
+class APPSPMCaseDetail_EventHandler
+{
+    
+    /// <summary>
+    /// Call lookup for APPSPMDimensionValue field
+    /// </summary>
+    /// <param name="sender">FormControl</param>
+    /// <param name="e">FormControlEventArgs</param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseDetailBase_APPSPMDimensionValue), FormControlEventType::Lookup)]
+    public static void CaseDetailBase_APPSPMDimensionValue_OnLookup(FormControl sender, FormControlEventArgs e)
+    {
+        CaseDetailBase      caseDetailBase = sender.formrun().dataSource(formDataSourceStr(CaseDetail, CaseDetailBase)).cursor();
+        DimensionAttribute  dimAttribute;
+        
+        select firstonly Name from dimAttribute
+            where dimAttribute.APPSPMMatrixDependency;
+
+        if (caseDetailBase && dimAttribute)
+        {
+            APPSPMProjectRecruitmentHelper::APPSPMDimensionValueLookup(sender, dimAttribute.Name);
+               
+            FormControlCancelableSuperEventArgs event = e as FormControlCancelableSuperEventArgs;
+            event.CancelSuperCall();
+        }            
+        
+    }
+
+    /// <summary>
+    /// Validate the change in APPSPMDimensionValue field
+    /// </summary>
+    /// <param name="sender">FormDataObject</param>
+    /// <param name="e">FormDataFieldEventArgs</param>
+    [FormDataFieldEventHandler(formDataFieldStr(CaseDetail, CaseDetailBase, APPSPMDimensionValue), FormDataFieldEventType::Modified)]
+    public static void APPSPMDimensionValue_OnModified(FormDataObject sender, FormDataFieldEventArgs e)
+    {
+        FormRun         formRun = sender.datasource().formRun();
+        CaseDetailBase  caseDetail = formRun.dataSource(formdatasourcestr(CaseDetail, CaseDetailBase)).cursor();
+
+        if (caseDetail.OwnerWorker)
+        {
+            if (Box::yesNo("@Appspm_b:ValidDependency", DialogButton::Yes) != DialogButton::Yes)
+            {
+                caseDetail.APPSPMDimensionValue = caseDetail.orig().APPSPMDimensionValue; //IMPORTANT
+                sender.datasource().research(true);
+                sender.datasource().refresh();
+            }
+            else
+            {
+                sender.datasource().write();
+            }
+        }
+
+    }
+
+    /// <summary>
+    /// Fill in APPSPMCaseCategory, APPSPMAutoAction fields.
+    /// </summary>
+    /// <param name="sender">FormControl</param>
+    /// <param name="e">FormControlEventArgs</param>
+    [FormControlEventHandler(formControlStr(CaseDetail, CaseLogGrid_M_editSourceLinkedId), FormControlEventType::Modified)]
+    public static void CaseLogGrid_M_editSourceLinkedId_OnModified(FormControl sender, FormControlEventArgs e)
+    {
+        FormDataSource      fds = sender.formRun().dataSource('CaseLog');
+        CaseLog             caseLogTable = fds.cursor();
+        FormRun             fr = sender.formRun();
+
+        //Validates if the funcionality is available.
+        if (APPSPMHelper::isFSPActive(APPSPMFunctionalSolutionProduct::FSP004HR))
+        {
+            if (caseLogTable.SourceRefRecId)
+            {
+                smmSourceTypeOptions    typeOptions;
+
+                select firstonly typeOptions
+                    where typeOptions.TypeId == caseLogTable.SourceTypeId
+                    && typeOptions.RecId == caseLogTable.SourceRefRecId;
+
+                caseLogTable.APPSPMCaseCategory = CaseCategoryHierarchyDetail::find(typeOptions.APPSPMCaseCategoryRecId).CaseCategory;
+                caseLogTable.APPSPMAutoAction   = typeOptions.APPSPMAutoAction;
+            }
+            else
+            {
+                caseLogTable.APPSPMCaseCategory = "";
+                caseLogTable.APPSPMAutoAction   = APPSPMAutoAction::None;
+            }
+
+        }          
+
+    }
+
+}
+
+
+/// <summary>
+/// 20221219 - AP_ESI_002_AutoCreationProjectRecruitment_EXT - KCL
+/// </summary>
+[ExtensionOf(tableStr(CaseDetailBase))]
+final class APPSPMCaseDetailBase_Extension
+{
+
+    /// <summary>
+    /// Processes the modified field event for new APPSPMDimensionValue field.
+    /// </summary>
+    /// <param name = "_fieldId">The field ID for the modified field.</param>
+    public void modifiedField(FieldId _fieldId)
+    {
+        next modifiedField(_fieldId);
+                
+        switch (_fieldId)
+        {
+            case fieldNum(CaseDetailBase, OwnerWorker):                  
+                HcmEmployment       employment = HcmEmployment::findByWorkerLegalEntity(this.OwnerWorker, CompanyInfo::findDataArea(curext()).RecId);                
+                DimensionAttribute  dimAttribute;
+
+                select firstonly Name from dimAttribute
+                    where dimAttribute.APPSPMMatrixDependency;
+
+                this.APPSPMDimensionValue = APPSPMProjectRecruitmentHelper::getDimensionDisplayValue(employment.DefaultDimension, dimAttribute.Name);
+                this.write();//IMPORTANT
+                break;
+        }
+
+    }
+
+}

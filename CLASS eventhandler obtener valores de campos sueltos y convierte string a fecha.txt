@@ -1,0 +1,22 @@
+class APPSPMEssLeaveRequestEntry_EventHandler
+{
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    [FormControlEventHandler(formControlStr(EssLeaveRequestEntry, Submit), FormControlEventType::Clicking)]
+    public static void Submit_OnClicking(FormControl sender, FormControlEventArgs e)
+    {
+        FormRun     formRun = sender.formRun();
+        str         startDateStr = formRun.design().controlName(formControlStr(EssLeaveRequestEntry, StartDate)).valueStr();
+        str         endDateStr = formRun.design().controlName(formControlStr(EssLeaveRequestEntry, EndDate)).valueStr();
+        
+        StartDate   dateSart = any2Date(startDateStr);
+        EndDate     dateEnd = any2Date(endDateStr);
+
+        throw Error("Error");
+    }
+    
+
+}

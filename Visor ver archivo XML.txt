@@ -1,0 +1,117 @@
+public class AP_ViewXML
+{
+
+    public static void main(Args _args)
+    {
+        VendInvoiceJour                  vendInvoiceJour;
+        AP_DTEReceivedXML_CL             dteReceivedXML;
+        AP_DTEEnvioDTEReceivedXML_CL     dteEnvioDTEReceivedXML;
+        //AP_InvoiceReceivedSII          invoiceReceivedSII;
+        Args                             args;
+        Common                           registro;
+        ;
+
+        
+        registro = _args.record();
+
+       /* switch(registro.TableId)
+        {
+            case tablenum(VendInvoiceJour):
+                VendInvoiceJour = registro;
+                dteEnvioDTEReceivedXML = AP_DTEReceivedXML_CL::findByAccessKey(
+                    strFmt("RE%1F%2T%3", VendInvoiceJour.InvoiceAccount, VendInvoiceJour.InvoiceId,
+                    APDocuTypeTable::findDocuType(VendInvoiceJour.APDocuType , APModule::Compras).DocTypeNum));
+                break;
+            case tableNum(AP_DTEReceivedXML_CL):
+                dteReceivedXML = registro;
+                dteEnvioDTEReceivedXML = AP_DTEEnvioDTEReceivedXML_CL::findByAccessKey(
+                    strFmt("RE%1F%2T%3", dteReceivedXML.AccountNum, dteReceivedXML.InvoiceId,dteReceivedXML.CL_CodigoSII));
+
+                break;
+            /*case tableNum(AP_InvoiceReceivedSII):
+                invoiceReceivedSII = registro;
+                dteEnvioDTEReceivedXML = AP_DTEEnvioDTEReceivedXML_CL::findByAccessKey(
+                    strFmt("RE%1F%2T%3", invoiceReceivedSII.InvoiceAccount, invoiceReceivedSII.InvoiceId, invoiceReceivedSII.InvoiceTypeDTE));
+
+                break;*/
+        }*/
+
+        if(registro.RecId)
+            AP_DTEXmlViewer::openXML(registro);
+        else
+
+        info("@AP_Facturador:DTE100");
+
+    }
+
+}
+______________________________
+
+class AP_DTEXmlViewer
+{
+    AP_DTEReceivedXML_CL            dteReceivedXML;
+    AP_EInvoiceJour_CL              emitedXml;
+    AP_DTEEnvioDTEReceivedXML_CL    dteEnvioDTEReceivedXML;
+
+    protected void new(Common _receivedXml)
+    {
+        switch (_receivedXml.TableId)
+        {
+            case tableNum(AP_DTEEnvioDTEReceivedXML_CL) :
+                dteEnvioDTEReceivedXML = _receivedXml;
+                break;
+    
+            case tableNum(AP_EInvoiceJour_CL) :
+                emitedXml  = _receivedXml;
+                break;
+            case tableNum(AP_DTEReceivedXML_CL):
+                dteReceivedXML = _receivedXml;
+                break;
+        }
+    
+    
+    }
+
+    protected void open()
+    {
+        XML                              xmlDocument;
+        AP_DTEEnvioDTEReceivedXMLData_CL dteEnvioDTEReceivedXMLData;
+        Filename                         fileName;
+        
+        #SRSFramework
+    
+        if(dteEnvioDTEReceivedXML)
+        {
+            select XmlDocument from dteEnvioDTEReceivedXMLData
+            where dteEnvioDTEReceivedXMLData.DTEDocumentReceivedXML == dteEnvioDTEReceivedXML.RecId;
+    
+            xmlDocument = dteEnvioDTEReceivedXMLData.XmlDocument;
+            fileName = dteEnvioDTEReceivedXML.DTEId + #xml;
+        }
+        else
+        if(emitedXml)
+        {
+            xmlDocument   = emitedXml.XMLOutgoingSigned;
+            fileName = emitedXml.invoiceId() + #xml;
+        }
+        else
+       if(dteReceivedXML)
+        {
+            xmlDocument  =  AP_DTEReceivedXMLData_CL::findByRecRef(dteReceivedXML.RecId).XMLDocument;
+            fileName     =  dteReceivedXML.InvoiceId + #xml;
+        }
+    
+        System.IO.MemoryStream  ms = new System.IO.MemoryStream (System.Text.Encoding::GetEncoding("iso-8859-1").GetBytes(xmlDocument));
+
+       
+        File::SendFileToUser(ms, fileName);
+
+    }
+
+    public static void openXML(Common _receivedXml)
+    {
+        AP_DTEXmlViewer viewer = new AP_DTEXmlViewer(_receivedXml);
+        viewer.open();
+    }
+
+}

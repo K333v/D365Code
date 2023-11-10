@@ -1,0 +1,167 @@
+public static void createYear(FiscalCalendarRecId _calendarRecId, date _startDate, date _endDate,
+                                    int _periodQty, PeriodUnit _periodUnit, FiscalYearName _fiscalYearName, boolean _validate = true)
+    {
+        Futures                 nextFutures, tempFutures;
+        FiscalCalendarPeriod    fiscalPeriod;
+        FiscalCalendarYear      fiscalYear;
+        date                    start, tempDate;
+        int                     totalPeriods, periodsPerMonth, periodsPerQuarter, periodCount;
+        const str periodName = "@SYS40858";
+        
+        if (_validate && !FiscalCalendars::validateCreateYear(_calendarRecId, _startDate, _endDate, _periodQty, _periodUnit, _fiscalYearName))
+        {
+            return;
+        }
+	//_periodQty = 1 // totalPeriods = 12 //_endDate = 12/31/2025 00:00:00
+        tempFutures = Futures::construct(_startDate, _periodQty, _periodUnit); //01/01/2025 00:00:00, 1, 1
+        totalPeriods = 1;
+        tempDate = tempFutures.next();
+        
+        while (tempDate <= _endDate && tempDate != dateNull())
+        {
+            tempDate = tempFutures.next();
+            totalPeriods++;
+        }
+        
+        #isoCountryRegionCodes
+
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoFR])
+            && totalPeriods > 23
+            && _periodUnit == PeriodUnit::Month)
+        {
+            throw error("@Calendars:FiscalCalendarPeriodsShouldLessThan23");
+        }
+
+        if (tempDate == dateNull())
+        {
+            checkFailed("@SYS98111");
+            return;
+        }
+        
+        ttsbegin;
+        
+        fiscalYear.FiscalCalendar   = _calendarRecId;
+        fiscalYear.StartDate        = _startDate;
+        fiscalYear.EndDate          = _endDate;
+        fiscalYear.Name             = _fiscalYearName;
+        fiscalYear.insert();
+        
+        if (totalPeriods < 12)
+        {
+            periodsPerMonth = 1;
+        }
+        else
+        {
+            periodsPerMonth = real2int(totalPeriods / 12);
+        }
+        
+        if (totalPeriods < 4)
+        {
+            periodsPerQuarter = 1;
+        }
+        else
+        {
+            periodsPerQuarter = real2int(totalPeriods / 4);
+        }
+        
+        int month = 0, quarters = 0, monthPeriodsCount = 1, quarterPeriodsCount = 1;
+        
+        fiscalPeriod.FiscalCalendarYear = fiscalYear.RecId;
+        fiscalPeriod.StartDate          = _startDate;
+        fiscalPeriod.EndDate            = _startDate;
+        fiscalPeriod.Type               = FiscalPeriodType::Opening;
+        fiscalPeriod.Month              = month;
+        fiscalPeriod.Quarter            = quarters;
+        fiscalPeriod.Name = periodName + ' ' + int2str(periodCount);
+        fiscalPeriod.FiscalCalendar     = _calendarRecId;
+        fiscalPeriod.insert();
+        
+        fiscalPeriod.StartDate          = _startDate;
+        fiscalPeriod.Type               = FiscalPeriodType::Operating;
+        
+        nextFutures = Futures::construct(_startDate, _periodQty, _periodUnit);
+        start    = nextFutures.next();
+        
+        while (start <= _endDate)
+        {
+            if (quarterPeriodsCount > periodsPerQuarter && quarters != 3)
+            {
+                quarterPeriodsCount = 1;
+                quarters++;
+            }
+            
+            if (monthPeriodsCount > periodsPerMonth && month != 11)
+            {
+                monthPeriodsCount   = 1;
+                month++;
+            }
+            
+            fiscalPeriod.FiscalCalendarYear = fiscalYear.RecId;
+            fiscalPeriod.Quarter            = quarters;
+            fiscalPeriod.Month              = month;
+            fiscalPeriod.Type               = FiscalPeriodType::Operating;
+            periodCount++;
+            fiscalPeriod.Name = periodName + ' ' + int2str(periodCount);
+            fiscalPeriod.FiscalCalendar     = _calendarRecId;
+
+            if(SysCountryRegionCode::isLegalEntityInCountryRegion([#isoFR]))
+            {
+                fiscalPeriod.EndDate        = Global::dateStartMth(start) - 1;
+            }
+            else
+            {
+                fiscalPeriod.EndDate            = start-1;
+            }
+
+            fiscalPeriod.insert();
+            
+            if(SysCountryRegionCode::isLegalEntityInCountryRegion([#isoFR]))
+            {
+                fiscalPeriod.StartDate = Global::dateStartMth(start);
+            }
+            else
+            {
+                fiscalPeriod.StartDate = start;
+            }
+
+            start = nextFutures.next();
+            monthPeriodsCount++;
+            quarterPeriodsCount++;
+        }
+        
+        fiscalPeriod.EndDate            = _endDate;
+        fiscalPeriod.FiscalCalendarYear = fiscalYear.RecId;
+        
+        if (quarterPeriodsCount > periodsPerQuarter && quarters != 3)
+        {
+            quarters++;
+        }
+        
+        if (monthPeriodsCount > periodsPerMonth && month != 11)
+        {
+            month++;
+        }
+        
+        fiscalPeriod.Quarter            =   quarters;
+        fiscalPeriod.Month              =   month;
+        fiscalPeriod.Type               = FiscalPeriodType::Operating;
+        periodCount++;
+        fiscalPeriod.Name = periodName + ' ' + int2str(periodCount);
+        fiscalPeriod.FiscalCalendar     = _calendarRecId;
+        fiscalPeriod.insert();
+        
+        fiscalPeriod.FiscalCalendarYear = fiscalYear.RecId;
+        fiscalPeriod.StartDate          = _endDate;
+        fiscalPeriod.EndDate            = _endDate;
+        fiscalPeriod.Type               = FiscalPeriodType::Closing;
+        fiscalPeriod.Month              = month;
+        fiscalPeriod.Quarter            = quarters;
+        periodCount++;
+        fiscalPeriod.Name = periodName + ' ' + int2str(periodCount);
+        fiscalPeriod.FiscalCalendar     = _calendarRecId;
+        fiscalPeriod.insert();
+
+        ttscommit;
+
+        FiscalCalendars::createdYear(_calendarRecId, fiscalYear.RecId);
+    }

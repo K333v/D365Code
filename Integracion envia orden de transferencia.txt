@@ -1,0 +1,873 @@
+JSON:
+{
+    "contract": {
+        "Empresa": "3164f5ee-de98-ec11-b400-000d3ab01099",
+        "Encabezado": {
+            "NumTransferencia": "OT-000110",
+        }
+    }
+}
+
+___________________________________________________
+
+final class UFTTransferOrderReceiveSenderIntegration
+{
+    UFTCompanyMapping                           companyMapping;
+
+
+    
+
+
+    [AifCollectionTypeAttribute('_request', Types::Class, classStr(UFTReceiveTransferOrderContract)),
+     AifCollectionTypeAttribute('return', Types::Class, classStr(UFTTransferOrderResponseServiceContract))]
+    public List ReceiveTransferOrderProcess(UFTReceiveTransferOrderContract  contract)
+    {
+        List                                        response = new List(Types::Class) ;
+        CompanyInfo                                 companyInfo;
+        ListEnumerator                              keysEnumerator,responseEnumerator;
+        System.Exception                            generalEx;
+        SysInfoLogEnumerator                        infoLogEnum;
+        SysInfologMessageStruct                     infoMessageStruct;
+        str                                         infoerror;
+        UFTTransferOrderResponseServiceContract     responseContract;
+        List                                        custTableList;
+        str                                         responseStr;
+        int                                         counterLine = 0;
+        boolean                                     ret;
+        InventTransferTable                         transferTable;
+        UFTCompanyMapping                           companyMap;
+        
+
+        ListEnumerator                              keysEnumLine;
+
+
+        if(contract)
+        {
+               
+            companyMap = UFTCompanyMapping::findByExternalCompany(contract.parmIdSociedadFO());
+            companyInfo = companyInfo::findDataArea(companyMap.LegalEntityD365);
+
+            if(companyInfo)
+            {
+                changecompany(companyInfo.DataArea)
+                {
+
+                    try
+                    {
+                       
+                        transferTable = UFTProcessTransferOrderReceiveIntegration::processTransferOrderReceive(contract);
+
+
+                        if(transferTable.RecId)
+                        {
+                            responseContract = new UFTTransferOrderResponseServiceContract();
+                            responseContract.parmIdMessage(1);
+                            responseContract.parmMessage(strFmt("@UFINET_AP_BR:UFT8091IGN012",transferTable.UFTDocumentPhoenix,transferTable.TransferId));
+                            responseContract.parmStatusMessage(strFmt("true"));
+                            responseContract.parmTransferOrder(transferTable.TransferId);
+                            response.addEnd(responseContract);
+
+                            UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::ReceiveTransferOrder,strFmt("@UFINET_AP_BR:UFT8091IGN012",transferTable.UFTDocumentPhoenix,transferTable.TransferId));
+                        }
+
+                    }
+                    catch (generalEx)
+                    {
+                        infoLogEnum = SysInfoLogEnumerator::newData(infolog.infologData());
+                        while(infoLogEnum.moveNext())
+                        {
+                            counterLine++;
+
+                            infoMessageStruct = SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                            infoerror += infoMessageStruct.message() + ' ';
+                        }
+                            responseContract = new UFTTransferOrderResponseServiceContract();
+                            responseContract.parmIdMessage(counterLine);
+                            responseContract.parmStatusMessage("false");
+                        responseContract.parmMessage(strFmt('@UFINET_AP_BR:UFT8091IGN011',contract.parmHeader().parmTransferId(),infoerror));
+                            responseContract.parmTransferOrder(transferTable.TransferId);
+                            response.addEnd(responseContract);
+
+                                
+
+                        UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::ReceiveTransferOrder,strFmt("@UFINET_AP_BR:UFT8091IGN011",contract.parmHeader().parmTransferId(),infoerror));
+
+                        
+                        ttsabort;
+                    }
+                }
+
+            }
+            
+            else
+            {
+                responseContract = new UFTTransferOrderResponseServiceContract();
+                responseContract.parmIdMessage(counterLine+1);
+                responseContract.parmStatusMessage("false");
+                responseContract.parmMessage(strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId()));
+                response.addEnd(responseContract);
+
+
+                UFTProcessTransferOrderIntegration::customerLogCreate(UFTIntegrationStatus::Error,UFTIntegrationType::ReceiveTransferOrder,strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId()));
+            }
+            
+        }
+
+
+        return response;
+    }
+
+    public boolean validateCompany(UFTReceiveTransferOrderContract contract)
+    {
+        boolean ret;
+
+        companyMapping = UFTCompanyMapping::findByExternalCompany(contract.parmIdSociedadFO());
+
+        if(companyMapping.RecId)
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN004", contract.parmIdSociedadFO(), contract.parmHeader().parmTransferId()));
+        }
+          
+        return ret;
+    }
+
+}
+
+_______________________________________________
+
+[DataContractAttribute]
+class UFTReceiveTransferOrderContract
+{
+    UFTAccountIdCRM                                 accountCRM;
+    str                                             companyId;
+    UFTReceiveTransferOrderHeaderContract           transferOrderHeaderList;
+
+   
+
+    /// </summary>
+    /// <param name="companyId"></param>
+    [DataMemberAttribute('Empresa')]
+    public str parmIdSociedadFO(str _accountCRM = accountCRM)
+    {
+        accountCRM = _accountCRM;
+        return accountCRM;
+    }
+
+    [DataMemberAttribute('Encabezado'),
+    AifCollectionType("transferOrderheaderList", Types::Class, classStr(UFTReceiveTransferOrderHeaderContract)),
+    AifCollectionType("return", Types::Class, classStr(UFTReceiveTransferOrderHeaderContract))]
+    public UFTReceiveTransferOrderHeaderContract parmHeader(UFTReceiveTransferOrderHeaderContract _transferOrderHeaderList = transferOrderHeaderList)
+    {
+        transferOrderHeaderList = _transferOrderHeaderList;
+        return transferOrderHeaderList;
+    }
+
+}
+
+_____________________________________________________
+
+[DataContractAttribute]
+class UFTTransferOrderResponseServiceContract
+{
+    int                             idMessage;
+    str                             statusMessage;
+    str                             Message;
+    str                             transferOrder;
+
+    /// </summary>
+    /// <param name="idMessage"></param>
+    [DataMemberAttribute('$id')]
+    public int parmIdMessage(int _idMessage = idMessage)
+    {
+        idMessage = _idMessage;
+        return idMessage;
+    }
+
+    /// </summary>
+    /// <param name="statusMessage"></param>
+    [DataMemberAttribute('parmStatus')]
+    public str parmStatusMessage(str _statusMessage = statusMessage)
+    {
+        statusMessage = _statusMessage;
+        return statusMessage;
+    }
+
+    /// </summary>
+    /// <param name="statusMessage"></param>
+    [DataMemberAttribute('parmMessage')]
+    public str parmMessage(str _Message = Message)
+    {
+        Message = _Message;
+        return Message;
+    }
+
+    /// </summary>
+    /// <param name="transferOrder"></param>
+    [DataMemberAttribute('numorden')]
+    public str parmTransferOrder(str _transferOrder = transferOrder)
+    {
+        transferOrder = _transferOrder;
+        return transferOrder;
+    }
+
+}
+
+____________________________________________
+
+class UFTProcessTransferOrderIntegration
+{
+    
+    InventLocation                      inventLocation;
+    UFTTransferOrderContract            parmContract;
+    InventTransferLine                  inventTransFerLine;
+    InventTransferTable                 inventTransferTable;
+    NumberSeq                           numberSeq;
+    Num                                 lastNumber;
+    
+    #define.FiscalEst('Matriz')
+    #define.FiscalTypeDoc('NF-e')
+
+
+    /// <summary>
+    /// Log TransferOrder 
+    /// </summary>
+    /// <param name = ""></param>
+    public static void customerLogCreate(UFTIntegrationStatus _IntegrationStatus,UFTIntegrationType _type, str _message)
+    {
+        UFTIntegrationProcessingLog                 integrationProcessingLog;
+
+        ttsbegin;
+        integrationProcessingLog.clear();
+        integrationProcessingLog.IntegrationType     = _type;
+        integrationProcessingLog.IntegrationStatus   = _IntegrationStatus;
+        integrationProcessingLog.ProcessDateTime     = DateTimeUtil::utcNow();
+        integrationProcessingLog.ExternalApplication = UFTIntegrationExternalApplicationType::Phoenix;
+        integrationProcessingLog.Message             = _message;
+        integrationProcessingLog.insert();
+        ttscommit;
+    }
+
+    /// <summary>
+    /// Process TransferOrder
+    /// </summary>
+    /// <param name = ""></param>
+    public static InventTransferTable processTransferOrderCreate(UFTTransferOrderContract contract)
+    {
+        InventTransferTable                 transferOrder;
+        UFTProcessTransferOrderIntegration  integration = new UFTProcessTransferOrderIntegration();
+
+        integration.initFromArgs(contract);
+
+        if(integration.validateHeader() && integration.validateLine())
+        {
+            transferOrder = integration.run();
+        }
+
+        else if(!transferOrder.RecId)
+        {
+            throw error(strFmt(""));//"@Budget:BudgetControlEventLevelError", contract.parmHeaderList().parmDocRef()));
+        }
+
+        else 
+        {
+            throw error(strFmt(""));//"@Budget:BudgetControlEventLevelError", contract.parmHeaderList().parmDocRef()));
+        }  
+
+        return transferOrder;
+    }
+
+    public InventTransferTable  run()
+    {
+        System.Exception                            generalEx;
+
+        try
+        {
+            inventTransferTable = this.createTransferHeader();
+
+            if(inventTransferTable.RecId)
+            {
+                this.createFiscalDocumentBR();
+                this.createInventTransferTableFiscalInfo_BR();
+
+                ttsbegin;
+                this.createLines();
+                ttscommit;
+
+                this.sendTransferOrder();
+            }
+
+            else
+                throw error(strFmt(""));//(strFmt("@Budget:BudgetControlEventLevelError"));
+        }
+
+        catch( generalEx)
+        {
+            ttsabort;
+
+            if(inventTransferTable.RecId)
+            {
+                UFTProcessTransferOrderIntegration::deleteTransfers(inventTransferTable.TransferId);
+                inventTransferTable = null;
+               
+            }
+            throw error(strFmt(""));//(strFmt("@Budget:BudgetControlEventLevelError"));
+        }
+
+        return    inventTransferTable;
+
+    }
+
+    public void createInventTransferTableFiscalInfo_BR()
+    {
+        InventTransferTableFiscalInfo_BR            inventTransferTableFiscalInfo_BR;
+
+
+        try
+        {
+            ttsbegin;
+            inventTransferTableFiscalInfo_BR.initValue();
+            inventTransferTableFiscalInfo_BR.FreightChargeTerms      =   WMSFreightChargeTerms::Prepaid;
+            inventTransferTableFiscalInfo_BR.InventTransferTable     =   inventTransferTable.RecId;
+            inventTransferTableFiscalInfo_BR.FreightedBy             =   WMSFreightedBy::Carrier;
+            inventTransferTableFiscalInfo_BR.InventTransferOrderType =   InventTransferOrderType_BR::FiscalEstablishmentTransfer;
+            inventTransferTableFiscalInfo_BR.ShipFiscalDocumentType_BR = FiscalDocumentType_BR::find(#FiscalTypeDoc,#FiscalEst).RecId;
+            inventTransferTableFiscalInfo_BR.SalesCarrier               = SalesCarrier::find(parmContract.parmHeaderList().parmTransportista()).CarrierName;
+            inventTransferTableFiscalInfo_BR.insert();
+            ttscommit;
+        }
+
+
+        catch(Exception::Error)
+        {
+            ttsabort;
+            throw error(strFmt("@Budget:BudgetControlEventLevelError"));
+        }
+    }
+
+    public void createFiscalDocumentBR()
+    {
+        InventTransferParmTable                 inventTransferParmTable;
+        InventTransferUpdShip                   inventTransferUpdShip;
+        InventTransferTable                      invTransferTable;
+        DocuRef                                 docuRef;
+        DocuRefExt_BR                           docuRefExtBR;
+        FiscalDocumentSourceText_BR fiscalDocumentSourceText;
+
+
+        fiscalDocumentSourceText = FiscalDocumentSourceText_BR::findByTextID("TRANSF");
+
+
+        invTransferTable =  InventTransferTable::find(inventTransferTable.TransferId);
+
+
+        ttsbegin;
+        docuRef.clear();
+        docuRef.TypeId      = BrazilParameters::find().FiscalDocumentTextDocuTypeId;
+        docuRef.RefTableId = invTransferTable.TableId;
+        docuRef.RefRecId = invTransferTable.RecId;
+        docuRef.RefCompanyId = invTransferTable.DataAreaId;
+
+        docuRef.Name                    = fiscalDocumentSourceText.Name;
+        docuRef.Notes                   =  parmContract.parmHeaderList().parmObservaciones() != ""?parmContract.parmHeaderList().parmObservaciones():fiscalDocumentSourceText.Notes;
+        docuRef.Restriction             = fiscalDocumentSourceText.Restriction;
+        docuRef.insert();
+        ttscommit;
+
+
+
+        if(docuRef.RecId)
+        {
+            ttsbegin;
+            docuRefExtBR.clear();
+            docuRefExtBR.Type  = FiscalDocumentTextType_BR::UserDef;
+            docuRefExtBR.FiscalInformation    = fiscalDocumentSourceText.FiscalInformation;
+            docuRefExtBR.TextID               = fiscalDocumentSourceText.TextID;   ////  parmContract.parmHeaderList().parmObservaciones();
+            docuRefExtBR.DocuRef              = docuRef.RecId;
+            docuRefExtBR.initProcessReference();
+
+            docuRefExtBR.insert();
+
+            ttscommit;
+        }
+    }
+
+    public void  createInventTransferLineFiscalInfo(InventTransferLine  _line)
+    {
+        InventTransferLineFiscalInfo_BR             fiscalInfo;
+
+        select firstonly forupdate fiscalInfo
+            where fiscalInfo.InventTransferLine == _line.RecId;
+        try 
+        {
+            ttsbegin;
+            if(!fiscalInfo.RecId)
+            {
+                fiscalInfo.clear();
+                fiscalInfo.initValue();
+                fiscalInfo.InventTransferTable = inventTransferTable.TransferId;
+                fiscalInfo.InventTransferLine  = _line.RecId;
+            }
+            fiscalInfo.setShipDefaultCFOP_BR();
+            fiscalInfo.setShipTaxGroupsFromCFOP();
+            fiscalInfo.setPriceFromInventDim();
+            //20230712 - UFT_8091_CCIGIN_002_INT_FILIAL - KCL - Start
+            if (fiscalInfo.ShipCFOPTable_BR)
+            {
+                fiscalInfo.ReceiveCFOPTable_BR = InventTransferOrderCFOPMapping_BR::getReceiveCFOP(fiscalInfo.ShipCFOPTable_BR);
+                fiscalInfo.setReceiveTaxGroupsFromCFOP();
+                fiscalInfo.ReceivePrice = fiscalInfo.ShipPrice;                  
+            }
+            //20230712 - UFT_8091_CCIGIN_002_INT_FILIAL - KCL - End
+            fiscalInfo.write();
+            ttscommit;
+        }
+
+        catch(Exception::Error)
+        {
+            ttsabort;
+            throw error(strFmt("@Budget:BudgetControlEventLevelError"));
+        }
+            
+
+    }
+
+    /// <summary>
+    /// Send TransferOrder
+    /// </summary>
+    /// <param name = ""></param>
+    public void sendTransferOrder()
+    {
+        InventTransferParmTable                 inventTransferParmTable;
+        InventTransferUpdShip                   inventTransferUpdShip;
+
+
+        try
+        {   ttsbegin;
+
+            inventTransferParmTable.clear();
+            inventTransferParmTable.initParmDefault();
+            inventTransferParmTable.ParmId = RunBaseMultiParm::getSysParmId();
+            inventTransferParmTable.TransferId = inventTransferTable.TransferId;
+            inventTransferParmTable.PickUpdateQty =  InventTransferPickUpdateQty::ShipNow;
+            inventTransferParmTable.PrintTransferReceipt = NoYes::No;
+            inventTransferParmTable.ShipUpdateQty = InventTransferShipUpdateQty::All;
+            inventTransferParmTable.EditLines = NoYes::Yes;
+            inventTransferParmTable.ExplodeLines = NoYes::No;
+            inventTransferParmTable.LineNum = 1;
+            inventTransferParmTable.JobStatus =  ParmJobStatus::Executed;
+            inventTransferParmTable.TransDate = today(); //shipment date
+            inventTransferParmTable.InventDimFixedReceiveList = 0;
+            inventTransferParmTable.LicenseCardType_RU = LicenseCardType_RU::Standard;
+            inventTransferParmTable.TransferType_RU = InventTransferType_RU::Standard;
+            inventTransferParmTable.TransportInvoiceType_RU = TransportInvoiceType_RU::Invoice;
+            inventTransferParmTable.TransportationPayerType_RU = TransportationPayerType_RU::Consignor;
+            inventTransferParmTable.insert();
+
+            if (InventTransferParmTableFiscalInfo_BR::shouldCreateFiscalInfoParm(inventTransferTable))
+            {
+                InventTransferParmTableFiscalInfo_BR inventTransferParmTableFiscalInfo_BR;
+
+                inventTransferParmTableFiscalInfo_BR.initFromParmTable(inventTransferParmTable, inventTransferTable);
+
+                InventTransferParmTableFiscalInfo_BR.insert();
+            }
+            
+
+            inventTransferUpdShip = InventTransferUpdShip::newParmBuffer(inventTransferParmTable);
+            inventTransferUpdShip.run();
+
+            ttscommit;
+        }
+
+
+        catch(Exception::Error)
+        {
+            ttsabort;
+
+            throw error(strFmt("@Budget:BudgetControlEventLevelError"));
+        }
+    }
+
+    /// <summary>
+    /// Delete transfer order
+    /// </summary>
+    /// <param name = "_inventTransferId">Invent transfer id</param>
+    public static void deleteTransfers(InventTransferId _inventTransferId)
+    {
+        InventTransferTable  inventTransferHeader;
+        InventTransferLine   inventTransferDetail;
+        ;
+    
+        ttsbegin;
+        inventTransferDetail.skipDataMethods(true);
+        delete_from inventTransferDetail
+            where inventTransferDetail.TransferId == _inventTransferId;
+        
+        inventTransferHeader.skipDataMethods(true);
+        delete_from inventTransferHeader
+            where inventTransferHeader.TransferId== _inventTransferId;
+        ttscommit;
+    }
+
+    /// <summary>
+    ///    Initializes an instance of the <c>NumberSeq</c> class by using the class ID.
+    /// </summary>
+    /// <param name="_packedClass">
+    ///    A <c>container</c> with the packed <c>NumberSeq</c> class.
+    /// </param>
+    /// <param name="_classId">
+    ///    The class ID of the <c>NumberSeq</c> class.
+    /// </param>
+    protected void initNumberSeqFromContainer(
+        container   _packedClass,
+        ClassId     _classId)
+    {
+        //this is assuming that we pass in the correct classId the first time we call this.
+        if (!numberSeq)
+        {
+            this.constructNumberSeqFromClassId(_classId);
+        }
+
+        numberSeq.unpack(_packedClass);
+    }
+
+    /// <summary>
+    ///    Creates an instance of the <c>NumberSeq</c> class from the class ID.
+    /// </summary>
+    /// <param name="_classId">
+    ///    The class ID for which to use to create the instance of the <c>NuberSeq</c> class.
+    /// </param>
+    /// <remarks>
+    ///    This class supports inheritance from the base class.
+    /// </remarks>
+    /// <exception cref="M:Exception::Error">
+    ///    Raised when the class ID is unknown. Modify this method when you extend the <c>NumberSeq</c> and
+    ///    want to work with the <c>NumberSeqFormHandler</c> class.
+    /// </exception>
+    protected void constructNumberSeqFromClassId(ClassId _classId)
+    {
+        if (_classId == classNum(NumberSeq))
+        {
+            numberSeq = NumberSeq::constructCalledFrom();
+        }
+        else if (_classId == classNum(NumberSeq_Fast))
+        {
+            numberSeq = NumberSeq_Fast::constructCalledFrom();
+        }
+        else
+        {
+            throw error(Error::wrongUseOfFunction(funcName()));
+        }
+    }
+
+    /// <summary>
+    /// Create transfer order header
+    /// </summary>
+    public InventTransferTable createTransferHeader()
+    {
+        boolean                                     ret;
+        ListEnumerator                              keysEnumerator;
+        //List                                        headerList = new List(Types::Class);
+        UFTTransferOrderHeaderContract              contractHeader;
+        InventTransferTable                         inventTransferLocal;
+        //InventLocation                              inventLocation;
+        NumberSeq                                   numSeq;
+        InventTransferId                            transferId;
+        NumberSequenceReference                     numberSequenceReference;
+        SysLastValue                                nextNumSeq;
+        container                                   packedClass;
+        ClassId                                     classId;
+
+       
+        contractHeader = parmContract.parmHeaderList();
+
+        numberSequenceReference = InventParameters::numRefTransferId();
+
+        nextNumSeq.Value = conNull();
+        //do this in one server go
+        [packedClass,classId] = NumberSeq::newGetNumFromIdPacked(numberSequenceReference.numberSequenceTable().RecId,
+                                                 true,
+                                                 false,
+                                                 nextNumSeq,
+                                                  true);
+
+        this.initNumberSeqFromContainer(packedClass,classId);
+
+        if (numberSeq)
+        {
+            [lastNumber] = nextNumSeq.Value;
+            
+            transferId = lastNumber;
+        }
+
+
+                    
+        if (InventTransferTable::exist(transferId))
+        {
+           
+            throw error("@SYS23020");
+        }
+
+
+        try
+        {
+            ttsbegin;
+            //Create header
+            inventTransferLocal.clear();
+            inventTransferLocal.TransferId = transferId;
+       
+
+            select InventLocationIdTransit, InventSiteId from inventLocation
+                where inventLocation.InventLocationId == contractHeader.parmLocationFrom();
+
+            inventTransferLocal.InventLocationIdFrom    = contractHeader.parmLocationFrom();
+            inventTransferLocal.modifiedField(fieldNum(InventTransferTable,InventLocationIdFrom));
+            inventTransferLocal.InventLocationIdTransit = inventLocation.InventLocationIdTransit;
+            inventTransferLocal.InventLocationIdTo      = contractHeader.parmLocationTo();
+            inventTransferLocal.modifiedField(fieldNum(InventTransferTable,InventLocationIdTo));
+            inventTransferLocal.ShipDate                = today();
+            inventTransferLocal.ReceiveDate             = today();
+            inventTransferLocal.Transport               = contractHeader.parmTransportista();
+            inventTransferLocal.UFTDocumentPhoenix      = contractHeader.parmDocRef();
+            inventTransferLocal.TransferStatus          = InventTransferStatus::Created;
+        
+            if(inventTransferLocal.validateWrite())
+            {
+                inventTransferLocal.insert();
+                ttscommit;
+            }
+
+
+            else
+                throw error(strFmt(""));//(strFmt("@Budget:BudgetControlEventLevelError"));
+            
+        }
+
+
+        catch(Exception::Error)
+        {
+            ttsabort;
+            throw error(strFmt(""));//(strFmt("@Budget:BudgetControlEventLevelError"));
+        }
+       
+
+        return inventTransferLocal;
+    }
+
+    /// <summary>
+    /// create dimensionCECO
+    /// </summary>
+    public InventSiteLinkedDimensionValueSet   createDefaulDimensionCECO(str dimensionCECO)
+    {
+        DimensionAttributeValueSetStorage   valueSetStorage = new DimensionAttributeValueSetStorage();
+        DimensionDefault                    result;
+        int                                 i;
+        DimensionAttribute                  dimensionAttribute;
+        DimensionAttributeValue             dimensionAttributeValue;
+
+        dimensionAttribute = dimensionAttribute::findByName("CECO");
+
+        // The last parameter is “true”. A dimensionAttributeValue record will be created if not //found.
+        dimensionAttributeValue =
+            dimensionAttributeValue::findByDimensionAttributeAndValue(dimensionAttribute,dimensionCECO,false,true);
+        // Add the dimensionAttibuteValue to the default dimension
+        valueSetStorage.addItem(dimensionAttributeValue);
+
+        result = valueSetStorage.save();
+
+        return result;
+        
+    }
+
+    /// <summary>
+    /// create dimennsionFrom  or dimensionTo
+    /// </summary>
+    public InventSiteLinkedDimensionValueSet   createDefaulDimensionFromOrTo(InventSiteLinkedDimensionValueSet dimensionCECO, InventSiteLinkedDimensionValueSet dimensionInterco, InventSiteLinkedDimensionValueSet dimensionTransferLine)
+    {
+        DimensionAttributeValueSetStorage   valueSetStorage = new DimensionAttributeValueSetStorage();
+        DimensionDefault                    result;
+        int                                 i;
+        DimensionAttribute                  dimensionAttribute;
+        DimensionAttributeValue             dimensionAttributeValue;
+
+        result =   LedgerDimensionDefaultFacade::serviceMergeDefaultDimensions(dimensionCECO,dimensionInterco,dimensionTransferLine);
+               
+        return result;
+        
+    }
+
+    /// <summary>
+    /// create transfer order lines
+    /// </summary>
+    public void createLines()
+    {
+        boolean                                     ret;
+        ListEnumerator                              keysEnumerator;
+        List                                        lineList = new List(Types::Class);
+        UFTTransferOrderLineContract                contractLine;
+        InventTable                                 inventTable;
+        InventBatch                                 inventBatchTable;
+        InventSerial                                inventSerialtable;
+        InventDim                                   inventDimLocal;
+        DimensionDefault                            dimensionCECO;
+
+
+        lineList = parmContract.parmLinesList();
+        keysEnumerator = lineList.getEnumerator();
+
+                
+        while(keysEnumerator.moveNext())
+        {
+            contractLine = keysEnumerator.current();
+
+            inventTable = InventTable::find(contractLine.parmItemId());
+            inventBatchTable = InventBatch::find(contractLine.parmInventBatchId(), contractLine.parmItemId());
+            inventSerialtable = InventSerial::find(contractLine.parmInventSerialId(), contractLine.parmItemId());
+
+            
+
+            inventTransferLine.clear();
+            inventTransferLine.initFromInventTransferTable(inventTransferTable,NoYes::Yes);
+            inventTransferLine.ItemId           = contractLine.parmItemId();
+            inventTransferLine.modifiedField(fieldNum(InventTransferLine,ItemId));
+            inventTransFerLine.LineNum          = contractLine.parmLineNum();
+            inventTable                         = InventTable::find(InventTransferLine.ItemId);
+            inventTransferLine.initFromInventTable(inventTable);
+            inventTransferLine.QtyTransfer      = contractLine.parmInventQty();
+            inventTransferLine.QtyRemainReceive = contractLine.parmInventQty();
+            inventTransferLine.QtyRemainShip    = contractLine.parmInventQty();
+            inventTransferLine.QtyShipNow       = contractLine.parmInventQty();
+            inventTransferLine.UnitId           = inventTable.inventTableModuleInvent().UnitId;//inventTableModule;
+            
+            dimensionCECO = this.createDefaulDimensionCECO(contractLine.parmCECO());
+            inventTransferLine.DimensionDefaultShipFrom = this.createDefaulDimensionFromOrTo(dimensionCECO,InventParameters::find().UFTDefaultDimension,inventTransFerLine.DimensionDefaultShipFrom);
+            inventTransFerLine.DimensionDefaultShipTo   = this.createDefaulDimensionFromOrTo(dimensionCECO,InventParameters::find().UFTDefaultDimension,inventTransFerLine.DimensionDefaultShipTo);
+
+            inventDimLocal = InventDim::find(inventTransFerLine.InventDimId);
+            inventDimLocal.inventBatchId = contractLine.parmInventBatchId();
+            inventDimLocal.inventSerialId = contractLine.parmInventSerialId();
+            inventDimLocal = InventDim::findOrCreate(inventDimLocal);
+
+            inventTransferLine.InventDimId = inventDimLocal.inventDimId;
+            
+            inventTransferLine.insert();
+
+
+            if(inventTransFerLine.RecId)
+            {
+                this.createInventTransferLineFiscalInfo(inventTransFerLine);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Init from  args
+    /// </summary>
+    public void initFromArgs(UFTTransferOrderContract contract)
+    {
+        parmContract = contract;
+    }
+
+    /// <summary>
+    /// Validare transfer order header
+    /// </summary>
+    public boolean validateHeader()
+    {
+        boolean                                     ret =  true;
+        ListEnumerator                              keysEnumerator;
+        UFTTransferOrderHeaderContract              contractHeader;
+        
+
+        
+
+        contractHeader = parmContract.parmHeaderList();
+
+
+        SalesCarrier                                salesCarrier = SalesCarrier::find(contractHeader.parmTransportista());
+
+        inventLocation = InventLocation::find(contractHeader.parmLocationFrom());
+
+        if(!inventLocation.RecId)
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN005", contractHeader.parmLocationFrom(), contractHeader.parmDocRef()));
+        }
+
+        inventLocation = InventLocation::find(contractHeader.parmLocationTo());
+
+        if(!inventLocation.RecId)
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN005", contractHeader.parmLocationTo(), contractHeader.parmDocRef()));
+        }
+
+
+        if(!salesCarrier.RecId)
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN020", contractHeader.parmTransportista(), contractHeader.parmDocRef()));
+        }
+
+        if(contractHeader.parmDocRef() == "")
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN021", contractHeader.parmDocRef(), contractHeader.parmDocRef()));
+        }
+
+       /* if(contractHeader.parmObservaciones() == "")
+        {
+            ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN022", contractHeader.parmObservaciones(), contractHeader.parmDocRef()));
+        }  */
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Validate transfer order line
+    /// </summary>
+    public boolean validateLine()
+    {
+        boolean                                     ret = true;
+        ListEnumerator                              keysEnumerator;
+        List                                        lineList = new List(Types::Class);
+        UFTTransferOrderLineContract                contractLine;
+        InventTable                                 inventTable;
+        InventBatch                                 inventBatchTable;
+        InventSerial                                inventSerialtable;
+
+
+        lineList = parmContract.parmLinesList();
+        keysEnumerator = lineList.getEnumerator();
+
+                
+        while(keysEnumerator.moveNext())
+        {
+            contractLine = keysEnumerator.current();
+
+            inventTable = InventTable::find(contractLine.parmItemId());
+            inventBatchTable = InventBatch::find(contractLine.parmInventBatchId(), contractLine.parmItemId());
+            inventSerialtable = InventSerial::find(contractLine.parmInventSerialId(), contractLine.parmItemId());
+
+            if(!inventTable.RecId)
+            {
+                ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN007", contractLine.parmInventBatchId(), parmContract.parmHeaderList().parmDocRef()));
+            }
+
+
+            if(!inventBatchTable.RecId && (contractLine.parmInventBatchId() != ""))
+            {
+                ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN006", contractLine.parmInventBatchId(), parmContract.parmHeaderList().parmDocRef()));
+            }
+
+            if(!inventSerialtable.RecId && (contractLine.parmInventSerialId() != ""))
+            {
+                ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN008", contractLine.parmInventBatchId(), parmContract.parmHeaderList().parmDocRef()));
+            }
+            //20230712 - UFT_8091_CCIGIN_002_INT_FILIAL - KCL - Start
+            if (!contractLine.parmInventQty() || contractLine.parmInventQty() == 0)
+            {
+                ret = checkFailed(strFmt("@UFINET_AP_BR:UFT8091IGN0030"));
+            }
+            //20230712 - UFT_8091_CCIGIN_002_INT_FILIAL - KCL - End
+        }
+
+        return ret;
+    }
+
+}

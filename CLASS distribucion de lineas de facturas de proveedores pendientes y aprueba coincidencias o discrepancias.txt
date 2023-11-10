@@ -1,0 +1,388 @@
+/// <summary>
+/// 20230627 - UFT_WI8120_SplitLinesPurchaseInvoice - KCL
+/// </summary>
+public class UFTVendEditInvoiceLineDistributionForm
+{
+    VendInvoiceInfoLine     invoiceInfoLine;
+
+    /// <summary>
+    /// Construct of the class
+    /// </summary>
+    /// <returns>UFTVendEditInvoiceLineDistributionForm</returns>
+    protected static UFTVendEditInvoiceLineDistributionForm construct()
+    {
+        return new UFTVendEditInvoiceLineDistributionForm();
+    }
+
+    /// <summary>
+    /// Creates a new instance of the <c>UFTVendEditInvoiceLineDistributionForm</c> class that has the given
+    /// <c>VendInvoiceInfoLine</c> table.
+    /// </summary>
+    /// <param name="_invoiceInfoLine">
+    ///    A <paramref name="_invoiceInfoLine" /> object based on the <c>UFTVendEditInvoiceLineDistributionForm</c> class.
+    /// </param>
+    /// <returns>
+    ///    A <c>UFTVendEditInvoiceLineDistributionForm</c> object.
+    /// </returns>
+    public static UFTVendEditInvoiceLineDistributionForm newFromVendInvoiceInfoLine(VendInvoiceInfoLine _invoiceInfoLine)
+    {
+        UFTVendEditInvoiceLineDistributionForm vendEditInvoiceLineDistributionForm;
+
+        if (!_invoiceInfoLine)
+        {
+            throw error(Error::wrongUseOfFunction(funcname()));
+        }
+
+        switch (_invoiceInfoLine.TableId)
+        {
+            case tablenum(VendInvoiceInfoLine):
+                vendEditInvoiceLineDistributionForm = UFTVendEditInvoiceLineDistributionForm::construct();
+                vendEditInvoiceLineDistributionForm.parmVendInvoiceInfoLine(_invoiceInfoLine);
+                break;
+        }
+
+        return vendEditInvoiceLineDistributionForm;
+    }
+
+    /// <summary>
+    /// Get VendInvoiceInfoLine table
+    /// </summary>
+    /// <param name = "_invoiceInfoLine">VendInvoiceInfoLine</param>
+    /// <returns>VendInvoiceInfoLine</returns>
+    public VendInvoiceInfoLine parmVendInvoiceInfoLine(VendInvoiceInfoLine _invoiceInfoLine = invoiceInfoLine)
+    {
+        invoiceInfoLine = _invoiceInfoLine;
+        return invoiceInfoLine;
+    }
+
+    /// <summary>
+    /// Populates records in the VendInvoiceInfoLine table from UFTVendEditInvoiceLineDistributionTmp table
+    /// </summary>
+    /// <param name = "_invoiceLineDistributionTmp">UFTVendEditInvoiceLineDistributionTmp</param>
+    public void populateDistributionRows(UFTVendEditInvoiceLineDistributionTmp _invoiceLineDistributionTmp)
+    {
+        UFTVendEditInvoiceLineDistributionTmp  invoiceLineDistributionTmpLocal = _invoiceLineDistributionTmp;
+        VendInvoiceInfoLine                    vendInvoiceLine;
+        int                                    qty;
+        
+        
+        select maxof(LineNum) from vendInvoiceLine
+            where vendInvoiceLine.OrigPurchId == invoiceInfoLine.OrigPurchId
+            && vendInvoiceLine.InvoiceAccount == invoiceInfoLine.InvoiceAccount;
+        
+        //Create reverse record from original record
+        qty++;
+        this.insertVendInvoiceInfoLine(invoiceInfoLine, null, abs(vendInvoiceLine.LineNum + qty), true);
+
+        //Create other lines from Distribution
+        while select invoiceLineDistributionTmpLocal
+            where invoiceLineDistributionTmpLocal.OrigPurchId == invoiceInfoLine.OrigPurchId
+            && invoiceLineDistributionTmpLocal.VendInvoiceRefRecId == invoiceInfoLine.RecId
+        {
+            qty++;
+            this.insertVendInvoiceInfoLine(invoiceInfoLine, invoiceLineDistributionTmpLocal, abs(vendInvoiceLine.LineNum + qty));                    
+        }
+
+    }
+
+    /// <summary>
+    /// Generate Pending Invoice Line
+    /// </summary>
+    /// <param name = "_invoiceLine">VendInvoiceInfoLine</param>
+    /// <param name = "_distributionTmp">UFTVendEditInvoiceLineDistributionTmp</param>
+    /// <param name = "_lineNum">LineNum</param>
+    /// <param name = "_firstRecord">boolean</param>
+    public void insertVendInvoiceInfoLine(VendInvoiceInfoLine _invoiceLine, UFTVendEditInvoiceLineDistributionTmp _distributionTmp, LineNum _lineNum, boolean _firstRecord = false)
+    {
+        VendInvoiceInfoLine     vendInvoiceInfoLineNew;
+
+        vendInvoiceInfoLineNew.clear();
+        vendInvoiceInfoLineNew.data(_invoiceLine);
+        vendInvoiceInfoLineNew.RecId                  = 0;        
+        vendInvoiceInfoLineNew.InventNow              = 0;
+        vendInvoiceInfoLineNew.PurchLineRecId         = 0;
+        vendInvoiceInfoLineNew.OrigPurchId            = "";
+        vendInvoiceInfoLineNew.LineNum                = _lineNum;
+        vendInvoiceInfoLineNew.PurchUnit              = _invoiceLine.PurchUnit;
+        vendInvoiceInfoLineNew.DefaultDimension       = PurchLine::findRecId(_invoiceLine.PurchLineRecId).DefaultDimension;
+        vendInvoiceInfoLineNew.InventTransId          = "";
+        vendInvoiceInfoLineNew.PurchaseLineLineNumber = 0;
+        vendInvoiceInfoLineNew.RemainBefore           = 0;
+        vendInvoiceInfoLineNew.RemainBeforeInvent     = 0;
+        vendInvoiceInfoLineNew.SourceDocumentLine     = 0;
+                
+        
+        if (_firstRecord)
+        {  
+            vendInvoiceInfoLineNew.TaxItemGroup = _invoiceLine.TaxItemGroup;
+            vendInvoiceInfoLineNew.LineAmount   = (_invoiceLine.LineAmount > 0) ? -_invoiceLine.LineAmount : abs(_invoiceLine.LineAmount);
+            vendInvoiceInfoLineNew.ReceiveNow   = (_invoiceLine.ReceiveNow > 0) ? -_invoiceLine.ReceiveNow : abs(_invoiceLine.ReceiveNow);
+        }
+        else
+        {
+            vendInvoiceInfoLineNew.TaxItemGroup = _distributionTmp.TaxItemGroup;
+            vendInvoiceInfoLineNew.PurchPrice   = abs(_distributionTmp.LineAmount);
+            vendInvoiceInfoLineNew.LineAmount   = _distributionTmp.LineAmount;
+            vendInvoiceInfoLineNew.ReceiveNow   = (_invoiceLine.ReceiveNow > 0) ? 1 : -1;
+        }
+
+        vendInvoiceInfoLineNew.UFTOrigRefRecId = _invoiceLine.RecId;
+        vendInvoiceInfoLineNew.insert();
+    }
+
+    /// <summary>
+    /// Approve matching discrepancies
+    /// </summary>
+    public void matchingDiscrepancies()
+    {
+        VendInvoiceInfoTable    localVendInvoiceInfoTable = invoiceInfoLine.vendInvoiceInfoTable();
+
+        if (localVendInvoiceInfoTable)
+        {
+            localVendInvoiceInfoTable.selectForUpdate(true);
+            localVendInvoiceInfoTable.approveVariance(true, true);
+            localVendInvoiceInfoTable.VarianceComment = "@UFINET_AP_DEV1:WI8120_005";
+            localVendInvoiceInfoTable.VendInvoiceSaveStatus = VendInvoiceSaveStatus::Pending;
+            localVendInvoiceInfoTable.LastMatchVariance     = LastMatchVarianceOptions::OK;
+            localVendInvoiceInfoTable.ParmJobStatus         = ParmJobStatus::Waiting;
+            localVendInvoiceInfoTable.Approved              = NoYes::Yes;
+            localVendInvoiceInfoTable.update();
+        }
+    }
+
+    /// <summary>
+    /// Delete VendInvoiceInfoLine records if already exists a previous distribution 
+    /// </summary>
+    public void deleteDistributionLines()
+    {
+        VendInvoiceInfoLine     vendInvoiceInfoLineDel;
+
+        delete_from vendInvoiceInfoLineDel
+            where vendInvoiceInfoLineDel.UFTOrigRefRecId == invoiceInfoLine.RecId;
+    }
+
+}
+
+__________________________________FORM donde se llama la clase anterior_____________________________
+
+[Form]
+public class UFTVendEditInvoiceLineDistribution extends FormRun
+{
+    VendInvoiceInfoLine                     callerInvoiceLine;
+
+    UFTVendEditInvoiceLineDistributionForm  invoiceLineDistributionForm;
+    FormDataSource                          callerDataSource, callerDataSourceTable;
+    FormRun                                 callerForm;
+
+    LineAmount                              sumAmount, remainAmount, tempAmount;
+
+    /// <summary>
+    /// Initializes the form by populating the Distribution for the invoice line.
+    /// </summary>
+    void init()
+    {
+        super();
+
+        if (!element.args().dataset())
+        {
+            throw error(strFmt("@SYS22678", element.name()));
+        }
+
+        callerInvoiceLine = element.args().record();
+        callerDataSource  = FormDataUtil::getFormDataSource(element.args().record());
+        
+        callerForm = element.args().caller();
+        callerDataSourceTable = callerForm.dataSource(tableStr(VendInvoiceInfoTable));
+
+        //Valid if the record is a distribution record
+        if (callerInvoiceLine.UFTOrigRefRecId)
+        {
+            throw error(strFmt("@UFINET_AP_DEV1:WI8120_006"));
+        }
+
+        invoiceLineDistributionForm = UFTVendEditInvoiceLineDistributionForm::newFromVendInvoiceInfoLine(callerInvoiceLine);
+        remainAmount = element.displayLineAmount(); 
+
+        OKButton.enabled(false);
+    }
+
+    /// <summary>
+    /// Display Original Net amount
+    /// </summary>
+    /// <returns>LineAmount</returns>
+    public display LineAmount displayLineAmount()
+    {
+        return callerInvoiceLine.LineAmount;
+    }
+
+    /// <summary>
+    /// Display Debt amount
+    /// </summary>
+    /// <returns>LineAmount</returns>
+    public display LineAmount displayRemainAmount()
+    {
+        return remainAmount;
+    }
+
+    /// <summary>
+    /// Update debt amount
+    /// </summary>
+    /// <param name = "_amount">LineAmount</param>
+    void updateRemainAmount(LineAmount  _amount)
+    {          
+        sumAmount    += _amount;
+        remainAmount = element.displayLineAmount() - sumAmount;
+       
+        //Refresh the field that displays debt amount
+        TotalRemain.update();
+    }
+
+    [DataSource]
+    class UFTVendEditInvoiceLineDistributionTmp
+    {
+        /// <summary>
+        /// Initializes values
+        /// </summary>
+        public void initValue()
+        {
+            super();
+
+            UFTVendEditInvoiceLineDistributionTmp.OrigPurchId = callerInvoiceLine.OrigPurchId;
+            UFTVendEditInvoiceLineDistributionTmp.VendInvoiceRefRecId = callerInvoiceLine.RecId;
+
+            tempAmount = 0;
+        }
+
+        /// <summary>
+        /// When deleting a record, updates debt amount
+        /// </summary>
+        public void delete()
+        {
+            if (UFTVendEditInvoiceLineDistributionTmp.LineAmount == 0)
+            {
+                element.updateRemainAmount(tempAmount * -1);
+            }
+            else
+            {
+                element.updateRemainAmount(UFTVendEditInvoiceLineDistributionTmp.LineAmount * -1);
+            }
+            super();
+        }
+
+        /// <summary>
+        /// enable or disable OkButton
+        /// </summary>
+        /// <returns>Integer</returns>
+        public int active()
+        {
+            int ret;
+        
+            ret = super();
+
+            if (remainAmount == 0)
+                OKButton.enabled(true);
+            else
+                OKButton.enabled(false);
+
+            return ret;
+        }
+
+        [DataField]
+        class LineAmount 
+        {
+            /// <summary>
+            /// Updates debt amount when LineAmount field is modified
+            /// </summary>
+            public void modified()
+            {
+                element.updateRemainAmount(UFTVendEditInvoiceLineDistributionTmp.LineAmount);
+
+                if (remainAmount == 0)
+                    OKButton.enabled(true);
+                else
+                    OKButton.enabled(false);
+
+                tempAmount = UFTVendEditInvoiceLineDistributionTmp.LineAmount;
+
+                super();
+            }
+
+        }
+
+    }
+
+    [Control("CommandButton")]
+    class OKButton
+    {
+        /// <summary>
+        /// The ok button was clicked to create new records in VendInvoiceInfoLine table and close the form.
+        /// </summary>
+        public void clicked()
+        {
+            boolean             previous;
+            VendInvoiceInfoLine previousInvoiceInfoLine;
+            
+            try
+            {
+                ttsbegin;
+                //Valid if exists a previous distribution          
+                select firstonly previousInvoiceInfoLine
+                    where previousInvoiceInfoLine.UFTOrigRefRecId == callerInvoiceLine.RecId;
+
+                previous = (previousInvoiceInfoLine) ? true : false;
+
+                if (previous)
+                    invoiceLineDistributionForm.deleteDistributionLines();
+
+                //Creates new records related to Distribution
+                invoiceLineDistributionForm.populateDistributionRows(UFTVendEditInvoiceLineDistributionTmp);
+                //Approve matching discrepancies
+                invoiceLineDistributionForm.matchingDiscrepancies();
+                ttscommit;
+            }
+            catch (Exception::Error)
+            {
+                ttsabort;
+                throw Exception::Error;
+            }
+
+            callerDataSource.research();
+            callerDataSourceTable.research();
+            callerDataSourceTable.reread();
+            super();
+        }
+
+    }
+
+}
+___________________________________ habilita boton 
+
+/// <summary>
+/// 20230627 - UFT_WI8120_SplitLinesPurchaseInvoice - KCL
+/// </summary>
+final class VendEditInvoice_UFT_EventHandler
+{
+    
+    /// <summary>
+    /// Enable or disable UFTVendEditInvoiceLineDistribution button
+    /// </summary>
+    /// <param name="sender">VendInvoiceInfoLine FormDataSource</param>
+    /// <param name="e">FormDataSourceEventArgs</param>
+    [FormDataSourceEventHandler(formDataSourceStr(VendEditInvoice, VendInvoiceInfoLine), FormDataSourceEventType::Activated)]
+    public static void VendInvoiceInfoLine_OnActivated(FormDataSource sender, FormDataSourceEventArgs e)
+    {
+        FormRun                 element         = sender.formRun();
+        VendInvoiceInfoLine     invoiceInfoLine = sender.cursor();                     
+        FormControl             enabledBtn      = element.design().controlName(formControlStr(VendEditInvoice, UFTVendEditInvoiceLineDistribution));
+        
+        if (invoiceInfoLine.OrigPurchId && EcoResProduct::findByDisplayProductNumber(invoiceInfoLine.ItemId).ProductType == EcoResProductType::Service)
+        {
+            enabledBtn.enabled(true);
+        }
+        else
+        {
+            enabledBtn.enabled(false);
+        }
+    }
+
+}

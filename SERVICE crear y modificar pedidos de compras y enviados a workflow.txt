@@ -1,0 +1,1171 @@
+[DataContractAttribute("purchaseOrderRequest")]
+public class UFTPurchaseOrderRequestContract
+{
+    private UFTPurchaseOrderHeaderContract  headerClass;    
+    private UFTPurchaseOrderActionContract  actionClass;
+    private List            lines;
+    private String50        dataAreaId;
+
+    [DataMemberAttribute("CompanyId")]
+    public String50 parmDataAreaId(String50 _dataAreaId = dataAreaId)
+    {
+        if (!prmIsDefault(_dataAreaId))
+        {
+            dataAreaId = _dataAreaId;
+        }
+
+        return dataAreaId;
+    }
+
+    [DataMember("PurchaseHeader")]
+    public UFTPurchaseOrderHeaderContract parmHeaderclass(UFTPurchaseOrderHeaderContract _headerClass = headerClass)
+    {
+        if (!prmIsDefault(_headerClass))
+        {
+            headerClass = _headerClass;
+        }
+
+        return headerClass;
+    }
+
+    [DataMemberAttribute('PurchaseLines'),
+    DataCollection(Types::Class, classStr(UFTPurchaseOrderLinesContract)),
+    AifCollectionTypeAttribute('receivePurchaseOrderLine', Types::Class, classStr(UFTPurchaseOrderLinesContract)),
+    AifCollectionTypeAttribute('return', Types::Class, classStr(UFTPurchaseOrderLinesContract))]
+    public List parmLines(List _lines = lines)
+    {
+        lines = _lines;
+        return lines;
+    }
+
+}
+__________________________
+
+[DataContractAttribute("PurchaseHeader")]
+public class UFTPurchaseOrderHeaderContract
+{
+    //private String50        dataAreaId;
+    private VendRef         vendRef;
+    private VendAccount     vendAccount;
+    private str             deliveryDate;
+    private int             incIVA;
+    private CurrencyCode    currencyCode;
+    private Name            name;
+    private Notes           notes;
+
+    
+    /*[DataMemberAttribute("CompanyId")]
+    public String50 parmDataAreaId(String50 _dataAreaId = dataAreaId)
+    {
+        if (!prmIsDefault(_dataAreaId))
+        {
+            dataAreaId = _dataAreaId;
+        }
+
+        return dataAreaId;
+    }*/
+
+    [DataMemberAttribute("VendorRef")]
+    public str parmVendorRef(VendRef _vendRef = vendRef)
+    {
+        if (!prmIsDefault(_vendRef))
+        {
+            vendRef = _vendRef;
+        }
+
+        return vendRef;
+    }
+
+    [DataMemberAttribute("OrderAccount")]
+    public str parmVendAccount(VendRef _vendAccount = vendAccount)
+    {
+        if (!prmIsDefault(_vendAccount))
+        {
+            vendAccount = _vendAccount;
+        }
+
+        return vendAccount;
+    }
+
+    [DataMemberAttribute("DeliveryDate")]
+    public str parmDeliveryDate(str _deliveryDate = deliveryDate)
+    {
+        if (!prmIsDefault(_deliveryDate))
+        {
+            deliveryDate = _deliveryDate;
+        }
+
+        return deliveryDate;
+    }
+
+    [DataMemberAttribute("IncIVA")]
+    public int parmIncIVA(int _incIVA= incIVA)
+    {
+        if (!prmIsDefault(_incIVA))
+        {
+            incIVA = _incIVA;
+        }
+
+        return incIVA;
+    }
+
+    [DataMemberAttribute("CurrencyCode")]
+    public str parmCurrencyCode(CurrencyCode _currencyCode = currencyCode)
+    {
+        if (!prmIsDefault(_currencyCode))
+        {
+            currencyCode = _currencyCode;
+        }
+
+        return currencyCode;
+    }
+
+    [DataMemberAttribute("PedidoName")]
+    public str parmName(Name _name = name)
+    {
+        if (!prmIsDefault(_name))
+        {
+            name = _name;
+        }
+
+        return name;
+    }
+
+    [DataMemberAttribute('Observation')]
+    public Notes parmNote(Notes _notes = notes)
+    {
+        if(!prmIsDefault(_notes))
+        {
+            notes = _notes;
+        }
+
+        return notes;
+    }
+
+    /*[DataMemberAttribute('PurchaseLines'),
+    DataCollectionAttribute(Types::Class, classStr(UFTPurchaseOrderLinesContract))]
+    public List parmLines(List _lines = lines)
+    {
+        lines = _lines;
+        return lines;
+    }*/
+
+}
+
+____________________________________________
+
+
+[DataContractAttribute("PurchaseLines")]
+public class UFTPurchaseOrderLinesContract
+{
+    private ItemId              itemId;
+    private ItemFreeTxt         freeTxt;
+    private ExternalItemId      externalItemId;
+    private PurchQty            purchQty;
+    private PriceUnit           priceUnit;
+    private PurchPrice          purchPrice;
+    private PurchLineDisc       purchLineDisc;
+    private PurchLinePercent    purchLinePercent;
+    private str                 dlvPostalAddress;
+    private str                 dlvDate;
+    private str                 CECO;
+    private Integer             lineNumber;
+
+    [DataMemberAttribute('ItemId')]
+    public ItemId parmItemId(ItemId _itemId = itemId)
+    {
+        if(!prmIsDefault(_itemId))
+        {
+            itemId = _itemId;
+        }
+
+        return itemId;
+    }
+
+    [DataMemberAttribute('Text')]
+    public ItemFreeTxt parmFreeTxt(ItemFreeTxt _freeTxt = freeTxt)
+    {
+        if(!prmIsDefault(_freeTxt))
+        {
+            freeTxt = _freeTxt;
+        }
+
+        return freeTxt;
+    }
+
+    [DataMemberAttribute('ExternalItemId')]
+    public ExternalItemId parmExternalItemId(ExternalItemId _externalItemId = externalItemId)
+    {
+        if(!prmIsDefault(_externalItemId))
+        {
+            externalItemId = _externalItemId;
+        }
+
+        return externalItemId;
+    }
+
+    [DataMemberAttribute('Quantity')]
+    public PurchQty parmPurchQty(PurchQty _purchQty = purchQty)
+    {
+        if(!prmIsDefault(_purchQty))
+        {
+            purchQty = _purchQty;
+        }
+
+        return purchQty;
+    }
+
+    [DataMemberAttribute('UnitPrice')]
+    public PriceUnit parmPriceUnit(PriceUnit _priceUnit = priceUnit)
+    {
+        if(!prmIsDefault(_priceUnit))
+        {
+            priceUnit = _priceUnit;
+        }
+
+        return priceUnit;
+    }
+
+    [DataMemberAttribute('PriceUnit')]
+    public purchPrice parmPurchPrice(purchPrice _purchPrice = purchPrice)
+    {
+        if(!prmIsDefault(_purchPrice))
+        {
+            purchPrice = _purchPrice;
+        }
+
+        return purchPrice;
+    }
+
+    [DataMemberAttribute('Discount')]
+    public PurchLineDisc parmPurchLineDisc(PurchLineDisc _purchLineDisc = purchLineDisc)
+    {
+        if(!prmIsDefault(_purchLineDisc))
+        {
+            purchLineDisc= _purchLineDisc;
+        }
+
+        return purchLineDisc;
+    }
+
+    [DataMemberAttribute('PercentDiscount')]
+    public PurchLinePercent parmPurchLinePercent(PurchLinePercent _purchLinePercent = purchLinePercent)
+    {
+        if(!prmIsDefault(_purchLinePercent))
+        {
+            purchLinePercent = _purchLinePercent;
+        }
+
+        return purchLinePercent;
+    }
+
+    [DataMemberAttribute('DeliveryAddress')]
+    public str parmDlvPostalAddress(str _dlvPostalAddress  = dlvPostalAddress)
+    {
+        if(!prmIsDefault(_dlvPostalAddress))
+        {
+            dlvPostalAddress = _dlvPostalAddress;
+        }
+
+        return dlvPostalAddress;
+    }
+
+    [DataMemberAttribute('DeliveryDate')]
+    public str parmDlvDate(str _dlvDate = dlvDate)
+    {
+        if(!prmIsDefault(_dlvDate))
+        {
+            dlvDate = _dlvDate;
+        }
+
+        return dlvDate;
+    }
+
+    [DataMemberAttribute('CECO')]
+    public str parmCECO(str _CECO = CECO)
+    {
+        if(!prmIsDefault(_CECO))
+        {
+            CECO = _CECO;
+        }
+
+        return CECO;
+    }
+
+    [DataMemberAttribute('LineNumber')]
+    public Integer parmLineNumber(Integer _lineNumber = lineNumber)
+    {
+        if(!prmIsDefault(_lineNumber))
+        {
+            lineNumber  =   _lineNumber;
+        }
+
+        return lineNumber;
+    }
+
+}
+
+________________________________________
+
+
+
+Public class UFTPurchOrderService
+{
+    #ISOCountryRegionCodes
+
+    public UFTPurchaseOrderResponseContract create(UFTPurchaseORderRequestContract PurchaseOrderRequest)
+    {
+        UFTCompanyMapping                           companyMapping;
+        PurchTable                                  purchTable;
+        List                                        purchaseLines;
+        ListIterator                                listIterator;
+        UFTPurchaseOrderLinesContract               linesContract;
+        UFTPurchaseOrderHeaderContract              headerContract;
+        UFTPurchaseOrderResponseContract            response    =   new UFTPurchaseOrderResponseContract();
+        Integer                                     lineNumber;
+
+        
+        headerContract  =   PurchaseOrderRequest.parmHeaderclass();
+
+        companyMapping = UFTCompanyMapping::findByExternalCompany(PurchaseOrderRequest.parmDataAreaId());
+
+        if(companyMapping)
+        {
+            changecompany(companyMapping.LegalEntityD365)
+            {
+                try
+                {
+                    if(this.validateDataHeader(headerContract,enum2Str(UFTActionPurchaseOrder::Create)))
+                    {
+                        ttsbegin;
+                        purchTable  =   this.createHeader(headerContract);
+
+                        purchaseLines = PurchaseOrderRequest.parmLines();
+
+                        if(purchaseLines)
+                        {
+                            listIterator = new ListIterator(purchaseLines);
+                            while (listIterator.more())
+                            {
+                                linesContract = listIterator.value();
+
+                                if(this.validateDataLines(headerContract,linesContract,enum2Str(UFTActionPurchaseOrder::Create)))
+                                {
+                                    if(lineNumber != linesContract.parmLineNumber())
+                                    {
+                                        this.createLine(purchTable, linesContract);
+                                    }
+                                    else
+                                    {
+                                        throw Error(strFmt("@UFINET_AP:ADQ001B_027",linesContract.parmLineNumber()));
+                                    }
+
+                                    lineNumber  =   linesContract.parmLineNumber();
+                                }
+                                else
+                                {
+                                    throw Exception::Error;
+                                }
+
+                                listIterator.next();
+                            }
+                        }
+
+                        if(purchTable.DocumentState == VersioningDocumentState::Draft)
+                        {
+                            this.submitToWorkflow(PurchTable::find(purchTable.PurchId));
+                        }
+
+                        response.parmSuccess(true);
+                        response.parmPurchId(purchTable.PurchId);
+                        response.parmSuccessMessage(strFmt("@UFINET_AP:ADQ001B_013",headerContract.parmVendorRef(),purchTable.PurchId));
+                        
+                        this.createLog(UFTIntegrationStatus::Processed,UFTIntegrationType::CreatePurchaseOrder,response.parmSuccessMessage());
+
+                        ttscommit;
+                   
+                    }
+                    else
+                    {
+                        throw Exception::Error;
+                    }
+                }
+                catch(Exception::Error)
+                {
+                    if(headerContract.parmVendorRef())
+                    {
+                        Error(strFmt("@UFINET_AP:ADQ001B_012",headerContract.parmVendorRef()));
+                    }
+
+                    ttsabort;
+                    response.parmSuccess(false);
+                    response.parmErrorMessage(this.getInfoLog());
+
+                    this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::CreatePurchaseOrder,response.parmErrorMessage());
+                }
+                catch(Exception::CLRError)
+                {
+                    ttsabort;
+
+                    System.Exception interopException = CLRInterop::getLastException();
+
+                    response.parmSuccess(false);
+                    response.parmErrorMessage(interopException.ToString());
+
+                    this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::CreatePurchaseOrder,response.parmErrorMessage());
+                }
+            }
+        }
+        else
+        {
+            response.parmSuccess(false);
+            response.parmErrorMessage(strFmt("@UFINET_AP:ADQ001B_002",PurchaseOrderRequest.parmDataAreaId(),headerContract.parmVendorRef(),enum2Str(UFTActionPurchaseOrder::Create)));
+            this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::CreatePurchaseOrder,response.parmErrorMessage());
+        }
+        
+        return response;
+    }
+
+    /// <summary>
+    /// Ejecutar proceso recuperar pedido de compra
+    /// </summary>
+    /// <param name = "_action"></param>
+    /// <returns></returns>
+    public UFTPurchaseOrderResponseContract Retrive(UFTPurchaseOrderActionContract PurchaseOrderRequest)
+    {
+        UFTPurchaseOrderResponseContract            response    =   new UFTPurchaseOrderResponseContract();
+        PurchTable              purchTable;
+        UFTCompanyMapping       companyMapping;
+
+        companyMapping = UFTCompanyMapping::findByExternalCompany(PurchaseOrderRequest.parmDataAreaId());
+
+        if(companyMapping)
+        {
+            changecompany(companyMapping.LegalEntityD365)
+            {
+                try 
+                {
+                    ttsbegin;
+                    purchTable  =   PurchTable::find(PurchaseOrderRequest.parmPurchId());
+
+                    if(!purchTable)
+                    {
+                        throw Error(strFmt("@UFINET_AP:ADQ001B_019",PurchaseOrderRequest.parmPurchId(),enum2Str(UFTActionPurchaseOrder::Retrive)));
+                    }
+
+                    VersioningPurchaseOrder::newPurchaseOrder(purchTable).cancelChangeRequest();
+
+                    response.parmSuccess(true);
+                    response.parmPurchId(purchTable.PurchId);
+                    response.parmSuccessMessage(strFmt("@UFINET_AP:ADQ001B_022",purchTable.PurchId,enum2Str(UFTActionPurchaseOrder::Retrive)));
+                        
+                    this.createLog(UFTIntegrationStatus::Processed,UFTIntegrationType::RetrivePurchaseOrder,response.parmSuccessMessage());
+                    ttscommit;
+
+                }
+                catch(Exception::Error)
+                {
+                    ttsabort;
+                    response.parmSuccess(false);
+                    response.parmErrorMessage(this.getInfoLog());
+
+                    this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::RetrivePurchaseOrder,response.parmErrorMessage());
+                }
+                catch(Exception::CLRError)
+                {
+                    ttsabort;
+
+                    System.Exception interopException = CLRInterop::getLastException();
+
+                    response.parmSuccess(false);
+                    response.parmErrorMessage(interopException.ToString());
+
+                    this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::CreatePurchaseOrder,response.parmErrorMessage());
+                }   
+            }
+        }
+        else
+        {
+            response.parmSuccess(false);
+            response.parmErrorMessage(strFmt("@UFINET_AP:ADQ001B_023",PurchaseOrderRequest.parmDataAreaId(),PurchaseOrderRequest.parmPurchId(),enum2Str(UFTActionPurchaseOrder::Retrive)));
+            this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::RetrivePurchaseOrder,response.parmErrorMessage());
+        }
+
+        return response;
+    }
+
+    /// <summary>
+    /// ejecutar proceso eliminar pedido de compra
+    /// </summary>
+    /// <param name = "_action"></param>
+    /// <returns></returns>
+    public UFTPurchaseOrderResponseContract Delete(UFTPurchaseOrderActionContract PurchaseOrderRequest)
+    {
+        UFTPurchaseOrderResponseContract            response    =   new UFTPurchaseOrderResponseContract();
+        PurchTable              purchTable,
+                                deletePurchTable;
+        UFTCompanyMapping       companyMapping;
+
+        companyMapping = UFTCompanyMapping::findByExternalCompany(PurchaseOrderRequest.parmDataAreaId());
+
+        if(companyMapping)
+        {
+            changecompany(companyMapping.LegalEntityD365)
+            {
+                try
+                {
+                    ttsbegin;
+                    purchTable  =   PurchTable::find(PurchaseOrderRequest.parmPurchId());
+
+                    if(!purchTable)
+                    {
+                        throw Error(strFmt("@UFINET_AP:ADQ001B_019",PurchaseOrderRequest.parmPurchId(),enum2Str(UFTActionPurchaseOrder::Delete)));
+                    }
+
+                    if(purchTable.PurchStatus == PurchStatus::Backorder && purchTable.DocumentState == VersioningDocumentState::Draft)
+                    {
+                        delete_from deletePurchTable
+                        where deletePurchTable.PurchId == purchTable.PurchId;
+
+                        response.parmSuccess(true);
+                        response.parmPurchId(PurchaseOrderRequest.parmPurchId());
+                        response.parmSuccessMessage(strFmt("@UFINET_AP:ADQ001B_021",PurchaseOrderRequest.parmPurchId()));
+                        
+                        this.createLog(UFTIntegrationStatus::Processed,UFTIntegrationType::DeletePurchaseOrder,response.parmSuccessMessage());
+                    }
+                    else
+                    {
+                        throw Error(strFmt("@UFINET_AP:ADQ001B_036",PurchaseOrderRequest.parmPurchId()));
+                    }
+                    ttscommit;
+
+                }
+                catch(Exception::Error)
+                {
+                    ttsabort;
+                    response.parmSuccess(false);
+                    response.parmErrorMessage(this.getInfoLog());
+
+                    this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::DeletePurchaseOrder,response.parmErrorMessage());
+                }
+                catch(Exception::CLRError)
+                {
+                    ttsabort;
+
+                    System.Exception interopException = CLRInterop::getLastException();
+
+                    response.parmSuccess(false);
+                    response.parmErrorMessage(interopException.ToString());
+
+                    this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::CreatePurchaseOrder,response.parmErrorMessage());
+                }
+            }
+        }
+        else
+        {
+            response.parmSuccess(false);
+            response.parmErrorMessage(strFmt("@UFINET_AP:ADQ001B_023",PurchaseOrderRequest.parmDataAreaId(),PurchaseOrderRequest.parmPurchId(),enum2Str(UFTActionPurchaseOrder::Delete)));
+            this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::DeletePurchaseOrder,response.parmErrorMessage());
+        }
+
+        return response;
+    }
+
+    /// <summary>
+    /// ejecutar proceso Modificar de pedido de compra
+    /// </summary>
+    /// <param name = "_request"></param>
+    /// <returns></returns>
+    public UFTPurchaseOrderResponseContract Modify(UFTPurchaseORderRequestContract PurchaseOrderRequest)
+    {
+        PurchTable                                  purchTable;
+        PurchLine                                   purchLine;
+        List                                        purchaseLines;
+        ListIterator                                listIterator;
+        UFTPurchaseOrderLinesContract               linesContract;
+        UFTPurchaseOrderHeaderContract              headerContract;
+        UFTPurchaseOrderResponseContract            response    =   new UFTPurchaseOrderResponseContract();
+        Integer                                     lineNumber;
+
+        UFTCompanyMapping       companyMapping;
+
+        headerContract  =   PurchaseOrderRequest.parmHeaderclass();
+
+        companyMapping = UFTCompanyMapping::findByExternalCompany(PurchaseOrderRequest.parmDataAreaId());
+
+        if(companyMapping)
+        {
+            changecompany(companyMapping.LegalEntityD365)
+            {
+                try
+                {
+                    if(this.validateDataHeader(headerContract,enum2Str(UFTActionPurchaseOrder::Modify)))
+                    {
+                        ttsbegin;
+                        purchTable  =   PurchTable::find(headerContract.parmVendorRef());
+
+                        if(!purchTable)
+                        {
+                            throw Error(strFmt("@UFINET_AP:ADQ001B_019",headerContract.parmVendorRef(),enum2Str(UFTActionPurchaseOrder::Modify)));
+                        }
+                        
+                        delete_from purchLine where purchLine.PurchId == headerContract.parmVendorRef();
+
+                        purchTable = this.ModifyHeader(purchTable,headerContract);                        
+
+                        purchaseLines = PurchaseOrderRequest.parmLines();
+
+                        if(purchaseLines)
+                        {
+                            listIterator = new ListIterator(purchaseLines);
+                            while (listIterator.more())
+                            {
+                                linesContract = listIterator.value();
+
+                                if(this.validateDataLines(headerContract,linesContract,enum2Str(UFTActionPurchaseOrder::Modify)))
+                                {
+                                    if(lineNumber != linesContract.parmLineNumber())
+                                    {
+                                        this.createLine(purchTable, linesContract);
+                                    }
+                                    else
+                                    {
+                                        throw Error(strFmt("@UFINET_AP:ADQ001B_027",linesContract.parmLineNumber()));
+                                    }
+
+                                    lineNumber  =   linesContract.parmLineNumber();
+
+                                }
+                                else
+                                {
+                                    throw Exception::Error;
+                                }
+
+                                listIterator.next();
+                            }
+                        }
+
+                        this.submitToWorkflow(PurchTable::find(purchTable.PurchId));
+                        
+                        response.parmSuccess(true);
+                        response.parmPurchId(headerContract.parmVendorRef());
+                        response.parmSuccessMessage(strFmt("@UFINET_AP:ADQ001B_020",purchTable.PurchId));
+                        
+                        this.createLog(UFTIntegrationStatus::Processed,UFTIntegrationType::ModifyPurchaseOrder,response.parmSuccessMessage());
+
+                        ttscommit;
+                    }
+                    else
+                    {
+                        throw Exception::Error;
+                    }
+                }
+                catch(Exception::Error)
+                {
+                    ttsabort;
+                    response.parmSuccess(false);
+                    response.parmErrorMessage(this.getInfoLog());
+
+                    this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::ModifyPurchaseOrder,response.parmErrorMessage());
+                }
+                catch(Exception::CLRError)
+                {
+                    ttsabort;
+
+                    System.Exception interopException = CLRInterop::getLastException();
+
+                    response.parmSuccess(false);
+                    response.parmErrorMessage(interopException.ToString());
+
+                    this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::CreatePurchaseOrder,response.parmErrorMessage());
+                }
+                
+            }
+        }
+        else
+        {
+            response.parmSuccess(false);
+            response.parmErrorMessage(strFmt("@UFINET_AP:ADQ001B_023",PurchaseOrderRequest.parmDataAreaId(),headerContract.parmVendorRef(),enum2Str(UFTActionPurchaseOrder::Modify)));
+            this.createLog(UFTIntegrationStatus::Error,UFTIntegrationType::ModifyPurchaseOrder,response.parmErrorMessage());
+        }
+
+        return response;
+    }
+
+    /// <summary>
+    /// Validar existencia de datos para cabecera
+    /// </summary>
+    /// <param name = "_dataAreaId"></param>
+    /// <param name = "_headerContract"></param>
+    /// <returns></returns> 
+    protected boolean validateDataHeader(UFTPurchaseOrderHeaderContract _headerContract, str _actionPurchaseOrder)
+    {
+        boolean ret = true;
+
+        if(!_headerContract.parmVendorRef())
+        {
+            ret = checkFailed("@UFINET_AP:ADQ001B_025");
+        }
+        
+        if(!VendTable::exist(_headerContract.parmVendAccount()))
+        {
+            ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_003",_headerContract.parmVendAccount(),"@UFINET_AP:ADQ001B_024",tableId2PName(tableNum(VendTable)),_headerContract.parmVendorRef(),_actionPurchaseOrder));
+        }
+
+        //09-12-2022 UFT_CC_IntegrationPurchaseOrderCreation_7533 ALT Start
+        if(SysCountryRegionCode::isLegalEntityInCountryRegion([#isoCO]) && VendTable::find(_headerContract.parmVendAccount()).AP_CO_SRInvoice && !PurchParameters::find().AP_CO_PhysicalPlaceId)
+        {
+            ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_038",_headerContract.parmVendAccount()));
+        }
+        //09-12-2022 UFT_CC_IntegrationPurchaseOrderCreation_7533 ALT end
+
+        if(!Currency::exist(_headerContract.parmCurrencyCode()))
+        {
+            ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_003",_headerContract.parmCurrencyCode(),'@SYS7572',tableId2PName(tableNum(Currency)),_headerContract.parmVendorRef(),_actionPurchaseOrder));
+        }
+
+        if(!HcmWorker::findByPerson(DirPerson::find(DirPartyTable::findByName(_headerContract.parmName()).RecId).RecId))
+        {
+            ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_003",_headerContract.parmName(),'@SYS7399',tableId2PName(tableNum(HcmWorker)),_headerContract.parmVendorRef(),_actionPurchaseOrder));
+        }
+        
+        if(!_headerContract.parmDeliveryDate() || (_headerContract.parmDeliveryDate() && !str2Date(_headerContract.parmDeliveryDate(),123)))
+        {
+            ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_004",_headerContract.parmVendorRef(),_actionPurchaseOrder));
+        }
+        
+        if(_headerContract.parmIncIVA() != NoYes::Yes ) 
+        {
+            if(_headerContract.parmIncIVA() != NoYes::No)
+            {
+                ret = checkFailed("@UFINET_AP:ADQ001B_026");
+            }
+        }
+
+        if(!PurchParameters::find().UFTDimName)
+        {
+            ret = checkFailed("@UFINET_AP:ADQ001B_037");
+        }
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Validar existencia de datos para lineas
+    /// </summary>
+    /// <param name = "_headerContract"></param>
+    /// <param name = "_linesContract"></param>
+    /// <returns></returns>
+    protected boolean validateDataLines(UFTPurchaseOrderHeaderContract _headerContract,UFTPurchaseOrderLinesContract   _linesContract,str _actionPurchaseOrder)
+    {
+        boolean ret = true;
+
+        if(!InventTable::exist(_linesContract.parmItemId()))
+        {
+            ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_003",_linesContract.parmItemId(),'@SYS12836',tableId2PName(tableNum(InventTable)),_headerContract.parmVendorRef(),_actionPurchaseOrder));
+        }
+
+        if(!_linesContract.parmDlvPostalAddress())
+        {
+            ret = checkFailed("@UFINET_AP:ADQ001B_028");
+        }
+        else
+        {
+            if(!this.getDlvAddress(_linesContract.parmDlvPostalAddress()))
+            {
+                ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_003",_linesContract.parmDlvPostalAddress(),"@SYS9362",tableId2PName(tableNum(LogisticsPostalAddress)),_headerContract.parmVendorRef(),_actionPurchaseOrder));
+            }
+        }
+
+        if(!this.validateExistDimValue(_linesContract.parmCECO()))
+        {
+            ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_003",_linesContract.parmCECO(),PurchParameters::find().UFTDimName,tableId2PName(tableNum(DimensionFinancialTag)),_headerContract.parmVendorRef(),_actionPurchaseOrder));
+        }
+
+        if(!_linesContract.parmFreeTxt())
+        {
+            ret = checkFailed("@UFINET_AP:ADQ001B_030");
+        }
+
+        if(!_linesContract.parmPurchQty())
+        {
+            ret = checkFailed("@UFINET_AP:ADQ001B_031");
+        }
+
+        if(!_linesContract.parmPurchPrice())
+        {
+            ret = checkFailed("@UFINET_AP:ADQ001B_032");
+        }
+
+        if(_linesContract.parmDlvDate() && !str2Date(_linesContract.parmDlvDate(),123))
+        {
+            ret = checkFailed(strFmt("@UFINET_AP:ADQ001B_035", _linesContract.parmLineNumber()));
+        }
+
+        if(!_linesContract.parmLineNumber())
+        {
+            ret = checkFailed("@UFINET_AP:ADQ001B_034");
+        }
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Crear cabecera de pedido de compra
+    /// </summary>
+    /// <param name = "_headerContract"></param>
+    /// <returns></returns>
+    protected PurchTable createHeader(UFTPurchaseOrderHeaderContract _headerContract)
+    {
+        PurchTable      purchTable;
+        AxPurchTable    axPurchTable;
+
+        purchTable.clear();
+        purchTable.initFromVendTable(VendTable::find(_headerContract.parmVendAccount()));
+ 
+        axPurchTable = axPurchTable::newPurchTable(purchTable);
+        axPurchTable.parmPurchId(NumberSeq::newGetNum(PurchParameters::numRefPurchId()).num());
+        axPurchTable.parmPurchaseType(PurchaseType::Purch);
+        axPurchTable.parmDocumentStatus(DocumentStatus::PurchaseOrder);
+        axPurchTable.parmDeliveryDate(str2Date(_headerContract.parmDeliveryDate(),123));
+        axPurchTable.parmPurchStatus(PurchStatus::Backorder);
+        axPurchTable.parmVendorRef(_headerContract.parmVendorRef());
+        axPurchTable.parmInclTax(_headerContract.parmIncIVA());
+        axPurchTable.parmCurrencyCode(_headerContract.parmCurrencyCode());
+        axPurchTable.parmWorkerPurchPlacer(HcmWorker::findByPerson(DirPerson::find(DirPartyTable::findByName(_headerContract.parmName()).RecId).RecId).RecId);
+        //20230327 - BUG 7913 - msepulveda - begin
+        axPurchTable.parmAccountingDate(DateTimeUtil::date(DateTimeUtil::applyTimeZoneOffset(DateTimeUtil::getSystemDateTime(), DateTimeUtil::getUserPreferredTimeZone())));
+        //20230327 - BUG 7913 - msepulveda - end
+        
+        //09-12-2022 UFT_CC_IntegrationPurchaseOrderCreation_7533 ALT Start
+        if(SysCountryRegionCode::isLegalEntityInCountryRegion([#isoCO]) && VendTable::find(_headerContract.parmVendAccount()).AP_CO_SRInvoice)
+        {
+            axPurchTable.parmPhysicalPlaceId(PurchParameters::find().AP_CO_PhysicalPlaceId);
+        }
+        //09-12-2022 UFT_CC_IntegrationPurchaseOrderCreation_7533 ALT Start
+        
+        axPurchTable.save();
+ 
+        if(_headerContract.parmNote())
+        {
+            this.createNote(purchTable,_headerContract.parmNote());
+        }
+
+        return purchTable;
+    }
+
+    /// <summary>
+    /// Modificar cabecera de pedido de compra
+    /// </summary>
+    /// <param name = "_headerContract"></param>
+    /// <returns></returns>
+    protected PurchTable ModifyHeader(PurchTable _purchTable, UFTPurchaseOrderHeaderContract _headerContract)
+    {
+        PurchTable      updpurchTable = PurchTable::find(_purchTable.PurchId);
+        docuRef         docuRef;
+
+        updpurchTable.selectForUpdate(true);
+        updpurchTable.OrderAccount     =   _headerContract.parmVendAccount();
+        updpurchTable.modifiedField(fieldNum(PurchTable,OrderAccount));
+        updpurchTable.DeliveryDate     =   str2Date(_headerContract.parmDeliveryDate(),123);
+        updpurchTable.InclTax          =   _headerContract.parmIncIVA();
+        updpurchTable.CurrencyCode     =   _headerContract.parmCurrencyCode();
+        updpurchTable.modifiedField(fieldNum(PurchTable,CurrencyCode));
+        updpurchTable.WorkerPurchPlacer =   HcmWorker::findByPerson(DirPerson::find(DirPartyTable::findByName(_headerContract.parmName()).RecId).RecId).RecId;
+        updpurchTable.modifiedField(fieldNum(PurchTable,Requester));
+        //20230327 - BUG 7913 - msepulveda - begin
+        updpurchTable.AccountingDate = DateTimeUtil::date(DateTimeUtil::applyTimeZoneOffset(DateTimeUtil::getSystemDateTime(), DateTimeUtil::getUserPreferredTimeZone()));
+        //20230327 - BUG 7913 - msepulveda - end
+
+        //09-12-2022 UFT_CC_IntegrationPurchaseOrderCreation_7533 ALT Start
+        if(SysCountryRegionCode::isLegalEntityInCountryRegion([#isoCO]) && VendTable::find(_headerContract.parmVendAccount()).AP_CO_SRInvoice)
+        {
+            updpurchTable.AP_CO_PhysicalPlaceId = PurchParameters::find().AP_CO_PhysicalPlaceId;
+        }
+        else if(SysCountryRegionCode::isLegalEntityInCountryRegion([#isoCO]) && !VendTable::find(_headerContract.parmVendAccount()).AP_CO_SRInvoice)
+        {
+            updpurchTable.AP_CO_PhysicalPlaceId = null;
+        }
+        //09-12-2022 UFT_CC_IntegrationPurchaseOrderCreation_7533 ALT Start
+
+        updpurchTable.update();
+ 
+        delete_from docuRef
+            where docuRef.RefCompanyId  ==  updpurchTable.DataAreaId
+                && docuRef.RefRecId     ==  updpurchTable.RecId
+                && docuRef.RefTableId   ==  updpurchTable.TableId;
+
+        if(_headerContract.parmNote())
+        {
+            this.createNote(updpurchTable,_headerContract.parmNote());
+        }
+
+        return updpurchTable;
+
+    }
+
+    /// <summary>
+    /// crear adjunto en pedido de compra tipo nota
+    /// </summary>
+    /// <param name = "_purchTable"></param>
+    /// <param name = "_notes"></param>
+    protected void createNote(PurchTable _purchTable, Notes _notes)
+    {
+        DocuRef             docuRef;
+
+        docuRef.clear();
+        docuRef.initValue();
+        docuRef.RefTableId      =   _purchTable.TableId;
+        docuRef.RefRecId        =   _purchTable.RecId;
+        docuRef.TypeId          =   enum2Str(DocuTypeGroup::Note);
+        docuRef.Restriction     =   DocuRestriction::Internal;
+        docuRef.Notes           =   _notes;
+        docuRef.Name            =   "@UFINET_AP:ADQ001B_001";
+        docuRef.RefCompanyId    =   _purchTable.DataAreaId;
+        docuRef.insert();
+
+    }
+
+    /// <summary>
+    /// Enviar al flujo de trabajo
+    /// </summary>
+    /// <param name = "_purchTable"></param>
+    protected void submitToWorkflow(PurchTable _purchTable)
+    {
+        _purchTable.submitToWorkflow(workFlowTypeStr(PurchTableTemplate),"",false);
+    }
+
+    /// <summary>
+    /// Crear lineas del pedido de compra
+    /// </summary>
+    /// <param name = "_purchTable"></param>
+    /// <param name = "_linesContract"></param>
+    protected void createLine(PurchTable _purchTable, UFTPurchaseOrderLinesContract   _linesContract)
+    {
+        PurchLine   purchLine;
+        AxPurchLine axPurchLine;
+        
+        purchLine.clear();
+        purchLine.initValue();
+        purchLine.initFromPurchTable(_purchTable);
+        purchLine.initFromInventTable(InventTable::find(_linesContract.parmItemId()));
+
+        axPurchLine = AxPurchLine::newPurchLine(purchLine);
+        axpurchLine.parmItemId(_linesContract.parmItemId());
+        axPurchLine.parmPurchQty(_linesContract.parmPurchQty());
+        axPurchLine.parmPurchPrice(_linesContract.parmPurchPrice());
+        axPurchLine.parmName(_linesContract.parmFreeTxt());
+        axPurchLine.parmExternalItemId(_linesContract.parmExternalItemId());
+        axPurchLine.parmPriceUnit(_linesContract.parmPriceUnit() ? _linesContract.parmPriceUnit() : 1);
+        axPurchLine.parmLineDisc(_linesContract.parmPurchLineDisc());
+        axPurchLine.parmLinePercent(_linesContract.parmPurchLinePercent());
+        axPurchLine.parmDeliveryDate(_linesContract.parmDlvDate() ? str2Date(_linesContract.parmDlvDate(),123) : _purchTable.DeliveryDate);
+        axPurchLine.parmDeliveryPostalAddress(this.getDlvAddress(_linesContract.parmDlvPostalAddress()));
+        axPurchLine.parmDeliveryName(this.getDlvName(_linesContract.parmDlvPostalAddress()));
+        axPurchLine.parmLineNumber(_linesContract.parmLineNumber());
+        axPurchLine.save();
+
+        purchLine.DefaultDimension  =   purchLine.mergeDimension(this.getDimCECO(_linesContract.parmCECO()),purchLine.DefaultDimension);
+        purchLine::modifyPurchQty(purchLine,purchLine.inventDim(),false);
+        purchLine.update();
+
+    }
+
+    /// <summary>
+    /// Obteter dimension financiera CECO
+    /// </summary>
+    /// <param name = "_value"></param>
+    /// <returns></returns>
+    protected DimensionDefault getDimCECO(str _value)
+    {
+        DimensionAttribute                  dimAttribute;
+        DimensionAttributeValue             dimAttrValue;
+        DimensionAttributeValueSetStorage   setStorage  =   new DimensionAttributeValueSetStorage();
+
+        dimAttribute    =   DimensionAttribute::findByName(PurchParameters::find().UFTDimName);
+        dimAttrValue    =   DimensionAttributeValue::findByDimensionAttributeAndValue(dimAttribute,_value,false,true );
+        setStorage.addItem(dimAttrValue);
+
+        return setStorage.save();
+    }
+
+    /// <summary>
+    /// Obtener direccion de entrega
+    /// </summary>
+    /// <param name = "_dlvAddress"></param>
+    /// <returns></returns>
+    protected RefRecId getDlvAddress(str _dlvAddress)
+    {
+        LogisticsLocation           logisticsLocation;
+        LogisticsPostalAddress      postalAddress;
+
+        select firstonly logisticsLocation
+            where logisticsLocation.Description ==  _dlvAddress
+        join postalAddress
+            where postalAddress.Location ==  logisticsLocation.RecId;
+
+        return postalAddress.RecId;
+
+    }
+
+    protected Description getDlvName(str _dlvAddress)
+    {
+        LogisticsLocation           logisticsLocation;
+        LogisticsPostalAddress      postalAddress;
+
+        select firstonly logisticsLocation
+            where logisticsLocation.Description ==  _dlvAddress
+        join postalAddress
+            where postalAddress.Location ==  logisticsLocation.RecId;
+
+        return logisticsLocation.Description;
+
+    }
+
+    /// <summary>
+    /// Validar que el valor de la dimension CECO sea un valor valido
+    /// </summary>
+    /// <returns></returns>
+    protected boolean validateExistDimValue(str _value)
+    {
+        DimAttributeOMCostCenter        dimAttributeOMCostCenter;
+
+        select firstonly dimAttributeOMCostCenter
+            where dimAttributeOMCostCenter.Value    ==   _value;
+
+
+        return dimAttributeOMCostCenter.RecId != 0;
+    }
+
+    /// <summary>
+    /// Obtener log del info
+    /// </summary>
+    /// <returns></returns>
+    protected str getInfoLog()
+    {
+        SysInfologEnumerator    infoLogEnum;
+        SysInfologMessageStruct infoMessageStruct;
+        str                     logMessage;
+
+        infoLogEnum = SysInfologEnumerator::newData(infolog.infologData());
+
+        while(infoLogEnum.moveNext())
+        {
+            infoMessageStruct   =   SysInfologMessageStruct::construct(infoLogEnum.currentMessage());
+                            
+            logMessage += strFmt("%1.\n",infoMessageStruct.message());
+
+        }                         
+
+        return logMessage;
+    }
+
+    /// <summary>
+    /// Crear log de proceso en D365FO
+    /// </summary>
+    /// <param name = "_IntegrationStatus"></param>
+    /// <param name = "_message"></param>
+    protected void createLog(UFTIntegrationStatus _IntegrationStatus,UFTIntegrationType _type, str _message)
+    {
+        UFTIntegrationProcessingLog                 integrationProcessingLog;
+
+        integrationProcessingLog.clear();
+        integrationProcessingLog.IntegrationType     = _type;
+        integrationProcessingLog.IntegrationStatus   = _IntegrationStatus;
+        integrationProcessingLog.ProcessDateTime     = DateTimeUtil::utcNow();
+        integrationProcessingLog.ExternalApplication = UFTIntegrationExternalApplicationType::Phoenix;
+        integrationProcessingLog.Message             = _message;
+        integrationProcessingLog.insert();
+    }
+
+}
+_________________________________________________
+
+[DataContractAttribute]
+public class UFTPurchaseOrderResponseContract
+{
+    private boolean success;
+    private str     errorMessage;
+    private str     SuccessMessage;
+    private PurchId purchId;
+
+    [DataMember("ErrorMessage")]
+    public str parmErrorMessage(str _errorMessage = errorMessage)
+    {
+        if (!prmIsDefault(_errorMessage))
+        {
+            errorMessage = _errorMessage;
+        }
+        return errorMessage;
+    }
+
+    [DataMember("Success")]
+    public Boolean parmSuccess(Boolean _success = success)
+    {
+        if (!prmIsDefault(_success))
+        {
+            success = _success;
+        }
+        return success;
+    }
+
+    [DataMember("SuccessMessage")]
+    public str parmSuccessMessage(str _successMessage = SuccessMessage)
+    {
+        if (!prmIsDefault(_successMessage))
+        {
+            SuccessMessage = _successMessage;
+        }
+        return SuccessMessage;
+    }
+
+    [DataMemberAttribute("PurchaseOrder")]
+    public purchId parmPurchId(PurchId _purchId = purchId)
+    {
+        if (!prmIsDefault(_purchId))
+        {
+            purchId = _purchId;
+        }
+
+        return purchId;
+    }
+
+}
+
+_________________________________
+
+REQUEST POSTMAN
+
+{
+    "PurchaseOrderRequest":
+    {
+        "CompanyId":"c6c0e577-f5d2-e511-8102-1458d043a750",
+        "PurchaseHeader":
+        {
+        "CurrencyCode":"EUR",
+        "DeliveryDate":"20/05/2022",
+        "IncIVA":1,
+        "Observation":"TESTafb123",
+        "OrderAccount":"ULPRV00058",
+        "PedidoName":"Diana Alvarez",
+        "VendorRef":"ULE1-2022-000142"
+        },
+        "PurchaseLines":
+        [
+            {
+                "CECO":"C1003",
+                "DeliveryAddress":"Ufinet Latam SLU",
+                "DeliveryDate":"27/04/2022",
+                "Discount":0,
+                "ExternalItemId":"Ext00002",
+                "ItemId":"000002",
+                "PercentDiscount":10,
+                "PriceUnit":0.88,
+                "Quantity":10,
+                "Text":"test de texto 2",
+                "UnitPrice":1,
+                "LineNumber":2
+            }
+        ]
+    }
+}

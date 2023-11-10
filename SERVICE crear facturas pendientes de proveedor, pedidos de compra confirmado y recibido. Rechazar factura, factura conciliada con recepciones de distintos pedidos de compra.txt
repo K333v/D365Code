@@ -1,0 +1,1043 @@
+
+[DataContractAttribute] 
+public class UFTADQ001IPurchOrderRequestContract extends FormDataContract
+{
+
+    str                         dataAreaId;
+    str                         invoiceDate;
+    InvoiceId                   invoiceId;                  
+    List                        purchOrderReceiptList;
+    //20230426 - UFT_ADQ001PurchOrderService_BR_CC03 - KCL - Start
+    str                         accessKey_BR;
+    //20230426 - UFT_ADQ001PurchOrderService_BR_CC03 - KCL - End
+
+
+    /// <summary>
+    /// Constructor
+    /// </summary>
+    /// <returns></returns>
+    static UFTADQ001IPurchOrderRequestContract Construct()
+    {
+        
+        return new UFTADQ001IPurchOrderRequestContract();
+    }
+
+    public void UFTADQ001IPurchOrderRequestContract()
+    {
+        this.dataAreaId = "";
+        this.invoiceDate = "";
+        this.invoiceId = '';
+        this.purchOrderReceiptList = new List(Types::Class);
+    }
+
+    [DataMemberAttribute]
+    public str parmDataAreaId(str _dataAreaId = dataAreaId)
+    {
+        this.dataAreaId = _dataAreaId;
+        return this.dataAreaId;
+    }
+
+    [DataMemberAttribute]
+    public str parmInvoiceDate(str _invoiceDate = invoiceDate)
+    {
+        this.invoiceDate = _invoiceDate;
+        return this.invoiceDate;
+    }
+
+    [DataMemberAttribute]
+    public InvoiceId parmInvoiceId(InvoiceId _invoiceId = invoiceId)
+    {
+        this.invoiceId = _invoiceId;
+        return this.invoiceId;
+    }
+
+    //20230426 - UFT_ADQ001PurchOrderService_BR_CC03 - KCL - Start
+    [DataMemberAttribute]
+    public str parmAccessKey_BR(str _accessKey = accessKey_BR)
+    {
+        this.accessKey_BR = _accessKey;
+        return this.accessKey_BR;
+    }
+
+    //20230426 - UFT_ADQ001PurchOrderService_BR_CC03 - KCL - End
+
+    [DataMemberAttribute("parmPurchOrderReceiptList"),
+        AifCollectionTypeAttribute('_purchOrderReceiptList', Types::Class, classStr(UFTADQ001IPurchOrderReceiptContract)),
+        DataCollectionAttribute(Types::Class, classStr(UFTADQ001IPurchOrderReceiptContract)),
+        AifCollectionType("parmPurchOrderReceiptList",Types::Class, classStr(UFTADQ001IPurchOrderReceiptContract)),
+        AifCollectionType("return",Types::Class, classStr(UFTADQ001IPurchOrderReceiptContract))]
+    public List parmPurchOrderReceiptList(List _purchOrderReceiptList = purchOrderReceiptList)
+    {
+        this.purchOrderReceiptList = _purchOrderReceiptList;
+        return this.purchOrderReceiptList;
+    }
+
+}
+
+_____________________________________________________________
+
+public class UFTADQ001IPurchOrderService
+{
+    UFTCompanyMapping                               companyMapping;
+    
+
+    public UFTADQ001IPurchOrderResponseContract purchOrderInvoice(UFTADQ001IPurchOrderRequestContract   _request)
+    {
+        UFTADQ001IPurchOrderResponseContract            response = new UFTADQ001IPurchOrderResponseContract();
+        UFTIntegrationProcessingLog                     integrationProcessingLog;        
+        List                                            purchOrderReceiptContractList = new List(Types::Class);
+        UFTADQ001IPurchOrderReceiptContract             purchOrderReceiptContract = new UFTADQ001IPurchOrderReceiptContract();
+        boolean                                         ret = false;
+        TransDate                                       invoiceDate;
+        str                                             msg = "";
+        ;
+
+        try
+        {
+            response.parmStatus(false);
+            purchOrderReceiptContractList = _request.parmPurchOrderReceiptList();
+
+           
+            companyMapping = UFTCompanyMapping::findByExternalCompany(_request.parmDataAreaId());
+            if(companyMapping.RecId == 0)
+            {
+                throw error(strFmt("@UFINET_AP:ADQ001I009", _request.parmDataAreaId())); ///La empresa %1 no se encuentra mapeada
+            }
+            
+            
+            changecompany(companyMapping.LegalEntityD365)
+            {
+                UFTADQ001IPurchaseOrderLogic::validateData(_request);
+                
+                //Create and Consolidate a purchase invoice associated with confirmed and receipted Purch orders
+                invoiceDate = str2DateDMY(_request.parmInvoiceDate());
+                [ret, msg] = UFTADQ001IPurchaseOrderLogic::createPendingVendorInvoice(purchOrderReceiptContractList, invoiceDate, _request.parmInvoiceId());
+                
+                //Create and Consolidate a purchase invoice associated with confirmed and receipted Purch orders
+                
+
+                response.parmStatus(ret);
+                response.parmMessage(msg);
+
+                if(ret)
+                {
+                    int                 i = 0;
+            
+                    ////for (i=1; i<=infolog.line(); i++)
+                    for (i = 1; i <= Global::infologLine(); i++)
+                    {
+                        integrationProcessingLog.clear();
+                        integrationProcessingLog.IntegrationStatus = UFTIntegrationStatus::Processed;
+                        integrationProcessingLog.IntegrationType = UFTIntegrationType::PurchaseOrderInvoice;
+                        integrationProcessingLog.ProcessDateTime = DateTimeUtil::getSystemDateTime();
+                        integrationProcessingLog.Message = infolog.text(i);
+                        integrationProcessingLog.insert();
+                    }
+                }
+            }
+            
+        }
+        catch
+        {
+            int                 i = 0;
+            msg = "";
+            
+            ////for (i=1; i<=infolog.line(); i++)
+            for (i = 1; i <= Global::infologLine(); i++)
+            {
+                msg += infolog.text(i);
+                integrationProcessingLog.clear();
+                integrationProcessingLog.IntegrationStatus = UFTIntegrationStatus::Error;
+                integrationProcessingLog.IntegrationType = UFTIntegrationType::PurchaseOrderInvoice;
+                integrationProcessingLog.ProcessDateTime = DateTimeUtil::getSystemDateTime();
+                integrationProcessingLog.Message = infolog.text(i);
+                integrationProcessingLog.insert();
+
+            }
+
+            response.parmMessage(msg);
+
+        }
+
+        return response;
+    
+    }
+
+}
+__________________________________________
+
+[DataContractAttribute]
+public class UFTADQ001IPurchOrderResponseContract extends FormDataContract
+{
+    boolean                 status;
+    str                     message;
+
+
+    public void UFTADQ001IPurchOrderResponseContract()
+    {
+        this.status = false;
+        this.message = "";
+    }
+
+    [DataMemberAttribute]
+    public boolean parmStatus(boolean _status = status)
+    {
+        this.status = _status;
+        return this.status;
+    }
+
+    [DataMemberAttribute]
+    public str parmMessage(str _message = message)
+    {
+        this.message = _message;
+        return this.message;
+    }
+
+}
+
+______________________________________________________________
+
+public class UFTADQ001IPurchaseOrderLogic
+{
+   
+
+   
+
+    public static container createPendingVendorInvoice (List  _purchOrderReceiptContractList, InvoiceDate   _invoiceDate, Num  _invoiceId)
+    {
+        boolean                                 ret = false;
+        str                                     msg = "";
+        PurchFormLetter_Invoice                 purchFormLetterInvoice;
+        PurchFormLetter                         purchFormLetter;
+        PurchFormletterParmData                 purchFormLetterParmData;
+        PurchParmUpdate                         purchParmUpdate;
+        PurchParmTable                          purchParmTable;
+        PurchParmLine                           purchParmLine;
+        PurchTable                              purchTable, purchTableConsolidate;
+        PurchLine                               purchLine;
+        PurchId                                 purchId;
+        Num                                     packingSlipId;
+        Num                                     invoiceId;
+        ListEnumerator                          enumeratorContract = _purchOrderReceiptContractList.getEnumerator();
+        List                                    receptionList = new List(Types::String);
+        ListEnumerator                          enumerator;// = _PurchIdList.getEnumerator();
+        UFTADQ001IPurchOrderReceiptContract     purchOrderReceiptContract;
+        VendInvoiceAccount                      invoiceAccount;
+        InventTransOrigin                       inventTransOrigin;
+        VendPackingSlipJour                     vendPackingSlipJour;
+        VendPackingSlipTrans                    vendPackingSlipTrans;
+        VendInvoiceInfoTable                    vendInvoiceInfoTable;
+        VendInvoiceInfoLine                     vendInvoiceInfoLine;
+        VendInvoiceInfoSubTable                 vendInvoiceInfoSubTable;
+        VendInvoiceInfoSubLine                  vendInvoiceInfoSubLine;
+        boolean                                 wasCreatedInfoTable = false, wasCreatedInfoSubTable = false;
+        UFTADQ001IReferenceTempDBTable          referenceTempDBTable;
+        ;
+        
+
+        
+        while(enumeratorContract.moveNext())
+        {
+            purchOrderReceiptContract = new UFTADQ001IPurchOrderReceiptContract();
+            purchOrderReceiptContract = enumeratorContract.current();
+            purchId = purchOrderReceiptContract.parmPurchId();
+            
+            purchTable.clear();
+            purchTable = PurchTable::find(purchId);
+            wasCreatedInfoSubTable = false;
+           
+
+            receptionList = purchOrderReceiptContract.parmReceptionList();
+            enumerator = receptionList.getEnumerator();
+
+            while(enumerator.moveNext())
+            {
+                packingSlipId =enumerator.current();
+
+                vendPackingSlipTrans.clear();
+                select firstonly vendPackingSlipJour
+                where vendPackingSlipJour.PurchId == purchId
+                    && vendPackingSlipJour.PackingSlipId == packingSlipId
+                    exists join vendPackingSlipTrans where vendPackingSlipTrans.PackingSlipId == vendPackingSlipJour.PackingSlipId
+                    && vendPackingSlipTrans.VendPackingSlipJour == vendPackingSlipJour.RecId
+                    && vendPackingSlipTrans.Qty > 0;
+                ttsbegin;
+
+                if(vendPackingSlipJour)
+                {
+                    if(!wasCreatedInfoTable)
+                    {
+                        //Generate Pending Invoice Header
+                        vendInvoiceInfoTable.clear();
+                        vendInvoiceInfoTable.initValue();
+                        vendInvoiceInfoTable.initFromPurchTable(purchTable);
+ 
+                        vendInvoiceInfoTable.DocumentOrigin  = DocumentOrigin::Manual;
+                        vendInvoiceInfoTable.CurrencyCode = purchTable.CurrencyCode;
+                        vendInvoiceInfoTable.DeliveryName = purchTable.DeliveryName;
+                        vendInvoiceInfoTable.Num = _invoiceId; //add invoice number in here
+                        vendInvoiceInfoTable.PurchName = purchTable.PurchName;
+                        vendInvoiceInfoTable.VendInvoiceSaveStatus = VendInvoiceSaveStatus::Pending;
+                        vendInvoiceInfoTable.DocumentDate = _invoiceDate;
+                        vendInvoiceInfoTable.LastMatchVariance = LastMatchVarianceOptions::OK;
+                        vendInvoiceInfoTable.ParmJobStatus = ParmJobStatus::Waiting;
+                        vendInvoiceInfoTable.Approved = NoYes::Yes;
+                        vendInvoiceInfoTable.APIntegrationInvoice = NoYes::Yes;
+ 
+                        vendInvoiceInfoTable.DefaultDimension = vendInvoiceInfoTable.copyDimension(purchTable.DefaultDimension);
+ 
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,RemittanceLocation), purchTable,  null);
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,FixedDueDate), purchTable,  null);
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,ExchRate), purchTable,  null);
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,TransDate), purchTable,  null);
+                        vendInvoiceInfoTable.defaultField(fieldNum(VendInvoiceInfoTable,PaymMode), purchTable,  null);
+ 
+                        
+                        vendInvoiceInfoTable.insert();
+                        
+                       
+
+                        wasCreatedInfoTable = true;
+                    }
+
+                    //Generate Vend Invoice Info reference
+                    if(vendInvoiceInfoTable && !wasCreatedInfoSubTable)
+                    {
+                        vendInvoiceInfoSubTable.clear();
+                        vendInvoiceInfoSubTable.initValue();
+                        vendInvoiceInfoSubTable.defaultRow();
+ 
+                        vendInvoiceInfoSubTable.ParmId = vendInvoiceInfoTable.ParmId;
+                        vendInvoiceInfoSubTable.OrigPurchId = purchTable.PurchId;/// vendInvoiceInfoTable.PurchId;
+                        vendInvoiceInfoSubTable.PurchName = purchTable.PurchName;// vendInvoiceInfoTable.PurchName;
+                        vendInvoiceInfoSubTable.TableRefId = vendInvoiceInfoTable.TableRefId;
+ 
+                        
+                        vendInvoiceInfoSubTable.insert();
+
+                        wasCreatedInfoSubTable = true;
+                    }
+
+
+                    
+                    vendPackingSlipTrans.clear();
+                    while select purchLine
+                    where purchLine.PurchId == purchId
+                    join vendPackingSlipTrans where vendPackingSlipTrans.InventTransId == purchLine.InventTransId
+                    && vendPackingSlipTrans.PackingSlipId == vendPackingSlipJour.PackingSlipId
+                    && vendPackingSlipTrans.VendPackingSlipJour == vendPackingSlipJour.RecId
+                    && vendPackingSlipTrans.Qty > 0
+                    {
+                        vendInvoiceInfoLine.clear();
+                        select firstonly vendInvoiceInfoLine 
+                            where vendInvoiceInfoLine.PurchLineRecId == purchLine.RecId
+                            && vendInvoiceInfoLine.ParmId == vendInvoiceInfoTable.ParmId
+                            && vendInvoiceInfoLine.InvoiceAccount == vendInvoiceInfoTable.InvoiceAccount
+                            exists join referenceTempDBTable where referenceTempDBTable.RefRecId == vendInvoiceInfoLine.RecId;
+                        if(vendInvoiceInfoLine)
+                        {
+                            ttsbegin;
+                            vendInvoiceInfoLine.selectForUpdate(true);
+                            vendInvoiceInfoLine.ReceiveNow += vendPackingSlipTrans.Qty;
+ 
+                            vendInvoiceInfoLine.InventNow += vendPackingSlipTrans.Qty;
+                            vendInvoiceInfoLine.LineAmount = vendInvoiceInfoLine.PurchPrice * vendInvoiceInfoLine.ReceiveNow;
+                            vendInvoiceInfoLine.update();
+                            ttscommit;
+                        }
+                        else
+                        {
+                            //Generate Pending Invoice Line
+                            vendInvoiceInfoLine.clear();
+                            vendInvoiceInfoLine.initValue();
+                            //vendInvoiceInfoLine.defaultRow(null,purchLine);
+                            vendInvoiceInfoLine.initFromPurchLine(purchLine);
+ 
+                            vendInvoiceInfoLine.DeliveryName = vendInvoiceInfoTable.DeliveryName;
+                            vendInvoiceInfoLine.ParmId = vendInvoiceInfoTable.ParmId;
+                            vendInvoiceInfoLine.TableRefId = vendInvoiceInfoTable.TableRefId;
+                            vendInvoiceInfoLine.currencyCode = vendInvoiceInfoTable.CurrencyCode;
+                            vendInvoiceInfoLine.LineNum = any2int(purchLine.LineNumber);
+ 
+                            vendInvoiceInfoLine.InvoiceAccount = vendInvoiceInfoTable.InvoiceAccount;
+                            vendInvoiceInfoLine.InventDimId = vendPackingSlipTrans.InventDimId;
+                            vendInvoiceInfoLine.OrderAccount  = vendInvoiceInfoTable.OrderAccount;
+                            vendInvoiceInfoLine.ItemId = vendPackingSlipTrans.ItemId;
+                            vendInvoiceInfoLine.InventTransId = vendPackingSlipTrans.InventTransId;
+ 
+                            vendInvoiceInfoLine.DocumentOrigin = DocumentOrigin::Manual;
+ 
+                            vendInvoiceInfoLine.ReceiveNow = vendPackingSlipTrans.Qty;
+                            vendInvoiceInfoLine.RemainBefore = vendPackingSlipTrans.Qty;
+                            vendInvoiceInfoLine.RemainBeforeInvent = vendPackingSlipTrans.Qty;
+                            
+                            vendInvoiceInfoLine.PurchPrice = purchLine.PurchPrice;  
+                            vendInvoiceInfoLine.InventNow = vendPackingSlipTrans.Qty;
+                            //bug   7767 prod precio unitario begin
+                            vendInvoiceInfoLine.LineAmount =(purchLine.PurchPrice/purchLine.PriceUnit) * vendInvoiceInfoLine.ReceiveNow; ///(purchLine.LineAmount / purchLine.QtyOrdered) * vendPackingSlipTrans.Qty;
+                            //bug   7767 prod precio unitario end
+                            vendInvoiceInfoLine.DefaultDimension = purchLine.DefaultDimension;
+ 
+                            vendInvoiceInfoLine.insert();
+
+                            referenceTempDBTable.clear();
+                            referenceTempDBTable.RefRecId = vendInvoiceInfoLine.RecId;
+                            referenceTempDBTable.insert();
+                        }
+
+                        if(vendInvoiceInfoLine.RecId)
+                        {
+                            vendInvoiceInfoSubLine.clear();
+                            vendInvoiceInfoSubLine.initValue();
+                            vendInvoiceInfoSubLine.defaultRow();
+                            vendInvoiceInfoSubLine.ParmId = vendInvoiceInfoTable.ParmId;
+                            vendInvoiceInfoSubLine.LineRefRecId = vendInvoiceInfoLine.RecId;
+                            vendInvoiceInfoSubLine.ReceiveNow = vendPackingSlipTrans.Qty;
+                            vendInvoiceInfoSubLine.InventNow = vendPackingSlipTrans.Qty;
+                            vendInvoiceInfoSubLine.JournalRefRecId = vendPackingSlipTrans.RecId;
+                            vendInvoiceInfoSubLine.JournalRefTableId = vendPackingSlipTrans.TableId;
+                            vendInvoiceInfoSubLine.DocumentId = vendPackingSlipTrans.PackingSlipId;
+                            vendInvoiceInfoSubLine.insert();
+                        }
+ 
+                    }
+
+
+                }
+
+
+                ttsCommit;
+                
+            }
+            
+            
+        }
+
+        vendInvoiceInfoTable.clear();
+        select firstonly RecId from vendInvoiceInfoTable 
+            where vendInvoiceInfoTable.Num == _invoiceId && vendInvoiceInfoTable.DocumentDate == _invoiceDate;
+        if(vendInvoiceInfoTable.RecId != 0)
+        {
+            ret = true;
+            msg = strFmt("@UFINET_AP:ADQ001I002", _invoiceId);
+            info(msg);///Factura pendiente %1 ha sido generada
+        }
+        //purchFormLetterInvoice = PurchFormLetter_Invoice::newFromSavedInvoice(vendInvoiceInfoTable);
+        //purchFormLetterInvoice.showQueryForm(false);       
+        //purchFormLetterInvoice.specQty(PurchUpdate::PackingSlip);
+        //purchFormLetterInvoice.update(vendInvoiceInfoTable, vendInvoiceInfoTable.Num, systemdateget());
+
+        
+        
+        return [ret, msg];
+    }
+
+    public static void validateData(UFTADQ001IPurchOrderRequestContract   _request)
+    {
+        List                                    purchOrderReceiptContractList = new List(Types::Class);
+        UFTADQ001IPurchOrderReceiptContract     purchOrderReceiptContract;
+        ListEnumerator                          enumeratorContract, enumerator;
+        List                                    receptionList = new List(Types::String);
+        UFTADQ001IReferenceTempDBTable          referenceTempDBTable;
+        PurchTable                              purchTable;
+        VendPackingSlipJour                     vendPackingSlipJour;
+        VendPackingSlipTrans                    vendPackingSlipTrans;
+        VendInvoiceInfoTable                    vendInvoiceInfoTable;
+        TransDate                               invoiceDate;
+        VendInvoiceInfoSubLine                  vendInvoiceInfoSubLine;
+        ;
+
+
+        if(_request.parmDataAreaId() == "")
+        {
+            throw error ("@UFINET_AP:ADQ001I018"); ///Se requiere empresa
+        }
+
+        if(_request.parmInvoiceId() == "")
+        {
+            throw error ("@UFINET_AP:ADQ001I017"); ///Se requiere número de factura.
+        }
+
+        if(_request.parmInvoiceDate() == "")
+        {
+            throw error ("@UFINET_AP:ADQ001I019"); ///Se requiere fecha de la factura
+        }
+
+        invoiceDate = str2DateDMY(_request.parmInvoiceDate());
+        if(invoiceDate == dateNull())
+        {
+            throw error ("@UFINET_AP:ADQ001I027"); ///Fecha debe ser en formato dd/mm/yyyy
+        }
+
+        
+        //insert all purchId and PackingSlipId ***
+        purchOrderReceiptContractList = _request.parmPurchOrderReceiptList();
+
+
+        if(purchOrderReceiptContractList.elements() == 0)
+        {
+            throw error ("@UFINET_AP:ADQ001I020"); ///Se requiere número de órden de compra
+        }
+
+
+        enumeratorContract = purchOrderReceiptContractList.getEnumerator();
+        while(enumeratorContract.moveNext())
+        {
+            purchOrderReceiptContract = new UFTADQ001IPurchOrderReceiptContract();
+            purchOrderReceiptContract = enumeratorContract.current();
+
+            receptionList = purchOrderReceiptContract.parmReceptionList();
+
+            if(receptionList.elements() == 0)
+            {
+                throw error ("@UFINET_AP:ADQ001I021"); ///Se requiere número de recepción de producto
+            }
+
+            enumerator = receptionList.getEnumerator();
+            while(enumerator.moveNext())
+            {
+                referenceTempDBTable.clear();
+                referenceTempDBTable.RefName = purchOrderReceiptContract.parmPurchId();
+                referenceTempDBTable.RefName2 = enumerator.current();
+                referenceTempDBTable.doInsert();
+            }
+        }
+        //insert all purchId and PackingSlipId ***
+
+
+        select firstonly referenceTempDBTable
+            notexists join purchTable where purchTable.PurchId == referenceTempDBTable.RefName;
+        if(referenceTempDBTable.RecId != 0)
+        {
+            throw error (strFmt("@UFINET_AP:ADQ001I008", referenceTempDBTable.RefName)); ///El pedido de compra %1 no existe en la empresa indicada
+        }
+
+        ///*** Validate if purch order is confirmed && has Reception (PackingslipId) **
+        select firstonly referenceTempDBTable
+            notexists join vendPackingSlipJour where vendPackingSlipJour.PurchId == referenceTempDBTable.RefName
+            join vendPackingSlipTrans where vendPackingSlipTrans.PackingSlipId == vendPackingSlipJour.PackingSlipId && vendPackingSlipTrans.Qty > 0
+            //&& vendPackingSlipJour.PackingSlipId == referenceTempDBTable.RefName2
+            join purchTable where purchTable.PurchId == vendPackingSlipJour.PurchId
+            && purchTable.DocumentState == VersioningDocumentState::Confirmed;
+        if(referenceTempDBTable.RecId != 0)
+        {
+            throw error (strFmt("@UFINET_AP:ADQ001I006", referenceTempDBTable.RefName)); ///El pedido de compra %1 no está confirmado y/o no tiene alguna recepción asociada
+        }
+        ///*** Validate if purch order is confirmed && has Reception (PackingslipId) **
+        
+
+
+        ///*** Validate if  Reception (PackingslipId) is not from PurchOrder**        
+        
+        select firstonly referenceTempDBTable
+            join purchTable where purchTable.PurchId == referenceTempDBTable.RefName
+            notexists join vendPackingSlipJour where vendPackingSlipJour.PurchId == purchTable.PurchId
+            && vendPackingSlipJour.PackingSlipId == referenceTempDBTable.RefName2
+            join vendPackingSlipTrans where vendPackingSlipTrans.PackingSlipId == vendPackingSlipJour.PackingSlipId && vendPackingSlipTrans.Qty > 0;
+        if(referenceTempDBTable.RecId != 0)
+        {
+            throw error (strFmt("@UFINET_AP:ADQ001I024", referenceTempDBTable.RefName2, referenceTempDBTable.RefName)); ///La recepción %1 no pertenece a la órden de compra %2 o ha sido cancelada
+        }
+
+        //*** Validate if  Reception (PackingslipId) is not from PurchOrder**
+
+
+        ///Validate a reception is invoice yet
+        select firstonly referenceTempDBTable 
+            exists join vendInvoiceInfoSubLine where vendInvoiceInfoSubLine.DocumentId == referenceTempDBTable.RefName2
+            join vendPackingSlipTrans where vendPackingSlipTrans.RecId == vendInvoiceInfoSubLine.JournalRefRecId
+            && vendPackingSlipTrans.TableId == vendInvoiceInfoSubLine.JournalRefTableId
+            && vendPackingSlipTrans.OrigPurchid == referenceTempDBTable.RefName;
+        if(referenceTempDBTable.RecId != 0)
+        {
+            throw error (strFmt("@UFINET_AP:ADQ001I030", referenceTempDBTable.RefName2, referenceTempDBTable.RefName)); ///La recepción %1 perteneciente a la órden de compra %2 ya ha sido facturada
+        }
+
+
+        if(strLen(_request.parmInvoiceId()) > 20)
+        {
+            throw error (strFmt("@UFINET_AP:ADQ001I007", _request.parmInvoiceId())); ///El número de factura %1 es mayor a 20 caracteres
+        }
+        
+        select firstonly RecId, DocumentDate  from vendInvoiceInfoTable where vendInvoiceInfoTable.Num == _request.parmInvoiceId();
+        if(vendInvoiceInfoTable)
+        {
+            throw error (strFmt("@UFINET_AP:ADQ001I005", _request.parmInvoiceId(), vendInvoiceInfoTable.DocumentDate));  ///Ya se ha utilizado la factura %1 en la fecha %2
+        }
+
+    }
+
+    public static boolean rejectPendingInvoice(VendInvoiceInfoTable  _vendInvoiceInfoTable, str _reason)
+    {
+        boolean                                             ret = false;
+        VendInvoiceInfoTable                                vendInvoiceInfoTable;
+        UFTIntegrationProcessingLog                         integrationProcessingLog;
+        UFTIntegrationParameter                             parameters;
+        UFTADQ001IPostRejectInvoiceRequestContract          request = new UFTADQ001IPostRejectInvoiceRequestContract();
+        str                                                 jsonRequest;
+        container                                           conResponse;
+        str                                                 msg2 = "", msgResponse = "";
+        UFTIntegrationStatus                                integrationStatus = 0;
+        UFTCompanyMapping                                   companyMapping;
+        ;
+       
+
+        try
+        {
+            parameters = UFTIntegrationParameter::find();
+            infolog.clear();
+            UFTADQ001IPurchaseOrderLogic::validateParametersReject(parameters);
+            
+
+            ttsbegin;
+            vendInvoiceInfoTable = VendInvoiceInfoTable::find(_vendInvoiceInfoTable.ParmId, _vendInvoiceInfoTable.TableRefId, true);
+
+
+            if(vendInvoiceInfoTable.APIntegrationInvoice == NoYes::Yes)
+            {
+                vendInvoiceInfoTable.delete();
+            }
+            else
+            {
+                throw error("@UFINET_AP:ADQ001I022");//Solo se pueden rechazar facturas que provienen de integración
+            }
+        
+
+            vendInvoiceInfoTable.reread();
+            ret = vendInvoiceInfoTable.RecId == 0;
+
+
+            if(ret)
+            {
+                msg2 = strFmt("@UFINET_AP:ADQ001I012", _vendInvoiceInfoTable.Num);
+                companyMapping = UFTCompanyMapping::find(_vendInvoiceInfoTable.DataAreaId);
+            
+                                
+                request.parmEmpresaCPo(companyMapping.ExternalCompanyId);
+                request.parmNumeroFactura(_vendInvoiceInfoTable.Num);
+                request.parmObservaciones(msg2 + "\n" + _reason);///Invoice %1 rejected success
+                request.parmProveedorCP(_vendInvoiceInfoTable.InvoiceAccount);
+                request.parmRegistrado("N");
+                jsonRequest = FormJsonSerializer::serializeClass(request);
+
+                
+                ///Connect to external web service
+                conResponse = UFTIntegrationAPI::UFTconnection(parameters.TokenURL, parameters.UserName, parameters.Password, parameters.PhoenixRejectInvoiceURL, jsonRequest);
+                if(conResponse != conNull())
+                {
+                    //deserialize and get response data
+                    str content = conPeek(conResponse, 2);
+                    UFTPurchOrderAppContract responseData = FormJsonSerializer::deserializeObject(className2Id(classStr(UFTPurchOrderAppContract)), content);
+
+                    ret = responseData.parmProcessed();
+                    msgResponse = responseData.parmMessage();
+                }
+
+
+                if(ret)
+                {
+                    integrationStatus = UFTIntegrationStatus::Processed;
+                    if(msgResponse != "")
+                    {
+                        info(msgResponse);
+                    }
+                }
+                else
+                {
+                    integrationStatus = UFTIntegrationStatus::Error;
+                    
+                    if(msgResponse == "")
+                    {
+                        msgResponse = strFmt("@UFINET_AP:ADQ001I029", _vendInvoiceInfoTable.Num);///La factura %1 no ha sido rechazada, error de comunicación                        
+                    }
+                    throw error(msgResponse);
+                }
+
+                integrationProcessingLog.clear();
+                integrationProcessingLog.IntegrationStatus = integrationStatus;
+                integrationProcessingLog.IntegrationType = UFTIntegrationType::PurchaseOrderInvoice;
+                integrationProcessingLog.ProcessDateTime = DateTimeUtil::getSystemDateTime();
+                integrationProcessingLog.Message = msg2 + " " + msgResponse;
+                integrationProcessingLog.insert();
+
+                Info(msg2);///Invoice %1 rejected success
+            }
+            ttscommit;
+
+        }
+        catch
+        {
+            int                 i = 0;
+            str                 msg = "";
+            
+
+            ttsabort;
+
+            ////for (i=1; i<=infolog.line(); i++)
+            for (i = 1; i <= Global::infologLine(); i++)
+            {
+                msg += infolog.text(i);               
+            }
+            if(msg == "")
+            {
+                msg = strFmt("@UFINET_AP:ADQ001I029", _vendInvoiceInfoTable.Num);///La factura %1 no ha sido rechazada, error de comunicación
+            }
+
+            integrationProcessingLog.clear();
+            integrationProcessingLog.IntegrationStatus = UFTIntegrationStatus::Error;
+            integrationProcessingLog.IntegrationType = UFTIntegrationType::PurchaseOrderInvoice;
+            integrationProcessingLog.ProcessDateTime = DateTimeUtil::getSystemDateTime();
+            integrationProcessingLog.Message = msg;
+            integrationProcessingLog.insert();
+
+            error(msg);
+
+        }
+
+        return ret;
+    }
+
+    public static boolean postedInvoiceSendInformation(VendInvoiceInfoTable  _vendInvoiceInfoTable)//VendInvoiceJour   _vendInvoiceJour)
+    {
+        boolean                                             ret = false;
+        UFTIntegrationProcessingLog                         integrationProcessingLog;
+        UFTIntegrationParameter                             parameters;
+        UFTADQ001IPostRejectInvoiceRequestContract          request = new UFTADQ001IPostRejectInvoiceRequestContract();
+        str                                                 jsonRequest;
+        container                                           conResponse;
+        str                                                 msg2 = "", msgResponse = "";
+        UFTIntegrationStatus                                integrationStatus = 0;
+        UFTCompanyMapping                                   companyMapping;
+        ;
+
+       
+        parameters = UFTIntegrationParameter::find();
+        UFTADQ001IPurchaseOrderLogic::validateParametersPost(parameters);
+        companyMapping = UFTCompanyMapping::find(_vendInvoiceInfoTable.DataAreaId);
+
+        msg2 = strFmt("@UFINET_AP:ADQ001I013", _vendInvoiceInfoTable.InvoiceAccount, _vendInvoiceInfoTable.Num);///The vendor invoice posting process was completed for the vendor %1, invoice %2
+        
+                
+        request.parmEmpresaCPo(companyMapping.ExternalCompanyId);
+        request.parmNumeroFactura(_vendInvoiceInfoTable.Num);
+        request.parmObservaciones(msg2);
+        request.parmProveedorCP(_vendInvoiceInfoTable.InvoiceAccount);
+        request.parmRegistrado("S");
+        jsonRequest = FormJsonSerializer::serializeClass(request);
+
+        
+        ///Connect to external web service 
+        conResponse = UFTIntegrationAPI::UFTconnection(parameters.TokenURL, parameters.UserName, parameters.Password, parameters.PhoenixPostInvoiceURL, jsonRequest);
+        if(conResponse != conNull())
+        {
+            //deserialize and get response data
+            str content = conPeek(conResponse, 2);
+            UFTPurchOrderAppContract responseData = FormJsonSerializer::deserializeObject(className2Id(classStr(UFTPurchOrderAppContract)), content);
+
+            ret = responseData.parmProcessed();
+            msgResponse = responseData.parmMessage();
+        }
+        
+
+        if(ret)
+        {
+            integrationStatus = UFTIntegrationStatus::Processed;
+            if(msgResponse != "")
+            {
+                info(msgResponse);
+            }
+
+            integrationProcessingLog.clear();
+            integrationProcessingLog.IntegrationStatus = integrationStatus;
+            integrationProcessingLog.IntegrationType = UFTIntegrationType::PurchaseOrderInvoice;
+            integrationProcessingLog.ProcessDateTime = DateTimeUtil::getSystemDateTime();
+            integrationProcessingLog.Message = msg2 + " " + msgResponse;
+            integrationProcessingLog.insert();
+
+            
+        }
+        else
+        {
+            integrationStatus = UFTIntegrationStatus::Error;
+            
+            if(msgResponse == "")
+            {
+                msgResponse = strFmt("@UFINET_AP:ADQ001I028", _vendInvoiceInfoTable.Num);///La factura %1 no ha sido registrada, error de comunicación
+            }
+            throw error(msgResponse);
+        }
+        Info(msg2 + " " + msgResponse);
+
+        return ret;
+    }
+
+    public static void validateParametersPost(UFTIntegrationParameter                 _parameters)
+    {
+        str      msg = "";
+
+        msg = UFTADQ001IPurchaseOrderLogic::validateParameters(_parameters);
+
+        if(_parameters.PhoenixPostInvoiceURL == "")
+        {
+            msg += "\n";
+            msg += strFmt("@UFINET_AP:ADQ001F_006", "@UFINET_AP:IPRV001_005");//Configurar URL del token en el formulario %1
+        }
+
+        if(msg != "")
+        {
+            throw Error (msg);
+        }
+    
+    }
+
+    public static void validateParametersReject(UFTIntegrationParameter                 _parameters)
+    {
+        str      msg = "";
+
+        msg = UFTADQ001IPurchaseOrderLogic::validateParameters(_parameters);
+
+        if(_parameters.PhoenixRejectInvoiceURL == "")
+        {
+            msg += "\n";
+            msg += strFmt("@UFINET_AP:ADQ001F_006", "@UFINET_AP:IPRV001_005");//Configurar URL del token en el formulario %1
+        }
+
+        if(msg != "")
+        {
+            throw Error (msg);
+        }
+    
+    }
+
+    public static str validateParameters(UFTIntegrationParameter                 _parameters)
+    {
+        str      msg = "";
+
+        if(_parameters.UserName == "")
+        {
+            msg += strFmt("@UFINET_AP:ADQ001F_007", "@UFINET_AP:IPRV001_005");//Configurar usuario en el formulario %1
+        }
+
+        if(_parameters.Password == "")
+        {
+            msg += "\n";
+            msg += strFmt("@UFINET_AP:ADQ001F_008", "@UFINET_AP:IPRV001_005");//Configurar contraseña en el formulario %1
+        }
+
+        
+        return msg;
+    
+    }
+
+}
+
+_____________________________________
+
+JSON Postman
+
+    {
+        "_request": {
+            "parmDataAreaId": "9813f743-ac92-e911-a96b-000d3ab6d103",
+            "parmInvoiceDate": "01/04/2023",
+            "parmInvoiceId": "FactmixCOL02",
+            "parmPurchOrderReceiptList": [
+                {
+                    "parmPurchId": "UCO1-2022-000272",
+                    "parmReceptionList": [
+                        "FC001"
+                    ]
+                                }
+
+            ]
+        }
+    }
+____
+
+{
+    "_request": {
+        "parmDataAreaId": "3164f5ee-de98-ec11-b400-000d3ab01099",
+        "parmInvoiceDate": "01/05/2023",
+        "parmInvoiceId": "",
+        "parmAccessKey_BR": "35230358514928003351550010010923211795421633",
+        "parmPurchOrderReceiptList": [
+            {
+                "parmPurchId": "UBR1-2022-000282",
+                "parmReceptionList": [
+                    "A04"
+                ]       
+
+            },
+            {
+
+                "parmPurchId": "UBR1-2022-000281",
+                "parmReceptionList": [
+                    "A05"
+                ]        
+            }           
+
+        ]
+
+    }
+
+}
+_______________________________________________________________________
+//EXTENSION DE CLASE PARA BRASIL Y SIRVE PARA MODIFICAR CUANDO VIENEN MÁS DE 1 PEDIDO DE COMPRA
+
+/// <summary>
+/// 20230427 - UFT_BR_ADQ001PurchOrderService_CC03 - KCL
+/// </summary>
+[ExtensionOf(classStr(UFTADQ001IPurchaseOrderLogic))]
+final class UFTADQ001IPurchaseOrderLogic_BR_Extension
+{
+    #ISOCountryRegionCodes
+
+    /// <summary>
+    /// Validate AccessKey_BR value
+    /// </summary>
+    /// <param name = "_request">UFTADQ001IPurchOrderRequestContract</param>
+    public static void validateData(UFTADQ001IPurchOrderRequestContract   _request)
+    {
+        next validateData(_request);
+
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoBR]) && !_request.parmInvoiceId())
+        {        
+            if (_request.parmAccessKey_BR() == "")
+            {
+                throw error("@UFINET_AP_BR:RequiredAccessKey");
+            }
+            else if (strLen(_request.parmAccessKey_BR()) != 44)
+            {
+                throw error("@UFINET_AP_BR:ValidAccessKey");
+            }
+        }
+    }
+
+    public static container createPendingVendorInvoice (List  _purchOrderReceiptContractList, InvoiceDate   _invoiceDate, Num  _invoiceId, str  _accessKeyBR)
+    {     
+        boolean     ret;
+        str         msg;
+
+        [ret, msg] = next createPendingVendorInvoice(_purchOrderReceiptContractList, _invoiceDate, _invoiceId, _accessKeyBR);
+
+        if (SysCountryRegionCode::isLegalEntityInCountryRegion([#isoBR]) && ret)
+        {
+            ListEnumerator                          enumeratorContract = _purchOrderReceiptContractList.getEnumerator();
+            UFTADQ001IPurchOrderReceiptContract     purchOrderReceiptContract;
+            PurchTable                              purchTableLocal;
+            PurchTable_BR                           purchTableBR;
+            purchLine                               purchLineLocal;    
+            PurchId                                 purchId;
+            VendInvoiceInfoTable                    vendInvoiceInfoTable;
+            VendInvoiceInfoTable_W                  vendInvoiceInfoTable_W;
+            VendInvoiceInfoLine                     vendInvoiceInfoLine;
+            VendInvoiceInfoLine_W                   vendInvoiceInfoLine_W;
+            SalesPurchOperationType_BR              salesPurchOperationType_BR;
+            PurchParameters                         purchParameter = PurchParameters::find();
+            boolean                                 wasCreatedInfoTable = false;
+
+            ttsbegin;
+
+            while (enumeratorContract.moveNext())
+            {
+                purchOrderReceiptContract = new UFTADQ001IPurchOrderReceiptContract();
+                purchOrderReceiptContract = enumeratorContract.current();
+                
+                purchId = purchOrderReceiptContract.parmPurchId();
+                purchTableLocal = PurchTable::find(purchId);
+                purchTableBR    = purchTableLocal.purchTable_BR();
+                
+                if (!wasCreatedInfoTable)
+                {
+                    select firstonly forupdate vendInvoiceInfoTable
+                        where vendInvoiceInfoTable.PurchId == purchId
+                        && vendInvoiceInfoTable.Num == _invoiceId
+                        && vendInvoiceInfoTable.DocumentDate == _invoiceDate
+                        && vendInvoiceInfoTable.InvoiceAccount == purchTableLocal.InvoiceAccount;
+
+                    wasCreatedInfoTable = true;
+                }
+
+                vendInvoiceInfoTable_W = VendInvoiceInfoTable_W::findByVendInvoiceInfoTable(vendInvoiceInfoTable.RecId, true);
+                                
+                select firstonly forupdate salesPurchOperationType_BR
+                    where salesPurchOperationType_BR.RecId == purchTableBR.SalesPurchOperationType_BR;
+
+                if (salesPurchOperationType_BR && vendInvoiceInfoTable_W)
+                {                    
+                    vendInvoiceInfoTable_W.SalesPurchOperationType_BR = purchTableBR.SalesPurchOperationType_BR;  
+                 
+                    if (_invoiceId)
+                    {
+                        vendInvoiceInfoTable_W.FiscalDocumentModel_BR = purchParameter.FiscalDocModelSeBR;
+                    }
+                    else
+                    {
+                        vendInvoiceInfoTable_W.FiscalDocumentModel_BR = purchParameter.FiscalDocModelBR;
+                        vendInvoiceInfoTable_W.AccessKey_BR = _accessKeyBR;
+                        vendInvoiceInfoTable_W.modifiedField(fieldNum(VendInvoiceInfoTable_W, AccessKey_BR));
+                    }                                      
+                    vendInvoiceInfoTable_W.update();                    
+                }
+                else if (salesPurchOperationType_BR && !vendInvoiceInfoTable_W)
+                {
+                    vendInvoiceInfoTable_W.clear();
+                    vendInvoiceInfoTable_W.initValue();
+
+                    if (_invoiceId)
+                    {
+                        vendInvoiceInfoTable_W.FiscalDocumentModel_BR = purchParameter.FiscalDocModelSeBR;
+                    }
+                    else
+                    {
+                        vendInvoiceInfoTable_W.FiscalDocumentModel_BR = purchParameter.FiscalDocModelBR;
+                        vendInvoiceInfoTable_W.AccessKey_BR = _accessKeyBR;
+                        vendInvoiceInfoTable_W.modifiedField(fieldNum(VendInvoiceInfoTable_W, AccessKey_BR));
+                    }
+                    vendInvoiceInfoTable_W.SalesPurchOperationType_BR = salesPurchOperationType_BR.RecId;
+                    vendInvoiceInfoTable_W.VendInvoiceInfoTable = vendInvoiceInfoTable.RecId;
+                    //fill in Num field of vendInvoiceInfoTable
+                    if (vendInvoiceInfoTable)
+                    {
+                        vendInvoiceInfoTable.Num = EFDocAccessKeyBase_BR::getInvoiceNumber(_accessKeyBR);
+                        vendInvoiceInfoTable.update();
+                    }
+
+                    vendInvoiceInfoTable_W.insert();
+                }
+
+                if (vendInvoiceInfoTable)
+                {
+                    select firstonly vendInvoiceInfoLine
+                        where vendInvoiceInfoLine.TableRefId == vendInvoiceInfoTable.TableRefId
+                        && vendInvoiceInfoLine.ParmId == vendInvoiceInfoTable.ParmId
+                        && vendInvoiceInfoLine.InvoiceAccount == vendInvoiceInfoTable.InvoiceAccount;
+
+                    vendInvoiceInfoLine_W = vendInvoiceInfoLine.vendInvoiceInfoLine_W();
+
+                    if (vendInvoiceInfoLine && vendInvoiceInfoLine_W)
+                    {
+                        VendInvoiceInfoLine_W vendInvoiceInfoLine_Wupd;
+                        
+                        vendInvoiceInfoLine = null;
+                        // Update CFOP vendor invoice lines from POs.
+                        update_recordset vendInvoiceInfoLine_Wupd
+                        setting CFOPTable_BR = purchLineLocal.CFOPTable_BR
+                        join vendInvoiceInfoLine
+                        where vendInvoiceInfoLine_Wupd.VendInvoiceInfoLine == vendInvoiceInfoLine.RecId
+                        join purchLineLocal
+                        where purchLineLocal.RecId == vendInvoiceInfoLine.PurchLineRecId
+                        && purchLineLocal.PurchId == purchId;
+
+                        msg = strFmt("@UFINET_AP:ADQ001I002", vendInvoiceInfoTable.Num);
+                    }
+                }
+
+            }
+            
+            ttscommit;
+        }
+
+        return [ret, msg];
+    }
+
+}

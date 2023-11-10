@@ -1,0 +1,81 @@
+class BSL_UpdateDatesBank_Job
+{
+    /// <summary>
+    /// Runs the class with the specified arguments.
+    /// </summary>
+    /// <param name = "_args">The specified arguments.</param>
+    public static void main(Args _args)
+    {
+        Dialog                          dialog = new Dialog("@BSLLabel:BSLDevIV00001");
+        DialogField                     dlgDate;
+        
+        TransDate                       newDate;
+        utcdatetime                     utcNewDate;
+        BankStmtISOAccountStatement     accountStatement;
+        BankStmtISOReportEntry          reportEntry;
+
+        FormRun                         formRun;
+        FormDataSource                  formDataSource;
+        
+        ;
+
+
+        dlgDate = dialog.addField(extendedTypeStr(TransDate), "@BSLLabel:BSLDevIV00002");
+
+
+        if(dialog.run())
+        {
+            newDate = dlgDate.value();
+
+            formRun           = _args.caller();
+
+            if(newDate != dateNull())
+            {
+                try
+                {
+                    utcNewDate = DateTimeUtil::newDateTime(newDate, 0, DateTimeUtil::getCompanyTimeZone());
+                                                           
+                    ttsbegin;
+                    while select forupdate accountStatement
+                        where accountStatement.Status == BankStatementStatus::Validated 
+                        &&  accountStatement.Posted                     
+                    {
+                        accountStatement.FromDateTime = utcNewDate;
+                        accountStatement.ToDateTime = utcNewDate;
+                        accountStatement.update();
+
+                        update_recordset reportEntry
+                            setting BookingDateTime = utcNewDate
+                            where reportEntry.BankStmtISOAccountStatement == accountStatement.RecId;
+                                    
+                    }
+                    ttscommit;
+
+                    if(formRun)
+                    {
+
+                        formDataSource = formRun.dataSource(1); 
+                        formDataSource.research();
+                    }
+
+                }
+                catch(Exception::Error)
+                {
+                    ttsabort;
+                
+                }
+            }
+            else
+            {
+                error("@BSLLabel:BSLDevIV00004");
+            
+            }          
+        
+        }
+
+
+        info("@BSLLabel:BSLDevIV00003");
+
+    }
+
+}

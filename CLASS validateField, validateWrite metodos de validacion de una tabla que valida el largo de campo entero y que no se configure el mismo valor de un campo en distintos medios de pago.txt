@@ -1,0 +1,80 @@
+/// <summary>
+/// 20230817 - DIV_8223_SalesMonitor_PaymentPosting - KCL
+/// </summary>
+[ExtensionOf(tableStr(CustPaymModeTable))]
+public final class DIVCustPaymModeTable_Table_Extension
+{
+    /// <summary>
+    /// ValidateField method extension
+    /// </summary>
+    /// <param name = "_fieldIdToCheck">FieldId</param>
+    /// <returns>True or false</returns>
+    public boolean validateField(FieldId _fieldIdToCheck)
+    {
+        boolean ret = next validateField(_fieldIdToCheck);
+
+        switch(_fieldIdToCheck)
+        {
+            case fieldNum(CustPaymModeTable, DIVPaymMethod):
+                
+                if (ret && strlen(int2str(this.DIVPaymMethod)) > 3)
+                {
+                    ret = checkFailed("La longitud del campo Medio de Pago permite hasta 3 caracteres");
+                }
+                break;
+        }
+        
+        return ret;
+    }
+
+    /// <summary>
+    /// Validate write
+    /// </summary>
+    /// <returns>True or false</returns>
+    public boolean validateWrite()
+    {
+        boolean ret = next validateWrite();
+
+        CustPaymModeTable   paymModeTable;
+
+        select firstonly paymModeTable
+            where paymModeTable.DIVPaymMethod != 0
+            && paymModeTable.RecId != this.RecId
+            && paymModeTable.DIVPaymMethod == this.DIVPaymMethod
+            && this.RecId;
+
+        if (paymModeTable)
+        {
+            return checkFailed(strFmt("Ya existe un registro con el mismo Medio de Pago"));
+        }
+        
+        return ret;
+    }
+
+    /// <summary>
+    /// Find CustPaymModeTable record by DIVPaymMethod field value
+    /// </summary>
+    /// <param name = "_paymMethod">DIVPaymMethod</param>
+    /// <param name = "_forupdate">boolean</param>
+    /// <param name = "_concurrencyModel">ConcurrencyModel</param>
+    /// <returns>CustPaymModeTable record</returns>
+    public static CustPaymModeTable findByPaymMethodDIV(DIVPaymMethod    _paymMethod,
+                                                        boolean          _forupdate = false,
+                                                        ConcurrencyModel _concurrencyModel = ConcurrencyModel::Auto)
+    {
+        CustPaymModeTable custPaymModeTable;
+
+        custPaymModeTable.selectForUpdate(_forupdate);
+        
+        if (_forupdate  && _concurrencyModel != ConcurrencyModel::Auto)
+        {
+            custPaymModeTable.concurrencyModel(_concurrencyModel);
+        }
+
+        select firstonly custPaymModeTable
+            where custPaymModeTable.DIVPaymMethod == _paymMethod;
+
+        return custPaymModeTable;
+    }
+
+}

@@ -1,0 +1,168 @@
+[ExtensionOf(classStr(CustVendCreatePaymJournal_Vend))]
+final class CustVendCreatePaymJournal_Vend_P296_Extension
+{
+    public EI_CustVendCreatePaymProposalType eiPaymProposalType;
+    public DialogField  dialogEiPaymProposalType;
+    public boolean enableScheduledPaymentDate;
+
+    #define.CurrentVersion(29)
+    #localmacro.CurrentList
+        enableScheduledPaymentDate,
+        eiPaymProposalType
+    #endmacro
+
+    protected void dialogAddPaymProposalType()
+    {
+        next dialogAddPaymProposalType();
+
+        enableScheduledPaymentDate = VendParameters::find().EI_EnableScheduledPaymentDate;
+
+        if(enableScheduledPaymentDate)
+        {
+            this.dialogAddEiPaymProposalType();
+            dialogPaymProposalType.visible(false);
+        }
+    }
+
+    protected void dialogAddEiPaymProposalType()
+    {
+        dialogEiPaymProposalType = dialog.addFieldValue(enumStr(EI_CustVendCreatePaymProposalType), eiPaymProposalType);
+    }
+
+    public boolean getFromDialog()
+    {
+        boolean ret;
+
+        if(enableScheduledPaymentDate)
+        {
+            eiPaymProposalType = dialogEiPaymProposalType.value();
+        }
+        
+        ret = next getFromDialog();
+
+        if(enableScheduledPaymentDate)
+        {
+            switch(eiPaymProposalType)
+            {
+                case EI_CustVendCreatePaymProposalType::DueDate:
+                    paymProposalType = CustVendCreatePaymProposalType::DueDate;
+                    break;
+                case EI_CustVendCreatePaymProposalType::CashDisc:
+                    paymProposalType = CustVendCreatePaymProposalType::CashDisc;
+                    break;
+                case EI_CustVendCreatePaymProposalType::DueDateAndCashDisc:
+                    paymProposalType = CustVendCreatePaymProposalType::DueDateAndCashDisc;
+                    break;
+                case EI_CustVendCreatePaymProposalType::ScheduledPaymentDate:
+                    paymProposalType = CustVendCreatePaymProposalType::DueDate;
+                    break;
+            }
+        }
+        
+        return ret;
+    }
+
+    private container customPack()
+    {
+        return [#CurrentVersion, #CurrentList];
+    }
+
+    private boolean customUnpack(container packedClass)
+    {
+        Integer version = RunBase::getVersion(packedClass);
+        switch (version)
+        {
+            case #CurrentVersion:
+                [version, #currentList] = packedClass;
+                break;
+            default:
+                return false;
+        }
+        
+        return true;
+    }
+
+    public container pack()
+    {
+        container packedClass = next pack();
+        return SysPackExtensions::appendExtension(packedClass, classStr(CustVendCreatePaymJournal_Vend_P296_Extension), this.customPack());
+    }
+
+    public boolean unpack(container _packedClass)
+    {
+        boolean result = next unpack(_packedClass);
+
+        if (result)
+        {
+            container state = SysPackExtensions::findExtension(_packedClass, classStr(CustVendCreatePaymJournal_Vend_P296_Extension));
+            
+            if (!this.customUnpack(state))
+            {
+                result = false;
+            }
+        }
+
+        return result;
+    }
+
+    protected void updateQueryWithQueryRun(QueryRun _queryRun)
+    {
+        next updateQueryWithQueryRun(_queryRun);
+
+        if(enableScheduledPaymentDate)
+        {
+            if(eiPaymProposalType == EI_CustVendCreatePaymProposalType::ScheduledPaymentDate &&
+            (LedgerJournalTable::find(ledgerJournalId).JournalType == LedgerJournalType::Payment ||
+            LedgerJournalTable::find(ledgerJournalId).JournalType == LedgerJournalType::VendPromissoryNoteDraw))
+            {
+                QueryBuildDataSource qbdsVendTransOpen = _queryRun.query().dataSourceTable(tableNum(VendTransOpen));
+                qbdsVendTransOpen.clearRange(fieldNum(VendTransOpen, DueDate));
+            }
+        }
+    }
+
+    protected boolean calc(CustVendTransOpen _vendTransOpen)
+    {
+        CustVendTransOpen   custVendTransOpen;
+        VendTrans           vendTrans;
+        VendInvoiceJour     vendInvoiceJour;
+        boolean             ret;
+        
+        ret = next calc(_vendTransOpen);
+
+        if(enableScheduledPaymentDate)
+        {
+            if(eiPaymProposalType == EI_CustVendCreatePaymProposalType::ScheduledPaymentDate)
+            {
+                custVendTransOpen = _vendTransOpen;
+                vendTrans = VendTrans::find(custVendTransOpen.RefRecId);
+                vendInvoiceJour = VendInvoiceJour::findFromVendTrans(vendTrans.Invoice,vendTrans.TransDate,vendTrans.AccountNum);
+
+                if(vendTrans.absRemainAmountMST() > 0)
+                {
+                    ret = this.validateScheduledPaymentDate(vendInvoiceJour.EI_ScheduledPaymentDate);
+                }
+                else
+                {
+                    ret = false;
+                }
+            }
+        }
+            
+        return ret;
+    }
+
+    protected boolean validateScheduledPaymentDate(TransDate _scheduledPaymentDate)
+    {
+        boolean ret;
+
+        if (_scheduledPaymentDate >= fromDate
+            && _scheduledPaymentDate <= toDate)
+        {
+            ret = true;
+        }
+
+        return ret;
+    }
+
+}

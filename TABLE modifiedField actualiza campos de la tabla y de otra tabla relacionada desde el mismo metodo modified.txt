@@ -1,0 +1,85 @@
+ public void modifiedField(FieldId _fieldId, VendInvoiceInfoTable _vendInvoiceInfoTable = this.SysExtensionSerializerExtensionMap::getBaseTable())
+    {
+        boolean unapproveVariances;
+        Object  formDataSource;
+        FiscalDocumentType_BR   fiscalDocumentType;
+
+        VendInvoiceInfoTable            vendInvoiceInfoTable = _vendInvoiceInfoTable as VendInvoiceInfoTable;
+
+        super(_fieldId);
+
+        vendInvoiceInfoTable.packVendInvoiceInfoTable_W(this);
+
+        switch (_fieldId)
+        {
+            case fieldNum(VendInvoiceInfoTable_W, EmplAccount_RU):
+                vendInvoiceInfoTable.PostingProfile = VendParameters::find().PostingProfile;
+
+                break;
+
+            case fieldNum(VendInvoiceInfoTable_W, VatDueDate_W):
+
+                vendInvoiceInfoTable.type().defaultField(fieldNum(VendInvoiceInfoTable, CashDiscDate));
+                vendInvoiceInfoTable.type().defaultField(fieldNum(VendInvoiceInfoTable, FixedDueDate));
+
+                if (!vendInvoiceInfoTable.FixedExchRate && PurchParameters::find().DateOfExchRate_W == DateOfExchRate_W::DateOfVATRegister)
+                {
+                    vendInvoiceInfoTable.initFromExchRates();
+                    unapproveVariances = true;
+                }
+
+                this.adjustVATDueDate_W(this.VatDueDate_W);
+
+                break;
+
+            case fieldNum(VendInvoiceInfoTable_W, FiscalDocumentType_BR):
+                    fiscalDocumentType              = FiscalDocumentType_BR::findRecId(this.FiscalDocumentType_BR);
+                    this.FiscalDocumentModel_BR     = fiscalDocumentType.FiscalDocumentModel;
+                    this.FiscalDocumentSpecie_BR    = fiscalDocumentType.FiscalDocumentSpecie;
+                    VendInvoiceInfoTable.setDatesByFiscalDocumentType_BR();
+                    break;
+
+            case fieldNum(VendInvoiceInfoTable_W, FiscalDocumentModel_BR):
+                if (!vendInvoiceInfoTable.hasToIssueFiscalDocument_BR())
+                {
+                    vendInvoiceInfoTable.Num = '';
+                    this.AccessKey_BR = '';
+                    this.FiscalDocumentSeries_BR = '';
+                }
+                break;
+
+            case fieldNum(VendInvoiceInfoTable_W, AccessKey_BR):
+                if (!vendInvoiceInfoTable.hasToIssueFiscalDocument_BR())
+                {
+                    this.AccessKey_BR = strKeep(this.AccessKey_BR, '0123456789');
+                    vendInvoiceInfoTable.Num = EFDocAccessKeyBase_BR::getInvoiceNumber(this.AccessKey_BR);
+                    this.FiscalDocumentSeries_BR = EFDocAccessKeyBase_BR::getInvoiceSeries(this.AccessKey_BR);
+                }
+                break;
+
+            case fieldNum(VendInvoiceInfoTable_W, InvoiceSeries_MX):
+                if (this.InvoiceSeries_MX != '')
+                {
+                    this.CFDIUUID_MX = '';
+                }
+                break;
+
+            case fieldNum(VendInvoiceInfoTable_W, CFDIUUID_MX):
+                if (this.CFDIUUID_MX != '')
+                {
+                    this.InvoiceSeries_MX = '';
+                }
+                break;
+        }
+
+        vendInvoiceInfoTable.packVendInvoiceInfoTable_W(this);
+
+        if (unapproveVariances && FormDataUtil::isFormDataSource(this))
+        {
+            if (formDataSourceHasMethod(FormDataUtil::getFormDataSource(vendInvoiceInfoTable), identifierStr(unApproveVariances)))
+            {
+                formDataSource = FormDataUtil::getFormDataSource(this);
+                formDataSource.unApproveVariances(unapproveVariances);
+            }
+        }
+    }

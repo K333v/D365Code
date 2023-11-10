@@ -1,0 +1,878 @@
+final class EI_PurchWorkflowParticipantsProviderExpend extends WorkflowParticipantProvider_Expend
+{
+    public WorkflowParticipantExpenDocumentType documentType()
+    {
+        return WorkflowParticipantExpenDocumentType::PurchaseOrder;
+    }
+
+    /// <summary>
+    /// Resolves the <c>PurchLine</c> record dimensions to a list of users.
+    /// </summary>
+    /// <param name="_context">
+    /// An instance of the <c>WorkflowContext</c> class.
+    /// </param>
+    /// <param name="_participantTokenName">
+    /// The participant token that was selected for role-based assignment.
+    /// </param>
+    /// <returns>
+    /// An instance of a <c>WorkflowUserList</c> that contains all enabled users from the token.
+    /// </returns>
+    /// <exception cref="M:Exception::Error">
+    /// Participant token does not exist.
+    /// </exception>
+    public WorkflowUserList resolve(WorkflowContext          _context,
+                                    WorkflowParticipantToken _participantTokenName)
+    {
+        PurchTable                                  purchTable;
+        PurchLine                                   purchLine;
+        WorkflowParticipantExpenToken               workflowParticipantExpenToken;
+        WorkflowParticipantExpenTokenLine           workflowParticipantExpenTokenLine;
+        WorkflowUserList                            userList = WorkflowUserList::construct();
+        RefRecId                                    dimensionAttributeSetRecId;
+        MarkupTrans                                 markupTrans;
+        CompanyInfo                                 legalEntity;
+        str                                         projDimension;
+
+        if (!_participantTokenName)
+        {
+            throw error("@SYS105453");
+        }
+
+        workflowParticipantExpenToken = WorkflowParticipantExpenToken::findName(
+            this.documentType(),
+            _participantTokenName);
+
+        if (!workflowParticipantExpenToken)
+        {
+            throw error(strFmt("@SYS313865", _participantTokenName));
+        }
+
+        if (_context.parmTableId() == tableNum(PurchTable))
+        {
+            purchTable   = PurchTable::findRecId(_context.parmRecId());
+        }
+        else
+        {
+            purchTable   = PurchLine::findRecId(_context.parmRecId()).purchTable();
+        }
+        
+        purchTable.distributeUnprocessedLines();
+
+        legalEntity = purchTable.companyInfo();
+
+        projDimension = PurchWorkflowParticipantProviderExpend::getDimAttrNames(purchTable.DefaultDimension,"PROYECTO");
+
+        while select ProjId, SourceDocumentLine, RecId from purchLine
+            where purchLine.PurchId == purchTable.PurchId
+                && (_context.parmTableId() == tableNum(PurchTable)
+                || (_context.parmTableId() == tableNum(PurchLine) && purchLine.RecId == _context.parmRecId()))
+        {
+            workflowParticipantExpenTokenLine = WorkflowParticipantExpenTokenLine::findTokenLine(
+                workflowParticipantExpenToken.RecId,
+                legalEntity.RecId);
+
+            if (workflowParticipantExpenTokenLine)
+            {
+                if (purchLine.ProjId)
+                {
+                    this.resolveProject(purchLine.ProjId, workflowParticipantExpenTokenLine, userList);
+
+                    dimensionAttributeSetRecId  = workflowParticipantExpenTokenLine.ProjectDimensionAttributeSet;
+                }
+
+                else if ((projDimension != "") && (purchLine.ProjId == ""))
+                {
+                    this.resolveProject(projDimension, workflowParticipantExpenTokenLine, userList);
+
+                    dimensionAttributeSetRecId  = workflowParticipantExpenTokenLine.ProjectDimensionAttributeSet;
+                }
+
+                else
+                {
+                    dimensionAttributeSetRecId  = workflowParticipantExpenTokenLine.OrganizationDimensionAttributeSet;
+                }
+
+                if (dimensionAttributeSetRecId)
+                {
+                    this.resolveDimensions(userList,
+                                           purchLine.SourceDocumentLine,
+                                           dimensionAttributeSetRecId);
+
+                    while select SourceDocumentLine from  markupTrans
+                        where markupTrans.TransTableId == purchLine.TableId
+                        &&    markupTrans.TransRecId   == purchLine.RecId
+                    {
+                        this.resolveDimensions(userList,
+                                               markupTrans.SourceDocumentLine,
+                                               dimensionAttributeSetRecId);
+                    }
+                }
+            }
+        }
+
+        if (userList.getCount() == 0)
+        {
+            throw error(strFmt("@SCM:ParticipantTokenNotResolveUserCorrectAaccountingDistributionTryAgain", _participantTokenName));
+        }
+
+        return userList;
+    }
+
+    public static PurchWorkflowParticipantProviderExpend construct()
+    {
+        return new PurchWorkflowParticipantProviderExpend();
+    }
+
+    public static str getDimensionDisplayValue(RecId defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetStorage dimStorage;
+ 
+        dimStorage = DimensionAttributeValueSetStorage::find(defaultDimension);
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(dimName).RecId);
+    }
+
+    public static str getDimAttrNames(DimensionDefault _defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetItem valueSetItem;
+        DimensionAttributeValue dimAttrValue;
+        DimensionAttribute dimAttr;
+        str dimensionAttributeNames;
+
+        dimensionAttributeNames = '';
+
+        select firstonly dimAttr
+            where dimAttr.Name == dimName
+            join dimAttrValue
+                where dimAttrValue.DimensionAttribute == dimAttr.RecId
+           join valueSetItem
+                where valueSetItem.DimensionAttributeValue == dimAttrValue.RecId
+            && valueSetItem.DimensionAttributeValueSet == _defaultDimension;
+       
+        dimensionAttributeNames = valueSetItem.DisplayValue ;
+
+        return dimensionAttributeNames;
+    }
+
+}
+
+________________________________________________________________________________________________________
+
+[ExtensionOf(classStr(PurchWorkflowParticipantProviderExpend))]
+final class EI_PurchWorkflowParticipantProviderExpend_Extension
+{
+
+    public WorkflowUserList resolve(WorkflowContext          _context,
+                                    WorkflowParticipantToken _participantTokenName)
+    {
+        PurchTable                                  purchTable;
+        PurchTable                                  purchTableUpd;
+        PurchLine                                   purchLine;
+        PurchLine                                   purchLineUpd;
+        WorkflowParticipantExpenToken               workflowParticipantExpenToken;
+        WorkflowParticipantExpenTokenLine           workflowParticipantExpenTokenLine;
+        WorkflowUserList                            userList = WorkflowUserList::construct();
+        RefRecId                                    dimensionAttributeSetRecId;
+        MarkupTrans                                 markupTrans;
+        CompanyInfo                                 legalEntity;
+        str                                         projDimension;
+        System.ArgumentException                    ex;
+
+       
+
+       
+        if (!_participantTokenName)
+        {
+            throw error("@SYS105453");
+        }
+
+        workflowParticipantExpenToken = WorkflowParticipantExpenToken::findName(
+            this.documentType(),
+            _participantTokenName);
+
+        if (!workflowParticipantExpenToken)
+        {
+            throw error(strFmt("@SYS313865", _participantTokenName));
+        }
+
+        if (_context.parmTableId() == tableNum(PurchTable))
+        {
+            purchTable   = PurchTable::findRecId(_context.parmRecId());
+        }
+        else
+        {
+            purchTable   = PurchLine::findRecId(_context.parmRecId()).purchTable();
+        }
+        
+        projDimension = PurchWorkflowParticipantProviderExpend::getDimAttrNames(purchTable.DefaultDimension,"PROYECTO");
+       
+        
+            
+        userList = next resolve(_context,_participantTokenName);
+
+
+        return userList;
+    }
+
+    static str getAttributeValueFromCombination(
+    RefRecId _combination,
+    Name _attributeName)
+    {
+        DimensionAttributeValueSet valueView;
+        DimensionAttribute attribute = DimensionAttribute::findByName(_attributeName); //Retrive attribute record by Name
+    
+        select valueView
+            where valueView.RecId == _combination;
+        //&& valueView. == attribute.RecId; //Retrieve individual Dimension attribute record
+ 
+        return valueView.CreatedBy; //Retrive dimension attribute value
+    }
+
+    //For D365FO
+    public static str getDimensionDisplayValue(RecId defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetStorage dimStorage;
+ 
+        dimStorage = DimensionAttributeValueSetStorage::find(defaultDimension);
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(dimName).RecId);
+    }
+
+    public static str getDimAttrNames(DimensionDefault _defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetItem valueSetItem;
+        DimensionAttributeValue dimAttrValue;
+        DimensionAttribute dimAttr;
+        str dimensionAttributeNames;
+
+        dimensionAttributeNames = '';
+
+        select firstonly dimAttr
+            where dimAttr.Name == dimName
+            join dimAttrValue
+                where dimAttrValue.DimensionAttribute == dimAttr.RecId
+           join valueSetItem
+                where valueSetItem.DimensionAttributeValue == dimAttrValue.RecId
+            && valueSetItem.DimensionAttributeValueSet == _defaultDimension;
+       
+        dimensionAttributeNames = valueSetItem.DisplayValue ;
+
+        return dimensionAttributeNames;
+    }
+
+}
+
+_________________________________________________________
+
+final class EI_PurchReqWFExpendiParticipantProvider extends WorkflowParticipantProvider_Expend
+{
+    public WorkflowParticipantExpenDocumentType documentType()
+    {
+        return WorkflowParticipantExpenDocumentType::PurchReq;
+    }
+
+    /// <summary>
+    /// Gets a list that has the <c>WorkflowParticipantExpenToken.Name</c> field for display in the
+    /// workflow configuration UI.
+    /// </summary>
+    /// <returns>
+    /// An instance of a <c>WorkflowParticipantTokenList</c> class that contains the value of the
+    /// <c>WorkflowParticipantExpenToken.Name</c> fieldnum as the participant token ID and the
+    /// <c>WorkflowParticipantExpenToken.Name</c> value as the participant token name.
+    /// </returns>
+
+    public WorkflowParticipantTokenList getParticipantTokens()
+    {
+        return super();
+    }
+
+    protected void new()
+    {
+        super();
+    }
+
+    /// <summary>
+    /// Resolves the <c>PurchReqLine</c> dimensions to a list of users.
+    /// </summary>
+    /// <param name="_context">
+    /// An instance of the <c>WorkflowContext</c> class.
+    /// </param>
+    /// <param name="_participantTokenName">
+    /// A <c>PurchLine.Requisitioner</c> token.
+    /// </param>
+    /// <returns>
+    /// An instance of the <c>WorkflowUserList</c> class that contains all enabled users from the token.
+    /// </returns>
+    /// <exception cref="M:Exception::Error">
+    /// The participant token does not exist.
+    /// </exception>
+
+    public WorkflowUserList resolve(WorkflowContext          _context,
+                                    WorkflowParticipantToken _participantTokenName)
+    {
+        PurchReqTable                               purchReqTable;
+        PurchReqLine                                purchReqLine;
+        WorkflowParticipantExpenToken               workflowParticipantExpenToken;
+        WorkflowParticipantExpenTokenLine           workflowParticipantExpenTokenLine;
+        WorkflowUserList                            userList = WorkflowUserList::construct();
+
+        if (!_participantTokenName)
+            throw error("@SYS105453");
+
+        workflowParticipantExpenToken = WorkflowParticipantExpenToken::findName(WorkflowParticipantExpenDocumentType::PurchReq,
+                                                                                _participantTokenName);
+
+        if (!workflowParticipantExpenToken)
+        {
+            throw error(strFmt("@SYS313865", _participantTokenName));
+        }
+
+        if (_context.parmTableId() == tableNum(PurchReqTable))
+        {
+            purchReqTable   = PurchReqTable::find(_context.parmRecId());
+        }
+        else
+        {
+            purchReqTable   = PurchReqTable::find(PurchReqLine::find(_context.parmRecId()).PurchReqTable);
+        }
+
+        SourceDocumentProcessorFacade::submitSourceDocumentLinesForHeader(purchReqTable, SourceDocumentLineAccountingStatus::FullyDistributed);
+
+        while select ProjId, SourceDocumentLine, BuyingLegalEntity, RecId, DefaultDimension from purchReqLine where
+                    purchReqLine.PurchReqTable == purchReqTable.RecId &&
+                    (
+                     _context.parmTableId() == tableNum(PurchReqTable) ||
+                     (_context.parmTableId() == tableNum(PurchReqLine) && purchReqLine.RecId == _context.parmRecId())
+                    )
+        {
+            changecompany(CompanyInfo::findRecId(purchReqLine.BuyingLegalEntity).DataArea)
+            {
+                workflowParticipantExpenTokenLine = WorkflowParticipantExpenTokenLine::findTokenLine(workflowParticipantExpenToken.RecId,
+                                                                                                     purchReqLine.BuyingLegalEntity);
+                this.initializeUserList(workflowParticipantExpenTokenLine, purchReqLine, userList);
+            }
+        }
+
+        if (userList.getCount() == 0)
+        {
+            throw error(strFmt("@SCM:ParticipantTokenNotResolveUserCorrectAaccountingDistributionTryAgain", _participantTokenName));
+        }
+
+        return userList;
+    }
+
+    /// <summary>
+    /// Resolves the dimensions of the <c>PurchReqLine</c> table to a list of users
+    /// depending if the <c>WorkflowParticipantExpenTokenLine</c> record exists.
+    /// </summary>
+    /// <param name = "_workflowParticipantExpenTokenLine">The <c>WorkflowParticipantExpenTokenLine</c> record.</param>
+    /// <param name = "_purchReqLine">The <c>PurchReqLine</c> record.</param>
+    /// <param name = "_userList">An instance of the <c>WorkflowUserList</c> class.</param>
+    protected void initializeUserList(WorkflowParticipantExpenTokenLine _workflowParticipantExpenTokenLine,
+                                      PurchReqLine                      _purchReqLine,
+                                      WorkflowUserList                  _userList)
+    {
+        RefRecId    dimensionAttributeSetRecId;
+        MarkupTrans markupTrans;
+        str         projDimension;
+
+        projDimension = PurchWorkflowParticipantProviderExpend::getDimAttrNames(_purchReqLine.DefaultDimension,"PROYECTO");
+
+        if (!_workflowParticipantExpenTokenLine)
+        {
+            return;
+        }
+        
+        if (_purchReqLine.ProjId)
+        {
+            this.resolveProjectDistributions(_purchReqLine.SourceDocumentLine, _workflowParticipantExpenTokenLine, _userList);
+
+            dimensionAttributeSetRecId  = _workflowParticipantExpenTokenLine.ProjectDimensionAttributeSet;
+        }
+
+        else if((projDimension != "")&&(_purchReqLine.ProjId == ""))
+        {
+            this.ResolveProjectDistributionsReq(projDimension, _workflowParticipantExpenTokenLine, _userList);
+
+            dimensionAttributeSetRecId  = _workflowParticipantExpenTokenLine.ProjectDimensionAttributeSet;
+        }
+
+        else
+        {
+            dimensionAttributeSetRecId  = _workflowParticipantExpenTokenLine.OrganizationDimensionAttributeSet;
+        }
+
+        if (dimensionAttributeSetRecId)
+        {
+            this.resolveDimensions(_userList, _purchReqLine.SourceDocumentLine, dimensionAttributeSetRecId);
+
+            while select SourceDocumentLine from  markupTrans where markupTrans.TransTableId == _purchReqLine.TableId &&
+                                                                            markupTrans.TransRecId   == _purchReqLine.RecId
+            {
+                this.resolveDimensions(_userList, markupTrans.SourceDocumentLine, dimensionAttributeSetRecId);
+            }
+        }
+    }
+
+    public static EI_PurchReqWFExpendiParticipantProvider construct()
+    {
+        return new EI_PurchReqWFExpendiParticipantProvider();
+    }
+
+    public static str getDimensionDisplayValue(RecId defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetStorage dimStorage;
+ 
+        dimStorage = DimensionAttributeValueSetStorage::find(defaultDimension);
+        return dimStorage.getDisplayValueByDimensionAttribute(DimensionAttribute::findByName(dimName).RecId);
+    }
+
+    public static str getDimAttrNames(DimensionDefault _defaultDimension, Name dimName)
+    {
+        DimensionAttributeValueSetItem valueSetItem;
+        DimensionAttributeValue dimAttrValue;
+        DimensionAttribute dimAttr;
+        str dimensionAttributeNames;
+
+        dimensionAttributeNames = '';
+
+        select firstonly dimAttr
+            where dimAttr.Name == dimName
+            join dimAttrValue
+                where dimAttrValue.DimensionAttribute == dimAttr.RecId
+           join valueSetItem
+                where valueSetItem.DimensionAttributeValue == dimAttrValue.RecId
+            && valueSetItem.DimensionAttributeValueSet == _defaultDimension;
+       
+        dimensionAttributeNames = valueSetItem.DisplayValue ;
+
+        return dimensionAttributeNames;
+    }
+
+}
+
+___________________________________________________________________
+
+[ExtensionOf(classStr(WorkflowParticipantProvider_Expend))]
+final class EI_WorkflowParticipantProvider_ExpendClass_Extension
+{
+    /*
+    /// <summary>
+    /// Resolves the project ID from the <c>ProjectAccountingDistribution</c> table to a list of users.
+    /// </summary>
+    /// <param name="_sourceDocumentLine">
+    /// A reference to a <c>SourceDocumentLine</c> table from the <c>PurchReqLine</c> record.
+    /// </param>
+    /// <param name="_workflowParticipantExpenTokenLine">
+    /// The <c>WorkflowParticipantExpenTokenLine</c> record.
+    /// </param>
+    /// <param name="_userList">
+    /// An instance of the <c>WorkflowUserList</c> class.
+    /// </param>
+    public void resolveProjectDistributionsReq(ProjId  _projId, WorkflowParticipantExpenTokenLine _workflowParticipantExpenTokenLine, WorkflowUserList _userList)
+    {
+        this.resolveProjectDistributionsReqDelegate(_projId, _workflowParticipantExpenTokenLine, _userList, this);
+    }
+
+    void resolveProjectDistributionsReqDelegate(ProjId  _projId, WorkflowParticipantExpenTokenLine _workflowParticipantExpenTokenLine, WorkflowUserList _userList, WorkflowParticipantProvider_Expend wppe)
+    {
+        wppe.resolveProject(_projId, _workflowParticipantExpenTokenLine,  _userList);
+    }*/
+
+    /// <summary>
+    /// Resolves the project ID from the <c>ProjectAccountingDistribution</c> table to a list of users.
+    /// </summary>
+    /// <param name="projectId">
+    /// The project ID to resolve.
+    /// </param>
+    /// <param name="workflowParticipantExpenTokenLine">
+    /// The <c>WorkflowParticipantExpenTokenLine</c> record.
+    /// </param>
+    /// <param name="userList">
+    /// An instance of the <c>WorkflowUserList</c> class.
+    /// </param>
+    public void ResolveProjectDistributionsReq(ProjId projectId, WorkflowParticipantExpenTokenLine workflowParticipantExpenTokenLine, WorkflowUserList userList)
+    {
+        this.ResolveProject(projectId, workflowParticipantExpenTokenLine, userList);
+    }
+
+}
+
+________________________________________________________________
+
+[ExtensionOf(classStr(WorkflowParticipantProvider_ExpendEX))]
+final class EI_WorkflowParticipantProvider_ExpendEX_Extension
+{
+    static void resolveProjectSubscriber(ProjId _projId, WorkflowParticipantExpenTokenLine _workflowParticipantExpenTokenLine, WorkflowUserList _userList)
+    {
+
+
+        ProjTable projTable = ProjTable::find(_projId);
+
+        next resolveProjectSubscriber(_projId, _workflowParticipantExpenTokenLine, _userList);
+
+        if (_workflowParticipantExpenTokenLine.EI_Aprobador1BCheck && projTable.EI_Aprobador1B)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_Aprobador1B));
+        }
+
+        if (_workflowParticipantExpenTokenLine.EI_Aprobador2BCheck && projTable.EI_Aprobador2B)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_Aprobador2B));
+        }
+
+
+        if (_workflowParticipantExpenTokenLine.EI_Aprobador3BCheck && projTable.EI_Aprobador3B)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_Aprobador3B));
+        }
+
+
+        if (_workflowParticipantExpenTokenLine.EI_Aprobador4BCheck && projTable.EI_Aprobador4B)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_Aprobador4B));
+        }
+
+
+        if (_workflowParticipantExpenTokenLine.EI_Aprobador4ACheck && projTable.EI_Aprobador4A)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_Aprobador4A));
+        }
+
+        if (_workflowParticipantExpenTokenLine.EI_AprobadorSC1ACheck && projTable.EI_AprobadorSC1A)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_AprobadorSC1A));
+        }
+
+        if (_workflowParticipantExpenTokenLine.EI_AprobadorSC2ACheck && projTable.EI_AprobadorSC2A)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_AprobadorSC2A));
+        }
+
+        if (_workflowParticipantExpenTokenLine.EI_AprobadorSC1BCheck && projTable.EI_AprobadorSC1B)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_AprobadorSC1B));
+        }
+
+        if (_workflowParticipantExpenTokenLine.EI_AprobadorSC2BCheck && projTable.EI_AprobadorSC2B)
+        {
+            _userList.add(DirPersonUserEx::worker2UserId(projTable.EI_AprobadorSC2B));
+        }
+
+        
+    }
+
+}
+
+____________________________________________________________________
+
+[ExtensionOf(classStr(AtlSpecWorkflowParticipantExpenditureTokenLine))]
+final class EI_AtlSpecWorkflowParticipantExpenditureTokenLineClass_Extension
+{
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador1BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_Aprobador1BCheck(NoYesId _EI_Aprobador1BCheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador1BCheck), _EI_Aprobador1BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador2BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_Aprobador2BCheck(NoYesId _EI_Aprobador2BCheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador2BCheck), _EI_Aprobador2BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador3BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_Aprobador3BCheck(NoYesId _EI_Aprobador3BCheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador3BCheck), _EI_Aprobador3BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador4BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_Aprobador4BCheck(NoYesId _EI_Aprobador4BCheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador4BCheck), _EI_Aprobador4BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador4ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_Aprobador4ACheck(NoYesId _EI_Aprobador4ACheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador4ACheck), _EI_Aprobador4ACheck);
+        return this;
+    }
+
+    // control de cambios
+
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_AprobadorSC1ACheck(NoYesId _EI_AprobadorSC1ACheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1ACheck), _EI_AprobadorSC1ACheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_AprobadorSC2ACheck(NoYesId _EI_AprobadorSC2ACheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2ACheck), _EI_AprobadorSC2ACheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_AprobadorSC1BCheck(NoYesId _EI_AprobadorSC1BCheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1BCheck), _EI_AprobadorSC1BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlSpecWorkflowParticipantExpenditureTokenLine withIsEI_AprobadorSC2BCheck(NoYesId _EI_AprobadorSC2BCheck)
+    {
+        this.parmExpectedFieldValue(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2BCheck), _EI_AprobadorSC2BCheck);
+        return this;
+    }
+
+}
+
+_________________________________________________________________________
+
+[ExtensionOf(classStr(AtlQueryWorkflowParticipantExpenditureTokenLines))]
+final class EI_AtlQueryWorkflowParticipantExpenditureTokenLinesClass_Extension
+{
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador1BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_Aprobador1BCheck(NoYesId _EI_Aprobador1BCheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador1BCheck), _EI_Aprobador1BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador2BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_Aprobador2BCheck(NoYesId _EI_Aprobador2BCheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador2BCheck), _EI_Aprobador2BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador3BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_Aprobador3BCheck(NoYesId _EI_Aprobador3BCheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador3BCheck), _EI_Aprobador3BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador4BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_Aprobador4BCheck(NoYesId _EI_Aprobador4BCheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador4BCheck), _EI_Aprobador4BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador4ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_Aprobador4ACheck(NoYesId _EI_Aprobador4ACheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador4ACheck), _EI_Aprobador4ACheck);
+        return this;
+    }
+
+    //Control de cambio
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_AprobadorSC1ACheck(NoYesId _EI_AprobadorSC1ACheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1ACheck), _EI_AprobadorSC1ACheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_AprobadorSC2ACheck(NoYesId _EI_AprobadorSC2ACheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2ACheck), _EI_AprobadorSC2ACheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_AprobadorSC1BCheck(NoYesId _EI_AprobadorSC1BCheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1BCheck), _EI_AprobadorSC1BCheck);
+        return this;
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlQueryWorkflowParticipantExpenditureTokenLines withIsEI_AprobadorSC2BCheck(NoYesId _EI_AprobadorSC2BCheck)
+    {
+        this.addQueryRange(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2BCheck), _EI_AprobadorSC2BCheck);
+        return this;
+    }
+
+}
+
+__________________________________________________________________________
+
+[ExtensionOf(classStr(AtlEntityWorkflowParticipantExpenditureTokenLine))]
+final class EI_AtlEntityWorkflowParticipantExpenditureTokenLine_Extension
+{
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador1BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_Aprobador1BCheck(NoYesId _EI_Aprobador1BCheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador1BCheck), _EI_Aprobador1BCheck, !prmIsDefault(_EI_Aprobador1BCheck));
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador2BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_Aprobador2BCheck(NoYesId _EI_Aprobador2BCheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador2BCheck), _EI_Aprobador2BCheck, !prmIsDefault(_EI_Aprobador2BCheck));
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador3BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_Aprobador3BCheck(NoYesId _EI_Aprobador3BCheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador3BCheck), _EI_Aprobador3BCheck, !prmIsDefault(_EI_Aprobador3BCheck));
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador4BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_Aprobador4BCheck(NoYesId _EI_Aprobador4BCheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador4BCheck), _EI_Aprobador4BCheck, !prmIsDefault(_EI_Aprobador4BCheck));
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_Aprobador4ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_Aprobador4ACheck(NoYesId _EI_Aprobador4ACheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_Aprobador4ACheck), _EI_Aprobador4ACheck, !prmIsDefault(_EI_Aprobador4ACheck));
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_AprobadorSC1ACheck(NoYesId _EI_AprobadorSC1ACheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1ACheck), _EI_AprobadorSC1ACheck, !prmIsDefault(_EI_AprobadorSC1ACheck));
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_AprobadorSC2ACheck(NoYesId _EI_AprobadorSC2ACheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2ACheck), _EI_AprobadorSC2ACheck, !prmIsDefault(_EI_AprobadorSC2ACheck));
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_AprobadorSC1BCheck(NoYesId _EI_AprobadorSC1BCheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC1BCheck), _EI_AprobadorSC1BCheck, !prmIsDefault(_EI_AprobadorSC1BCheck));
+    }
+
+    [AtlDependentField(fieldStr(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final NoYesId parmEI_AprobadorSC2BCheck(NoYesId _EI_AprobadorSC2BCheck = NoYes::No)
+    {
+        return this.parmMainRecordField(fieldNum(WorkflowParticipantExpenTokenLine, EI_AprobadorSC2BCheck), _EI_AprobadorSC2BCheck, !prmIsDefault(_EI_AprobadorSC2BCheck));
+    }
+
+    //Set roles
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_Aprobador1BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_Aprobador1BCheck(NoYesId _EI_Aprobador1BCheck)
+    {
+        this.parmEI_Aprobador1BCheck(_EI_Aprobador1BCheck);
+        return this;
+    }
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_Aprobador2BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_Aprobador2BCheck(NoYesId _EI_Aprobador2BCheck)
+    {
+        this.parmEI_Aprobador2BCheck(_EI_Aprobador2BCheck);
+        return this;
+    }
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_Aprobador3BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_Aprobador3BCheck(NoYesId _EI_Aprobador3BCheck)
+    {
+        this.parmEI_Aprobador3BCheck(_EI_Aprobador3BCheck);
+        return this;
+    }
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_Aprobador4BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_Aprobador4BCheck(NoYesId _EI_Aprobador4BCheck)
+    {
+        this.parmEI_Aprobador4BCheck(_EI_Aprobador4BCheck);
+        return this;
+    }
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_Aprobador4ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_Aprobador4ACheck(NoYesId _EI_Aprobador4ACheck)
+    {
+        this.parmEI_Aprobador4ACheck(_EI_Aprobador4ACheck);
+        return this;
+    }
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_AprobadorSC1ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_AprobadorSC1ACheck(NoYesId _EI_AprobadorSC1ACheck)
+    {
+        this.parmEI_AprobadorSC1ACheck(_EI_AprobadorSC1ACheck);
+        return this;
+    }
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_AprobadorSC2ACheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_AprobadorSC2ACheck(NoYesId _EI_AprobadorSC2ACheck)
+    {
+        this.parmEI_AprobadorSC2ACheck(_EI_AprobadorSC2ACheck);
+        return this;
+    }
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_AprobadorSC1BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_AprobadorSC1BCheck(NoYesId _EI_AprobadorSC1BCheck)
+    {
+        this.parmEI_AprobadorSC1BCheck(_EI_AprobadorSC1BCheck);
+        return this;
+    }
+
+    [AtlDependentFluentSetter(methodStr(AtlEntityWorkflowParticipantExpenditureTokenLine, parmEI_AprobadorSC2BCheck)), SysGeneratedCode('ATLGenerator', '1.0.0.0'), Hookable(false)]
+    public final AtlEntityWorkflowParticipantExpenditureTokenLine setEI_AprobadorSC2BCheck(NoYesId _EI_AprobadorSC2BCheck)
+    {
+        this.parmEI_AprobadorSC2BCheck(_EI_AprobadorSC2BCheck);
+        return this;
+    }
+
+}
+
+______________________________________________________________________________________
+
+JOB:
+
+internal final class TestJobAccDist
+{
+    /// <summary>
+    /// Class entry point. The system will call this method when a designated menu 
+    /// is selected or when execution starts and this class is set as the startup class.
+    /// </summary>
+    /// <param name = "_args">The specified arguments.</param>
+    public static void main(Args _args)
+    {
+        AccountingDistribution AccountingDistribution;
+        PurchTable  purchtable;
+        AccountingDistributionTemplate AccountingDistributionTemplate;
+        SourceDocumentHeader SourceDocumentHeader;
+        SourceDocumentLine SourceDocumentLine;
+        CompanyInfo CompanyInfo;
+    
+        while select AccountingDistribution
+        join CompanyInfo
+        where AccountingDistribution.AccountingLegalEntity == CompanyInfo.RecId
+        join SourceDocumentHeader
+        where AccountingDistribution.SourceDocumentHeader == SourceDocumentHeader.RecId
+        join SourceDocumentLine
+        where AccountingDistribution.SourceDocumentLine == SourceDocumentLine.RecId
+        join purchTable
+        where PurchTable.SourceDocumentHeader == SourceDocumentHeader.RecId
+        //&& PurchTable.SourceDocumentLine == SourceDocumentLine.RecId
+        {
+
+
+
+            info(strfmt("PurchId: %1", purchtable.purchId));
+        
+        
+        
+        
+        }
+    }
+
+}
